@@ -1,0 +1,62 @@
+import json
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic import Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="MAC_", extra="ignore", enable_decoding=False
+    )
+
+    host: str = "127.0.0.1"
+    port: int = Field(default=8080, ge=1, le=65535)
+    login_password: str | None = None
+    login_password_file: str | None = None
+    session_secret: str | None = None
+    session_secret_file: str | None = None
+    cookie_secure: bool = True
+    session_ttl_seconds: int = Field(default=43200, ge=300, le=604800)
+    tmux_socket: str = Field(default="mobile-agent-console", pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    tmux_socket_path: str | None = None
+    tmux_socket_file: str | None = None
+    tmux_mode: str = Field(default="docker", pattern=r"^(docker|host)$")
+    allowed_roots: list[str] = ["/workspace"]
+    cors_origins: list[str] = ["http://localhost:5173"]
+
+    @model_validator(mode="after")
+    def require_explicit_host_socket(self) -> "Settings":
+        # La modalità host è opt-in esplicito: mai un socket di default silenzioso.
+        if self.tmux_mode == "host" and not self.tmux_socket_file:
+            raise ValueError("host mode requires an explicit MAC_TMUX_SOCKET_FILE")
+        return self
+
+    @field_validator("allowed_roots", "cors_origins", mode="before")
+    @classmethod
+    def split_csv(cls, value: object) -> object:
+        if isinstance(value, str):
+            if value.lstrip().startswith("["):
+                return json.loads(value)
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
+    def read_secret(self, direct: str | None, file_path: str | None, label: str) -> str:
+        value = Path(file_path).read_text().strip() if file_path else direct
+        if not value or len(value) < 16:
+            raise ValueError(f"{label} must contain at least 16 characters")
+        return value
+
+    @property
+    def resolved_login_password(self) -> str:
+        return self.read_secret(self.login_password, self.login_password_file, "login password")
+
+    @property
+    def resolved_session_secret(self) -> str:
+        return self.read_secret(self.session_secret, self.session_secret_file, "session secret")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

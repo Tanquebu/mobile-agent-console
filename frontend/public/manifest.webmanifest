@@ -1,0 +1,10 @@
+{
+  "name": "Mobile Agent Console",
+  "short_name": "Agent Console",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101713",
+  "theme_color": "#101713",
+  "icons": []
+}
+

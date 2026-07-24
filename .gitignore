@@ -1,0 +1,14 @@
+.env
+.secrets/
+# Private, per-deployment customizations (never published)
+CLAUDE.local.md
+customizations/
+# Default docker-mode workspace mount created by compose
+workspace/
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+backend/data/
+frontend/node_modules/
+frontend/dist/

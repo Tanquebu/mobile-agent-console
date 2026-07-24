@@ -1,0 +1,21 @@
+[Unit]
+Description=Mobile Agent Console
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mobile-agent-console
+Group=mobile-agent-console
+WorkingDirectory=/opt/mobile-agent-console
+EnvironmentFile=/etc/mobile-agent-console.env
+ExecStart=/opt/mobile-agent-console/.venv/bin/uvicorn app.main:app --app-dir backend --host ${MAC_HOST} --port ${MAC_PORT}
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/mobile-agent-console/backend/data
+
+[Install]
+WantedBy=multi-user.target

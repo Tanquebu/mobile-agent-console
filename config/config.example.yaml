@@ -1,0 +1,16 @@
+server:
+  host: 127.0.0.1
+  port: 8080
+security:
+  require_auth: true
+  allowed_tailscale_cidrs: [100.64.0.0/10]
+workspace:
+  allowed_roots: [/workspace]
+tmux:
+  socket_name: mobile-agent-console
+profiles:
+  shell:
+    label: Bash
+    command: bash
+    allowed_args: []
+

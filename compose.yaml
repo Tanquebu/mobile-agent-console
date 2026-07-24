@@ -1,0 +1,90 @@
+name: mobile-agent-console
+
+services:
+  tmux-volume-init:
+    image: alpine:3.22
+    user: "0:0"
+    command: ["chown", "10001:10001", "/tmux"]
+    volumes:
+      - tmux-socket:/tmux
+    restart: "no"
+    network_mode: none
+    security_opt: ["no-new-privileges:true"]
+
+  tmux-runtime:
+    build:
+      context: deploy/tmux-runtime
+    init: true
+    user: "10001:10001"
+    volumes:
+      - tmux-socket:/tmux
+      - ${MAC_WORKSPACE_ROOT:-./workspace}:/workspace
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      tmux-volume-init:
+        condition: service_completed_successfully
+
+  backend:
+    build:
+      context: backend
+      target: base
+    user: "10001:10001"
+    environment:
+      MAC_LOGIN_PASSWORD_FILE: /run/secrets/mac_login_password
+      MAC_SESSION_SECRET_FILE: /run/secrets/mac_session_secret
+      MAC_COOKIE_SECURE: ${MAC_COOKIE_SECURE:-false}
+      MAC_CORS_ORIGINS: ${MAC_CORS_ORIGINS:-http://127.0.0.1:8081}
+      MAC_TMUX_SOCKET: mobile-agent-console
+      MAC_TMUX_SOCKET_PATH: /tmux
+      MAC_ALLOWED_ROOTS: '["/workspace"]'
+    secrets: [mac_login_password, mac_session_secret]
+    volumes:
+      - tmux-socket:/tmux
+      - ${MAC_WORKSPACE_ROOT:-./workspace}:/workspace
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      tmux-runtime:
+        condition: service_started
+        required: false
+    restart: unless-stopped
+
+  web:
+    build:
+      context: frontend
+    # Bind only to loopback or the explicit Tailscale IP; never use 0.0.0.0 here.
+    ports: ["${MAC_BIND_IP:-127.0.0.1}:${MAC_BIND_PORT:-8081}:8080"]
+    read_only: true
+    tmpfs: ["/var/cache/nginx", "/var/run"]
+    security_opt: ["no-new-privileges:true"]
+    depends_on: [backend]
+    restart: unless-stopped
+
+  backend-test:
+    profiles: [test]
+    build:
+      context: backend
+      target: test
+    environment:
+      MAC_LOGIN_PASSWORD: test-password-at-least-16
+      MAC_SESSION_SECRET: test-session-secret-at-least-16
+
+  frontend-build:
+    profiles: [test]
+    build:
+      context: frontend
+      target: build
+    command: ["npm", "run", "build"]
+
+volumes:
+  tmux-socket:
+
+secrets:
+  mac_login_password:
+    file: ./.secrets/login_password
+  mac_session_secret:
+    file: ./.secrets/session_secret

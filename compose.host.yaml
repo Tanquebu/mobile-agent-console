@@ -1,0 +1,30 @@
+# Override per la modalità host-tmux (ADR 005): il backend si collega al
+# socket tmux di default dell'utente host. Attivare in .env con:
+#   COMPOSE_FILE=compose.yaml:compose.host.yaml
+# e impostare MAC_UID, MAC_GID, MAC_TMUX_SOCKET_DIR, MAC_TMUX_SOCKET_FILE.
+# Prerequisito: un server tmux già avviato sull'host (vedi README) — il
+# backend non lo avvia mai da solo.
+
+services:
+  # In modalità host il runtime containerizzato non serve.
+  tmux-volume-init:
+    profiles: [docker-tmux]
+  tmux-runtime:
+    profiles: [docker-tmux]
+
+  backend:
+    # Deve combaciare con il proprietario del socket tmux host.
+    user: "${MAC_UID:?set MAC_UID in .env}:${MAC_GID:?set MAC_GID in .env}"
+    environment:
+      # L'utente host non ha una passwd entry nel container.
+      HOME: /tmp
+      MAC_TMUX_MODE: host
+      MAC_TMUX_SOCKET_FILE: ${MAC_TMUX_SOCKET_FILE:?set MAC_TMUX_SOCKET_FILE in .env}
+      # In modalità host i path devono essere quelli reali dell'host: il
+      # server tmux (host) risolve la working directory delle sessioni.
+      MAC_ALLOWED_ROOTS: '["${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}"]'
+    volumes:
+      # Montare la DIRECTORY del socket, non il file: se il server tmux
+      # riparte ricrea il socket e un bind sul file resterebbe su un inode morto.
+      - ${MAC_TMUX_SOCKET_DIR:?set MAC_TMUX_SOCKET_DIR in .env}:${MAC_TMUX_SOCKET_DIR}
+      - ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}:${MAC_WORKSPACE_ROOT}:ro
