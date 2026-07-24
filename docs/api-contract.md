@@ -65,8 +65,31 @@ Risposta `200`:
 
 ## `POST /api/v1/sessions/{id}/input`
 
-Body `{"text":"...multiline..."}`; massimo 65536 byte UTF-8. Incolla
-esattamente il testo e non invia Enter. Risposta `202 {"accepted":true}`.
+Body `{"text":"...multiline...","attachment_ids":[]}`; massimo 65536
+caratteri e massimo 5 allegati già caricati nella stessa sessione. Il backend
+aggiunge al testo i path controllati degli allegati, incolla il risultato e
+non invia Enter. Risposta `202 {"accepted":true}`.
+
+## `POST /api/v1/sessions/{id}/attachments?filename=...`
+
+Richiede autenticazione e CSRF. Il body è il contenuto binario del singolo
+file e `Content-Type` deve essere uno dei tipi consentiti: PNG, JPEG, WebP,
+PDF, testo UTF-8, Markdown, CSV, JSON o XML. La dimensione massima predefinita
+è 10 MiB (`MAC_MAX_ATTACHMENT_BYTES`).
+
+Risposta:
+
+```json
+{
+  "id":"0123456789abcdef0123456789abcdef",
+  "name":"screenshot.png",
+  "media_type":"image/png",
+  "size":12345,
+  "path":"/workspace/.agent-attachments/1/0123456789abcdef0123456789abcdef.png"
+}
+```
+
+L'id può essere usato soltanto nella sessione per cui è stato caricato.
 
 ## `POST /api/v1/sessions/{id}/keys`
 

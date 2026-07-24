@@ -1,31 +1,81 @@
 # Roadmap tecnica
 
+## Legenda
+
+- [x] disponibile nel repository;
+- [ ] da realizzare;
+- [~] parzialmente disponibile o da completare.
+
 ## M0 — Fondazioni e vertical slice
 
-Documenti, servizio tmux isolato, API list/create/capture/input/Enter, WebSocket
-snapshot, UI mobile e fake test. Gate: flusso manuale completo affidabile.
+- [x] Documentazione iniziale e ADR.
+- [x] Servizio tmux isolato.
+- [x] API list/create/capture/input/Enter.
+- [x] WebSocket a snapshot completi.
+- [x] UI mobile-first.
+- [x] Gateway fake e test API senza agenti reali.
+- [ ] Verifica e registrazione formale del gate: flusso manuale completo
+  affidabile.
 
 ## M1 — Hardening del runtime
 
-Delta robusti, ANSI, pane selection, resize, error state, rate limit, Origin
-policy formalizzata e test di integrazione con tmux reale. La modalità
-host-tmux è già realizzata sul socket di default dell'utente (ADR 005, che
-supera il socket dedicato previsto qui in origine). Estensione della
-whitelist di `send_key` per rispondere ai prompt di autorizzazione degli
-agenti da mobile: `Up`/`Down`/`Esc` e, dietro conferma esplicita, `C-c`
-(interrupt); terminazione della sessione come endpoint separato.
+- [ ] Gestione robusta dei delta e delle sequenze ANSI.
+- [ ] Selezione pane e resize.
+- [~] Stati di errore espliciti.
+- [ ] Rate limit.
+- [x] Origin policy per WebSocket formalizzata e coperta da test.
+- [ ] Test di integrazione con tmux reale.
+- [x] Modalità host-tmux sul socket predefinito dell'utente (ADR 005, che
+  supera il socket dedicato previsto in origine).
+- [ ] Tasti `Up`/`Down`/`Esc` per i prompt di autorizzazione.
+- [ ] `C-c` (interrupt) dietro conferma esplicita.
+- [ ] Terminazione della sessione come endpoint separato.
 
 ## M2 — MVP sicuro e persistente
 
-SQLite/SQLAlchemy, login Argon2, cookie HttpOnly/SameSite, CSRF, ruoli,
-allowlist directory, profili, create/rename/archive, audit metadata, systemd e
-backup. Gate: deployment Tailscale senza porta pubblica.
+- [ ] SQLite/SQLAlchemy.
+- [ ] Login con hash Argon2.
+- [x] Cookie HttpOnly/SameSite.
+- [x] Protezione CSRF.
+- [ ] Ruoli.
+- [x] Allowlist delle directory.
+- [~] Profili server-side (presente il solo profilo `shell`).
+- [x] Creazione sessioni.
+- [ ] Rename e archive.
+- [ ] Audit metadata.
+- [~] Unit systemd da completare e validare per entrambe le modalità tmux.
+- [ ] Backup.
+- [ ] Gate: deployment Tailscale verificato senza porta pubblica.
+
+### M2A — Allegati minimali ai prompt
+
+Questa feature è anticipata rispetto all'upload operativo completo di M4.
+Il terminale resta agent-agnostic: gli allegati sono file in un'area
+controllata e il prompt riceve riferimenti ai relativi path, senza introdurre
+API specifiche di Codex, Claude o altri agenti.
+
+- [x] Storage locale dedicato, condiviso con il runtime tmux.
+- [x] Upload autenticato e protetto da CSRF.
+- [x] Nome fisico generato dal server e path traversal impedito.
+- [x] Allowlist iniziale di immagini, PDF e file testuali.
+- [x] Limite configurabile per file e massimo 5 allegati per prompt.
+- [x] Composer mobile con selezione, stato upload e rimozione dal prompt.
+- [x] Invio del testo con `attachment_ids`; riferimenti ai path composti dal
+  backend.
+- [x] Test per autorizzazione, limiti, tipi non ammessi, traversal e
+  associazione alla sessione.
+- [x] Limite coerente del request body sul reverse proxy.
+- [ ] Cleanup automatico o manuale degli allegati temporanei.
 
 ## M3 — Esperienza MVP
 
-Chat blocks, euristiche attenzione configurabili, notifiche PWA locali,
-manifest/service worker completi, preferenze, terminal mode xterm.js e tasti
-speciali.
+- [ ] Chat blocks.
+- [ ] Euristiche di attenzione configurabili.
+- [ ] Notifiche PWA locali.
+- [~] Manifest PWA presente; service worker e comportamento offline da
+  completare.
+- [ ] Preferenze.
+- [ ] Terminal mode xterm.js e tasti speciali.
 
 Integrazione con sistemi esterni di monitoraggio degli agenti: un daemon
 che osservi i pane sullo stesso server tmux host e ne classifichi lo stato
@@ -38,10 +88,16 @@ condiviso e mappatura pane ↔ session id.
 
 ## M4 — Operatività
 
-Web Push, cronologia opzionale, ricerca/tag/template, più pane, upload
-controllato e riepiloghi opzionali.
+- [ ] Web Push.
+- [ ] Cronologia opzionale.
+- [ ] Ricerca, tag e template.
+- [ ] Supporto multi-pane.
+- [ ] Gestione allegati avanzata: persistenza dei metadati, anteprime,
+  deduplicazione, quote aggregate e policy di conservazione.
+- [ ] Riepiloghi opzionali.
 
 ## M5 — Espansioni
 
-Prima multi-host con daemon su Tailscale, poi app Android riusando contratti
-TypeScript; orchestrazione agentica solo dopo stabilizzazione del core.
+- [ ] Multi-host con daemon su Tailscale.
+- [ ] App Android riusando i contratti TypeScript.
+- [ ] Orchestrazione agentica, solo dopo la stabilizzazione del core.

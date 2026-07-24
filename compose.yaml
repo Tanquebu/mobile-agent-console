@@ -41,6 +41,9 @@ services:
       MAC_TMUX_SOCKET_PATH: /tmux
       MAC_ALLOWED_ROOTS: '["/workspace"]'
       MAC_WORKSPACE_PRESETS: ${MAC_WORKSPACE_PRESETS:-}
+      MAC_ATTACHMENTS_ROOT: /workspace/.agent-attachments
+      MAC_ATTACHMENTS_PROMPT_ROOT: /workspace/.agent-attachments
+      MAC_MAX_ATTACHMENT_BYTES: ${MAC_MAX_ATTACHMENT_BYTES:-10485760}
     secrets: [mac_login_password, mac_session_secret]
     volumes:
       - tmux-socket:/tmux

@@ -133,3 +133,93 @@ def test_create_session_requires_allowed_directory() -> None:
         "/api/v1/sessions", headers=headers, json={"name": "unsafe", "directory": "/etc"}
     )
     assert denied.status_code == 400
+
+
+def test_upload_attachment_and_reference_it_in_prompt(tmp_path) -> None:
+    fake = FakeTmux()
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        attachments_root=str(tmp_path),
+        attachments_prompt_root="/workspace/.agent-attachments",
+        max_attachment_bytes=1024,
+    )
+    client = TestClient(create_app(settings, fake))
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf, "Content-Type": "image/png"}
+    content = b"\x89PNG\r\n\x1a\nminimal"
+
+    assert client.post(
+        "/api/v1/sessions/1/attachments?filename=screenshot.png",
+        content=content,
+        headers={"Content-Type": "image/png"},
+    ).status_code == 403
+    uploaded = client.post(
+        "/api/v1/sessions/1/attachments?filename=screenshot.png",
+        content=content,
+        headers=headers,
+    )
+    assert uploaded.status_code == 201
+    attachment = uploaded.json()
+    assert attachment["name"] == "screenshot.png"
+    assert attachment["path"].startswith("/workspace/.agent-attachments/1/")
+
+    response = client.post(
+        "/api/v1/sessions/1/input",
+        headers={"X-CSRF-Token": csrf},
+        json={"text": "Analizza questo errore", "attachment_ids": [attachment["id"]]},
+    )
+    assert response.status_code == 202
+    assert fake.texts == [
+        (
+            f'Analizza questo errore\n\nAllegati disponibili:\n'
+            f'- "screenshot.png": {attachment["path"]}'
+        )
+    ]
+    wrong_session = client.post(
+        "/api/v1/sessions/2/input",
+        headers={"X-CSRF-Token": csrf},
+        json={"text": "test", "attachment_ids": [attachment["id"]]},
+    )
+    assert wrong_session.status_code == 400
+
+
+def test_attachment_validation_rejects_unsafe_names_types_and_sizes(tmp_path) -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        attachments_root=str(tmp_path),
+        max_attachment_bytes=12,
+    )
+    client = TestClient(create_app(settings, FakeTmux()))
+    csrf = login(client)
+    csrf_header = {"X-CSRF-Token": csrf}
+
+    traversal = client.post(
+        "/api/v1/sessions/1/attachments?filename=..%2Fsecret.txt",
+        content=b"hello",
+        headers={**csrf_header, "Content-Type": "text/plain"},
+    )
+    assert traversal.status_code == 400
+    unsupported = client.post(
+        "/api/v1/sessions/1/attachments?filename=script.sh",
+        content=b"echo unsafe",
+        headers={**csrf_header, "Content-Type": "application/x-sh"},
+    )
+    assert unsupported.status_code == 400
+    too_large = client.post(
+        "/api/v1/sessions/1/attachments?filename=large.txt",
+        content=b"0123456789abc",
+        headers={**csrf_header, "Content-Type": "text/plain"},
+    )
+    assert too_large.status_code == 400
+    missing = client.post(
+        "/api/v1/sessions/1/input",
+        headers=csrf_header,
+        json={"text": "test", "attachment_ids": ["0" * 32]},
+    )
+    assert missing.status_code == 400

@@ -7,12 +7,22 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import Settings, get_settings
 from .schemas import (
     Accepted,
+    AttachmentView,
     ConfigView,
     CreateSessionInput,
     KeyInput,
@@ -24,6 +34,7 @@ from .schemas import (
     TextInput,
 )
 from .security import COOKIE_NAME, SessionSecurity
+from .services.attachment_service import AttachmentError, AttachmentService
 from .services.tmux_service import SessionNotFound, TmuxError, TmuxGateway, TmuxService
 
 logger = logging.getLogger("mobile_agent_console")
@@ -38,6 +49,11 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         external_server=settings.tmux_mode == "host",
     )
     security = SessionSecurity(settings)
+    attachments = AttachmentService(
+        settings.attachments_root,
+        settings.resolved_attachments_prompt_root,
+        settings.max_attachment_bytes,
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -156,6 +172,45 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         return OutputView(session_id=session_id, content=content, captured_at=datetime.now(UTC))
 
     @app.post(
+        "/api/v1/sessions/{session_id}/attachments",
+        response_model=AttachmentView,
+        status_code=201,
+        dependencies=[Depends(security.require_csrf)],
+    )
+    async def upload_attachment(
+        session_id: str,
+        request: Request,
+        filename: Annotated[str, Query(min_length=1, max_length=255)],
+    ) -> AttachmentView:
+        try:
+            await gateway.capture_output(session_id, 1)
+            content_length = request.headers.get("content-length")
+            if content_length and int(content_length) > settings.max_attachment_bytes:
+                raise AttachmentError("Attachment is too large")
+            content = bytearray()
+            async for chunk in request.stream():
+                content.extend(chunk)
+                if len(content) > settings.max_attachment_bytes:
+                    raise AttachmentError("Attachment is too large")
+            attachment = attachments.create(
+                session_id,
+                filename,
+                request.headers.get("content-type", "application/octet-stream"),
+                bytes(content),
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except SessionNotFound as exc:
+            raise HTTPException(404, "Session not found") from exc
+        return AttachmentView(
+            id=attachment.id,
+            name=attachment.name,
+            media_type=attachment.media_type,
+            size=attachment.size,
+            path=attachment.path,
+        )
+
+    @app.post(
         "/api/v1/sessions/{session_id}/input",
         response_model=Accepted,
         status_code=202,
@@ -163,7 +218,10 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     )
     async def send_input(session_id: str, payload: TextInput) -> Accepted:
         try:
-            await gateway.send_text(session_id, payload.text)
+            text = payload.text + attachments.prompt_suffix(session_id, payload.attachment_ids)
+            if len(text) > 65536:
+                raise AttachmentError("Prompt with attachment references is too large")
+            await gateway.send_text(session_id, text)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except SessionNotFound as exc:

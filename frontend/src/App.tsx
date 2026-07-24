@@ -1,5 +1,17 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { createSession, fetchConfig, login, listSessions, restoreSession, sendEnter, sendText, Session, streamUrl } from "./api";
+import {
+  Attachment,
+  createSession,
+  fetchConfig,
+  login,
+  listSessions,
+  restoreSession,
+  sendEnter,
+  sendText,
+  Session,
+  streamUrl,
+  uploadAttachment,
+} from "./api";
 
 type Connection = "connecting" | "online" | "offline";
 
@@ -79,7 +91,11 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
   const [draft, setDraft] = useState("");
   const [connection, setConnection] = useState<Connection>("connecting");
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState("");
   const outputRef = useRef<HTMLPreElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let socket: WebSocket | undefined;
@@ -118,13 +134,36 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!draft || sending) return;
+    if ((!draft && attachments.length === 0) || sending || uploading) return;
     setSending(true);
     try {
-      await sendText(session.id, draft);
+      await sendText(session.id, draft, attachments.map((attachment) => attachment.id));
       setDraft("");
+      setAttachments([]);
     } finally {
       setSending(false);
+    }
+  }
+
+  async function selectFiles(files: FileList | null) {
+    if (!files?.length) return;
+    const availableSlots = 5 - attachments.length;
+    if (files.length > availableSlots) {
+      setAttachmentError("Puoi allegare al massimo 5 file per prompt.");
+      return;
+    }
+    setUploading(true);
+    setAttachmentError("");
+    try {
+      for (const file of Array.from(files)) {
+        const uploaded = await uploadAttachment(session.id, file);
+        setAttachments((current) => [...current, uploaded]);
+      }
+    } catch (value) {
+      setAttachmentError(value instanceof Error ? value.message : String(value));
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
@@ -140,6 +179,22 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
         <pre ref={outputRef} className="output">{content || "In attesa dell'output…"}</pre>
       </section>
       <form className="composer" onSubmit={submit}>
+        {attachments.length > 0 && (
+          <div className="attachments" aria-label="Allegati al prompt">
+            {attachments.map((attachment) => (
+              <span className="attachment-chip" key={attachment.id}>
+                <span title={attachment.path}>{attachment.name}</span>
+                <button
+                  type="button"
+                  aria-label={`Rimuovi ${attachment.name}`}
+                  onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
@@ -147,10 +202,32 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
           rows={3}
           maxLength={65536}
         />
+        <input
+          ref={fileInputRef}
+          className="file-input"
+          type="file"
+          multiple
+          accept=".csv,.json,.md,.markdown,.pdf,.txt,.xml,image/jpeg,image/png,image/webp"
+          onChange={(event) => void selectFiles(event.target.files)}
+        />
         <div className="actions">
+          <button
+            type="button"
+            className="secondary attach-button"
+            disabled={uploading || attachments.length >= 5}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {uploading ? "Caricamento…" : "＋ Allega"}
+          </button>
           <button type="button" className="secondary" onClick={() => sendEnter(session.id)}>↵ Enter</button>
-          <button type="submit" disabled={!draft || sending}>Invia testo</button>
+          <button
+            type="submit"
+            disabled={(!draft && attachments.length === 0) || sending || uploading}
+          >
+            Invia testo
+          </button>
         </div>
+        {attachmentError && <small className="attachment-error">{attachmentError}</small>}
         <small>Il testo non invia Enter automaticamente.</small>
       </form>
     </main>

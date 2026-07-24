@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     allowed_roots: list[str] = ["/workspace"]
     cors_origins: list[str] = ["http://localhost:5173"]
     workspace_presets: dict[str, str] = {}
+    attachments_root: str = "/workspace/.agent-attachments"
+    attachments_prompt_root: str | None = None
+    max_attachment_bytes: int = Field(default=10 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
 
     @model_validator(mode="after")
     def require_explicit_host_socket(self) -> "Settings":
@@ -74,6 +77,10 @@ class Settings(BaseSettings):
     @property
     def resolved_session_secret(self) -> str:
         return self.read_secret(self.session_secret, self.session_secret_file, "session secret")
+
+    @property
+    def resolved_attachments_prompt_root(self) -> str:
+        return self.attachments_prompt_root or self.attachments_root
 
 
 @lru_cache

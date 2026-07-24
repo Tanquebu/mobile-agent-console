@@ -14,7 +14,7 @@ async function request(path: string, init?: RequestInit) {
     ...init,
     credentials: "same-origin",
     headers: {
-      "Content-Type": "application/json",
+      ...(!(init?.body instanceof Blob) ? { "Content-Type": "application/json" } : {}),
       ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
       ...init?.headers,
     },
@@ -58,10 +58,43 @@ export async function fetchConfig(): Promise<AppConfig> {
   return response.json();
 }
 
-export async function sendText(id: string, text: string) {
+export type Attachment = {
+  id: string;
+  name: string;
+  media_type: string;
+  size: number;
+  path: string;
+};
+
+export async function uploadAttachment(id: string, file: File): Promise<Attachment> {
+  const response = await request(
+    `/api/v1/sessions/${encodeURIComponent(id)}/attachments?filename=${encodeURIComponent(file.name)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": file.type || mediaTypeFromName(file.name) },
+      body: file,
+    },
+  );
+  return response.json();
+}
+
+function mediaTypeFromName(name: string): string {
+  const extension = name.split(".").pop()?.toLowerCase();
+  return ({
+    csv: "text/csv",
+    json: "application/json",
+    md: "text/markdown",
+    markdown: "text/markdown",
+    pdf: "application/pdf",
+    txt: "text/plain",
+    xml: "application/xml",
+  } as Record<string, string>)[extension ?? ""] ?? "application/octet-stream";
+}
+
+export async function sendText(id: string, text: string, attachmentIds: string[] = []) {
   await request(`/api/v1/sessions/${encodeURIComponent(id)}/input`, {
     method: "POST",
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, attachment_ids: attachmentIds }),
   });
 }
 

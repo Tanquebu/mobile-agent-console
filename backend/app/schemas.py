@@ -29,6 +29,15 @@ class OutputView(BaseModel):
 
 class TextInput(BaseModel):
     text: str = Field(max_length=65536)
+    attachment_ids: list[str] = Field(default_factory=list, max_length=5)
+
+
+class AttachmentView(BaseModel):
+    id: str
+    name: str
+    media_type: str
+    size: int
+    path: str
 
 
 class KeyInput(BaseModel):
