@@ -35,6 +35,18 @@ modalità host-tmux include anche `"tmux":"ok"` oppure il messaggio d'errore
 del server tmux ("no server running...", "protocol version mismatch...").
 Non rivela sessioni o altra configurazione.
 
+## `GET /api/v1/config`
+
+Richiede il cookie di sessione. Espone la configurazione minima utile al
+client: le root consentite per la creazione di sessioni (usate per
+precompilare il campo directory) e i preset opzionali di directory
+(`MAC_WORKSPACE_PRESETS`, formato `label=path,...` o oggetto JSON) mostrati
+come select nel form:
+
+```json
+{"allowed_roots":["/workspace"],"workspace_presets":{"pipeline":"/workspace/pipeline"}}
+```
+
 ## `GET /api/v1/sessions`
 
 Risposta `200`:

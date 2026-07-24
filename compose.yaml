@@ -40,6 +40,7 @@ services:
       MAC_TMUX_SOCKET: mobile-agent-console
       MAC_TMUX_SOCKET_PATH: /tmux
       MAC_ALLOWED_ROOTS: '["/workspace"]'
+      MAC_WORKSPACE_PRESETS: ${MAC_WORKSPACE_PRESETS:-}
     secrets: [mac_login_password, mac_session_secret]
     volumes:
       - tmux-socket:/tmux

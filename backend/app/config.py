@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     tmux_mode: str = Field(default="docker", pattern=r"^(docker|host)$")
     allowed_roots: list[str] = ["/workspace"]
     cors_origins: list[str] = ["http://localhost:5173"]
+    workspace_presets: dict[str, str] = {}
 
     @model_validator(mode="after")
     def require_explicit_host_socket(self) -> "Settings":
@@ -40,6 +41,24 @@ class Settings(BaseSettings):
             if value.lstrip().startswith("["):
                 return json.loads(value)
             return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
+    @field_validator("workspace_presets", mode="before")
+    @classmethod
+    def parse_presets(cls, value: object) -> object:
+        # Accetta un oggetto JSON oppure una stringa "label=path,label=path".
+        if isinstance(value, str):
+            if not value.strip():
+                return {}
+            if value.lstrip().startswith("{"):
+                return json.loads(value)
+            presets: dict[str, str] = {}
+            for pair in (item.strip() for item in value.split(",") if item.strip()):
+                label, sep, path = pair.partition("=")
+                if not sep or not label.strip() or not path.strip():
+                    raise ValueError(f"Invalid workspace preset '{pair}' (expected label=path)")
+                presets[label.strip()] = path.strip()
+            return presets
         return value
 
     def read_secret(self, direct: str | None, file_path: str | None, label: str) -> str:

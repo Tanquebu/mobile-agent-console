@@ -3,6 +3,11 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+class ConfigView(BaseModel):
+    allowed_roots: list[str]
+    workspace_presets: dict[str, str]
+
+
 class SessionView(BaseModel):
     id: str
     name: str

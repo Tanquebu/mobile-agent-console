@@ -48,6 +48,16 @@ export async function listSessions(): Promise<Session[]> {
   return (await response.json()).sessions;
 }
 
+export type AppConfig = {
+  allowed_roots: string[];
+  workspace_presets: Record<string, string>;
+};
+
+export async function fetchConfig(): Promise<AppConfig> {
+  const response = await request("/api/v1/config");
+  return response.json();
+}
+
 export async function sendText(id: string, text: string) {
   await request(`/api/v1/sessions/${encodeURIComponent(id)}/input`, {
     method: "POST",

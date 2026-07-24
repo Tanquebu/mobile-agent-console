@@ -57,6 +57,31 @@ def test_text_and_enter_are_separate_and_csrf_protected() -> None:
     assert fake.keys == ["Enter"]
 
 
+def test_config_exposes_allowed_roots_to_authenticated_users() -> None:
+    client, _ = client_and_fake()
+    assert client.get("/api/v1/config").status_code == 401
+    login(client)
+    body = client.get("/api/v1/config").json()
+    assert body["allowed_roots"] == ["/workspace"]
+    assert body["workspace_presets"] == {}
+
+
+def test_config_parses_workspace_presets_csv() -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        workspace_presets="pipeline=/workspace/pipeline, tools=/workspace/tools",
+    )
+    client = TestClient(create_app(settings, FakeTmux()))
+    login(client)
+    assert client.get("/api/v1/config").json()["workspace_presets"] == {
+        "pipeline": "/workspace/pipeline",
+        "tools": "/workspace/tools",
+    }
+
+
 def test_missing_session_and_invalid_ids() -> None:
     client, _ = client_and_fake()
     csrf = login(client)

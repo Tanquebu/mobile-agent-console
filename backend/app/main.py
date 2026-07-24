@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import Settings, get_settings
 from .schemas import (
     Accepted,
+    ConfigView,
     CreateSessionInput,
     KeyInput,
     LoginInput,
@@ -95,6 +96,17 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         cookie: str = Depends(security.require_session),
     ) -> LoginResult:
         return LoginResult(csrf_token=security.csrf_for(cookie))
+
+    @app.get(
+        "/api/v1/config",
+        response_model=ConfigView,
+        dependencies=[Depends(security.require_session)],
+    )
+    async def client_config() -> ConfigView:
+        return ConfigView(
+            allowed_roots=settings.allowed_roots,
+            workspace_presets=settings.workspace_presets,
+        )
 
     @app.post(
         "/api/v1/sessions",

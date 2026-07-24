@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { createSession, login, listSessions, restoreSession, sendEnter, sendText, Session, streamUrl } from "./api";
+import { createSession, fetchConfig, login, listSessions, restoreSession, sendEnter, sendText, Session, streamUrl } from "./api";
 
 type Connection = "connecting" | "online" | "offline";
 
@@ -8,13 +8,22 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
-  const [directory, setDirectory] = useState("/workspace");
+  const [directory, setDirectory] = useState("");
+  const [presets, setPresets] = useState<[string, string][]>([]);
+  const [customDirectory, setCustomDirectory] = useState(false);
 
   useEffect(() => {
     listSessions().then(setSessions).catch((value) => {
       if (String(value).includes("401")) onUnauthorized();
       else setError(String(value));
     });
+    fetchConfig()
+      .then((config) => {
+        const entries = Object.entries(config.workspace_presets);
+        setPresets(entries);
+        setDirectory((value) => value || entries[0]?.[1] || config.allowed_roots[0] || "");
+      })
+      .catch(() => { /* il campo resta vuoto, l'utente può digitare */ });
   }, []);
 
   return (
@@ -34,7 +43,17 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
         }
       }}>
         <input required pattern="[A-Za-z0-9_-]{1,64}" placeholder="Nome sessione" value={name} onChange={(event) => setName(event.target.value)} />
-        <input required placeholder="Directory consentita" value={directory} onChange={(event) => setDirectory(event.target.value)} />
+        {presets.length > 0 && !customDirectory ? (
+          <select value={directory} onChange={(event) => {
+            if (event.target.value === "__custom__") setCustomDirectory(true);
+            else setDirectory(event.target.value);
+          }}>
+            {presets.map(([label, path]) => <option key={label} value={path}>{label} — {path}</option>)}
+            <option value="__custom__">Directory personalizzata…</option>
+          </select>
+        ) : (
+          <input required placeholder="Directory consentita" value={directory} onChange={(event) => setDirectory(event.target.value)} />
+        )}
         <button type="submit">Crea shell</button>
       </form>}
       {error && <p className="error">{error}</p>}
