@@ -15,6 +15,9 @@ generic terminal, with no dependency on any specific vendor or tool.
   `Enter` as a deliberate, separate action (nothing runs by accident);
 - respond to agent permission prompts by typing the option number, then
   Enter if needed;
+- directory suggestions in the new-session form, prefilled from the
+  backend's allowed roots and optionally from your own presets
+  (`MAC_WORKSPACE_PRESETS=label=path,...` in `.env`);
 - login with an HMAC-signed HttpOnly cookie, CSRF header on every mutation,
   and Origin check on the WebSocket upgrade;
 - two connectivity modes: an isolated containerized tmux, or your host's

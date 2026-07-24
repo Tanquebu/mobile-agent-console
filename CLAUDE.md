@@ -139,7 +139,10 @@ affidarsi a `tsc -b` (incluso in `npm run build`) per il type checking.
   segreti possono essere passati direttamente o via path `_FILE` (Docker
   secrets); `read_secret` impone un minimo di 16 caratteri.
   `allowed_roots`/`cors_origins` accettano sia un array JSON che una stringa
-  separata da virgole.
+  separata da virgole; `workspace_presets` (`MAC_WORKSPACE_PRESETS`,
+  formato `label=path,...` o oggetto JSON) alimenta i suggerimenti di
+  directory esposti da `GET /api/v1/config` — i valori reali stanno solo
+  nel `.env`, mai nel repo.
 - `security.py` — `SessionSecurity`: verifica password, emissione/validazione
   cookie di sessione, derivazione del token CSRF (HMAC sul cookie, non un
   valore memorizzato).
