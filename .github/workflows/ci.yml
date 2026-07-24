@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Compose declares file-based secrets; provide throwaway values in CI.
+      - name: Create dummy secrets
+        run: |
+          mkdir -p .secrets
+          echo "ci-dummy-login-password-0000" > .secrets/login_password
+          echo "ci-dummy-session-secret-0000" > .secrets/session_secret
+      - name: pytest + ruff (compose one-shot)
+        run: docker compose run --rm --build backend-test
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create dummy secrets
+        run: |
+          mkdir -p .secrets
+          echo "ci-dummy-login-password-0000" > .secrets/login_password
+          echo "ci-dummy-session-secret-0000" > .secrets/session_secret
+      - name: tsc + vite build (compose one-shot)
+        run: docker compose run --rm --build frontend-build
+
+  compose-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create dummy secrets
+        run: |
+          mkdir -p .secrets
+          echo "ci-dummy-login-password-0000" > .secrets/login_password
+          echo "ci-dummy-session-secret-0000" > .secrets/session_secret
+      - name: Validate docker-mode compose
+        run: docker compose config --quiet
+      - name: Validate host-mode compose
+        env:
+          COMPOSE_FILE: compose.yaml:compose.host.yaml
+          MAC_UID: "1000"
+          MAC_GID: "1000"
+          MAC_TMUX_SOCKET_DIR: /tmp/tmux-1000
+          MAC_TMUX_SOCKET_FILE: /tmp/tmux-1000/default
+          MAC_WORKSPACE_ROOT: /home/user/projects
+        run: docker compose config --quiet

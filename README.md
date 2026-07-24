@@ -1,5 +1,7 @@
 # Mobile Agent Console
 
+[![CI](https://github.com/Tanquebu/mobile-agent-console/actions/workflows/ci.yml/badge.svg)](https://github.com/Tanquebu/mobile-agent-console/actions/workflows/ci.yml)
+
 A mobile-first PWA to monitor and control interactive terminal processes
 running in tmux sessions — AI coding agents (Claude Code, Codex, …), REPLs,
 long-running jobs — from your phone, over your private network (e.g.

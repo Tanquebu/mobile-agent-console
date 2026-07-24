@@ -31,4 +31,4 @@ USER root
 RUN pip install --no-cache-dir ".[dev]"
 COPY tests ./tests
 USER mac
-CMD ["pytest", "-q", "tests"]
+CMD ["sh", "-c", "pytest -q tests && ruff check --no-cache ."]
