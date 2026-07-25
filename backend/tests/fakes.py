@@ -11,6 +11,7 @@ class FakeTmux:
         self.terminated: list[str] = []
         self.renamed: list[tuple[str, str]] = []
         self.server_down = False
+        self.duplicate_name = False
         self.directory = "/workspace"
 
     async def check_server(self) -> str | None:
@@ -22,6 +23,8 @@ class FakeTmux:
     async def create_session(self, session_id: str, directory: str, command: str = "bash") -> None:
         if self.server_down:
             raise TmuxError("Host tmux server is not running; start tmux on the host first")
+        if self.duplicate_name:
+            raise TmuxError(f"duplicate session: {session_id}")
 
     async def capture_output(self, session_id: str, lines: int = 500) -> str:
         TmuxService.validate_target(session_id)
@@ -52,6 +55,8 @@ class FakeTmux:
         TmuxService.validate_session_id(name)
         if session_id != "1":
             raise SessionNotFound(session_id)
+        if self.duplicate_name:
+            raise TmuxError(f"duplicate session: {name}")
         self.renamed.append((session_id, name))
 
     async def pane_path(self, session_id: str) -> str:

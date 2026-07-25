@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import {
+  ApiError,
   Attachment,
   createSession,
   deleteAttachment,
@@ -9,6 +10,7 @@ import {
   fetchDirectory,
   fetchFile,
   FileContent,
+  errorMessage,
   login,
   listSessions,
   renameSession,
@@ -22,7 +24,14 @@ import {
   uploadAttachment,
 } from "./api";
 
-type Connection = "connecting" | "online" | "offline";
+type Connection = "connecting" | "online" | "offline" | "closed";
+
+const CONNECTION_LABEL: Record<Connection, string> = {
+  connecting: "connessione",
+  online: "online",
+  offline: "offline",
+  closed: "chiusa",
+};
 
 const LATEST_RELEASE = {
   title: "Azioni sessione in dashboard",
@@ -96,7 +105,7 @@ function FilePreview({ sessionId, path, onBack }: { sessionId: string; path: str
     setFile(null);
     fetchFile(sessionId, path)
       .then((result) => { if (!cancelled) setFile(result); })
-      .catch((value) => { if (!cancelled) setError(value instanceof Error ? value.message : String(value)); })
+      .catch((value) => { if (!cancelled) setError(errorMessage(value)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [sessionId, path]);
@@ -136,7 +145,7 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     setError("");
     fetchDirectory(sessionId, currentPath)
       .then((result) => { if (!cancelled) setListing(result); })
-      .catch((value) => { if (!cancelled) setError(value instanceof Error ? value.message : String(value)); })
+      .catch((value) => { if (!cancelled) setError(errorMessage(value)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [sessionId, currentPath]);
@@ -256,8 +265,8 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
 
   useEffect(() => {
     listSessions().then(setSessions).catch((value) => {
-      if (String(value).includes("401")) onUnauthorized();
-      else setError(String(value));
+      if (value instanceof ApiError && value.status === 401) onUnauthorized();
+      else setError(errorMessage(value));
     });
     fetchConfig()
       .then((config) => {
@@ -288,7 +297,7 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
       )));
       setOpenActionsId(null);
     } catch (value) {
-      setError(value instanceof Error ? value.message : String(value));
+      setError(errorMessage(value));
     }
   }
 
@@ -303,7 +312,7 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
       setSessions((items) => items.filter((item) => item.id !== session.id));
       setOpenActionsId(null);
     } catch (value) {
-      setError(value instanceof Error ? value.message : String(value));
+      setError(errorMessage(value));
     }
   }
 
@@ -325,7 +334,7 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
           await createSession(name, directory);
           setCreating(false); setName(""); setError(""); setSessions(await listSessions());
         } catch (value) {
-          setError(value instanceof Error ? value.message : String(value));
+          setError(errorMessage(value));
         }
       }}>
         <input
@@ -454,7 +463,12 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
       socket.onmessage = (event) => {
         const message = JSON.parse(event.data);
         if (message.type === "snapshot") setContent(message.content);
-        if (message.type === "session_closed") setConnection("offline");
+        if (message.type === "session_closed") {
+          stopped = true;
+          if (timer) clearTimeout(timer);
+          setConnection("closed");
+          socket?.close();
+        }
       };
       socket.onclose = () => {
         if (stopped) return;
@@ -498,6 +512,9 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
       await sendText(session.id, draft, attachments.map((attachment) => attachment.id));
       setDraft("");
       setAttachments([]);
+      setControlError("");
+    } catch (value) {
+      setControlError(errorMessage(value));
     } finally {
       setSending(false);
     }
@@ -518,7 +535,7 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
         setAttachments((current) => [...current, uploaded]);
       }
     } catch (value) {
-      setAttachmentError(value instanceof Error ? value.message : String(value));
+      setAttachmentError(errorMessage(value));
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -532,7 +549,7 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
       await deleteAttachment(session.id, attachment.id);
       setAttachments((items) => items.filter((item) => item.id !== attachment.id));
     } catch (value) {
-      setAttachmentError(value instanceof Error ? value.message : String(value));
+      setAttachmentError(errorMessage(value));
     } finally {
       setDeletingAttachmentId("");
     }
@@ -547,7 +564,16 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
     try {
       await sendKey(session.id, key, key === "C-c");
     } catch (value) {
-      setControlError(value instanceof Error ? value.message : String(value));
+      setControlError(errorMessage(value));
+    }
+  }
+
+  async function pressEnter() {
+    setControlError("");
+    try {
+      await sendEnter(session.id);
+    } catch (value) {
+      setControlError(errorMessage(value));
     }
   }
 
@@ -556,10 +582,15 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
       <header className="console-header">
         <button className="icon-button" onClick={onBack} aria-label="Indietro">‹</button>
         <div><strong>{session.name}</strong><small>{session.current_command}</small></div>
-        <span className={`status ${connection}`}>{connection}</span>
+        <span className={`status ${connection}`}>{CONNECTION_LABEL[connection]}</span>
       </header>
       <section className="output-wrap">
         <div className="output-label"><span>OUTPUT RECENTE</span><span>tmux :0.0</span></div>
+        {connection === "closed" && (
+          <div className="session-closed-banner" role="alert">
+            La sessione tmux è stata chiusa. Torna alla dashboard.
+          </div>
+        )}
         <pre ref={outputRef} className="output" onScroll={updateScrollMode}>
           {content || "In attesa dell'output…"}
         </pre>
@@ -593,6 +624,7 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
           placeholder="Scrivi o incolla un prompt…"
           rows={3}
           maxLength={65536}
+          disabled={connection === "closed"}
         />
         <input
           ref={fileInputRef}
@@ -606,21 +638,27 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
           <button
             type="button"
             className="secondary"
+            disabled={connection === "closed"}
             aria-expanded={showSpecialKeys}
             onClick={() => setShowSpecialKeys((value) => !value)}
           >
             Funzioni speciali
           </button>
-          <button type="button" className="secondary" onClick={() => setShowDirectory(true)}>
+          <button
+            type="button"
+            className="secondary"
+            disabled={connection === "closed"}
+            onClick={() => setShowDirectory(true)}
+          >
             Contenuto directory
           </button>
         </div>
         {showSpecialKeys && (
           <div className="special-actions" aria-label="Funzioni speciali">
-            <button type="button" onClick={() => void pressSpecialKey("Up")}>↑ Up</button>
-            <button type="button" onClick={() => void pressSpecialKey("Down")}>↓ Down</button>
-            <button type="button" onClick={() => void pressSpecialKey("Escape")}>Esc</button>
-            <button type="button" className="danger" onClick={() => void pressSpecialKey("C-c")}>
+            <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Up")}>↑ Up</button>
+            <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Down")}>↓ Down</button>
+            <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Escape")}>Esc</button>
+            <button disabled={connection === "closed"} type="button" className="danger" onClick={() => void pressSpecialKey("C-c")}>
               Ctrl-C
             </button>
           </div>
@@ -632,15 +670,27 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
           <button
             type="button"
             className="secondary attach-button"
-            disabled={uploading || attachments.length >= 5}
+            disabled={connection === "closed" || uploading || attachments.length >= 5}
             onClick={() => fileInputRef.current?.click()}
           >
             {uploading ? "Caricamento…" : "＋ Allega"}
           </button>
-          <button type="button" className="secondary" onClick={() => sendEnter(session.id)}>↵ Enter</button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={connection === "closed"}
+            onClick={() => void pressEnter()}
+          >
+            ↵ Enter
+          </button>
           <button
             type="submit"
-            disabled={(!draft && attachments.length === 0) || sending || uploading}
+            disabled={
+              connection === "closed"
+              || (!draft && attachments.length === 0)
+              || sending
+              || uploading
+            }
           >
             Invia testo
           </button>

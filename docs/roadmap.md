@@ -21,7 +21,8 @@
 
 - [ ] Gestione robusta dei delta e delle sequenze ANSI.
 - [ ] Selezione pane e resize.
-- [~] Stati di errore espliciti.
+- [x] Stati espliciti per sessione chiusa, disconnessione, backend/tmux non
+  disponibile, autenticazione scaduta e conflitto di nome.
 - [ ] Rate limit.
 - [x] Origin policy per WebSocket formalizzata e coperta da test.
 - [x] Test di integrazione con tmux reale su socket temporaneo isolato.

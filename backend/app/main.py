@@ -49,6 +49,12 @@ DIRECTORY_ENTRY_LIMIT = 2000
 FILE_PREVIEW_MAX_BYTES = 256 * 1024
 
 
+def _tmux_mutation_error(exc: TmuxError, fallback: str) -> str:
+    if "duplicate session" in str(exc).lower():
+        return "Session name already exists"
+    return fallback
+
+
 def _resolve_within_allowed_roots(raw_path: str, roots: list[Path]) -> tuple[Path, Path]:
     directory = Path(raw_path).resolve()
     for root in roots:
@@ -230,7 +236,8 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except TmuxError as exc:
-            raise HTTPException(409, "Unable to create session") from exc
+            detail = _tmux_mutation_error(exc, "Unable to create session")
+            raise HTTPException(409, detail) from exc
         return Accepted()
 
     @app.get(
@@ -438,7 +445,8 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         except SessionNotFound as exc:
             raise HTTPException(404, "Session not found") from exc
         except TmuxError as exc:
-            raise HTTPException(409, "Unable to rename session") from exc
+            detail = _tmux_mutation_error(exc, "Unable to rename session")
+            raise HTTPException(409, detail) from exc
         return Accepted()
 
     @app.websocket("/api/v1/ws/sessions/{session_id}")

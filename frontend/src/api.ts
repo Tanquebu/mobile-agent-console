@@ -9,6 +9,33 @@ export type Session = {
 
 let csrfToken = "";
 
+export class ApiError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export function errorMessage(value: unknown): string {
+  if (value instanceof ApiError) {
+    if (value.status === 401) return "Sessione scaduta: accedi nuovamente.";
+    if (value.status === 404 && value.message === "Session not found") {
+      return "La sessione tmux non esiste più.";
+    }
+    if (value.status === 409 && value.message === "Session name already exists") {
+      return "Esiste già una sessione con questo nome.";
+    }
+    if (value.status === 502 || value.status === 503) {
+      return "Il backend o tmux non è disponibile. Riprova tra poco.";
+    }
+    return value.message;
+  }
+  if (value instanceof TypeError) {
+    return "Backend non raggiungibile. Controlla la connessione.";
+  }
+  return value instanceof Error ? value.message : String(value);
+}
+
 async function request(path: string, init?: RequestInit) {
   const response = await fetch(path, {
     ...init,
@@ -25,7 +52,7 @@ async function request(path: string, init?: RequestInit) {
       const body = await response.json();
       detail = body.detail ?? detail;
     } catch { /* keep status fallback */ }
-    throw new Error(detail);
+    throw new ApiError(response.status, detail);
   }
   return response;
 }

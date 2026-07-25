@@ -180,6 +180,29 @@ def test_create_session_fails_clearly_without_host_server() -> None:
     assert response.status_code == 409
 
 
+def test_create_and_rename_report_duplicate_session_name() -> None:
+    client, fake = client_and_fake()
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+    fake.duplicate_name = True
+
+    created = client.post(
+        "/api/v1/sessions",
+        headers=headers,
+        json={"name": "demo", "directory": "/workspace"},
+    )
+    assert created.status_code == 409
+    assert created.json()["detail"] == "Session name already exists"
+
+    renamed = client.post(
+        "/api/v1/sessions/1/rename",
+        headers=headers,
+        json={"name": "demo"},
+    )
+    assert renamed.status_code == 409
+    assert renamed.json()["detail"] == "Session name already exists"
+
+
 def test_websocket_auth_and_snapshot() -> None:
     client, _ = client_and_fake()
     with pytest.raises(WebSocketDisconnect) as rejected, client.websocket_connect(
