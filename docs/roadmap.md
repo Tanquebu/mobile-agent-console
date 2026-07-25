@@ -24,7 +24,7 @@
 - [~] Stati di errore espliciti.
 - [ ] Rate limit.
 - [x] Origin policy per WebSocket formalizzata e coperta da test.
-- [ ] Test di integrazione con tmux reale.
+- [x] Test di integrazione con tmux reale su socket temporaneo isolato.
 - [x] Modalità host-tmux sul socket predefinito dell'utente (ADR 005, che
   supera il socket dedicato previsto in origine).
 - [x] Tasti `Up`/`Down`/`Esc` per i prompt di autorizzazione.
