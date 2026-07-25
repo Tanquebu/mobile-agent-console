@@ -92,6 +92,7 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
   const [connection, setConnection] = useState<Connection>("connecting");
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [followingOutput, setFollowingOutput] = useState(true);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
   const outputRef = useRef<HTMLPreElement>(null);
@@ -129,8 +130,22 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
   }, [session.id]);
 
   useEffect(() => {
-    outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight, behavior: "smooth" });
-  }, [content]);
+    if (followingOutput && outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }
+  }, [content, followingOutput]);
+
+  function updateScrollMode() {
+    const output = outputRef.current;
+    if (!output) return;
+    const distanceFromBottom = output.scrollHeight - output.scrollTop - output.clientHeight;
+    setFollowingOutput(distanceFromBottom < 48);
+  }
+
+  function resumeFollowingOutput() {
+    setFollowingOutput(true);
+    if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -176,7 +191,14 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
       </header>
       <section className="output-wrap">
         <div className="output-label"><span>OUTPUT RECENTE</span><span>tmux :0.0</span></div>
-        <pre ref={outputRef} className="output">{content || "In attesa dell'output…"}</pre>
+        <pre ref={outputRef} className="output" onScroll={updateScrollMode}>
+          {content || "In attesa dell'output…"}
+        </pre>
+        {!followingOutput && (
+          <button className="follow-output" type="button" onClick={resumeFollowingOutput}>
+            ↓ Segui output
+          </button>
+        )}
       </section>
       <form className="composer" onSubmit={submit}>
         {attachments.length > 0 && (

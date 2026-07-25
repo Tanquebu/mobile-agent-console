@@ -79,6 +79,8 @@ API specifiche di Codex, Claude o altri agenti.
 - [ ] Preferenze.
 - [ ] Terminal mode xterm.js e tasti speciali.
 - [x] Form di creazione sessione responsive anche con path molto lunghi.
+- [x] Autoscroll intelligente: pausa quando l'utente risale l'output e
+  ripresa esplicita tramite pulsante.
 
 Integrazione con sistemi esterni di monitoraggio degli agenti: un daemon
 che osservi i pane sullo stesso server tmux host e ne classifichi lo stato
