@@ -49,6 +49,34 @@ function shellQuote(name: string): string {
   return /^[\w.-]+$/.test(name) ? name : `'${name.replace(/'/g, "'\\''")}'`;
 }
 
+async function copyToClipboard(text: string): Promise<boolean> {
+  // navigator.clipboard richiede un secure context (HTTPS o localhost); questo
+  // deployment gira in HTTP su un IP Tailscale, quindi serve un fallback.
+  if (window.isSecureContext && navigator.clipboard) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // prova comunque il fallback legacy
+    }
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  }
+  document.body.removeChild(textarea);
+  return copied;
+}
+
 function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [error, setError] = useState("");
@@ -75,11 +103,12 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   }, [onClose]);
 
   async function copy(entry: DirectoryEntry) {
-    try {
-      await navigator.clipboard.writeText(shellQuote(entry.name));
+    const ok = await copyToClipboard(shellQuote(entry.name));
+    if (ok) {
+      setError("");
       setCopiedName(entry.name);
       window.setTimeout(() => setCopiedName(""), 1500);
-    } catch {
+    } else {
       setError("Copia negli appunti non riuscita.");
     }
   }
