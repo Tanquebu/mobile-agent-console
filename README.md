@@ -136,9 +136,9 @@ docker compose config --quiet
 ## Documentation
 
 Project documentation lives in [`docs/`](docs/) — architecture, threat
-model, API and WebSocket contracts, requirements, roadmap, and ADRs. It is
-currently written in Italian (as are the UI labels); the API surface,
-configuration, and code are in English.
+model, API and WebSocket contracts, requirements, roadmap, feature backlog,
+and ADRs. It is currently written in Italian (as are the UI labels); the API
+surface, configuration, and code are in English.
 
 ## License
 

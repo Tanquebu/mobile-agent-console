@@ -82,8 +82,7 @@ API specifiche di Codex, Claude o altri agenti.
 - [x] Form di creazione sessione responsive anche con path molto lunghi.
 - [x] Autoscroll intelligente: pausa quando l'utente risale l'output e
   ripresa esplicita tramite pulsante.
-- [x] Contenimento mobile dell'output: toolbar finali visibili e scroll
-  limitato al riquadro terminale.
+- [x] Contenimento mobile dell'output e scroll limitato al riquadro terminale.
 
 Integrazione con sistemi esterni di monitoraggio degli agenti: un daemon
 che osservi i pane sullo stesso server tmux host e ne classifichi lo stato
