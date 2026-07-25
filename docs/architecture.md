@@ -49,10 +49,11 @@ persistito o eseguito.
 ## Streaming
 
 Ogni connessione riceve uno snapshot, poi il backend cattura il pane ogni 500
-ms mentre cambia e rallenta fino a 2 s in inattività. In questo slice vengono
-inviati snapshot completi per coerenza; la milestone successiva introdurrà
-delta con hash/base sequence. Dopo una riconnessione il nuovo snapshot è
-autorevole, quindi non serve riprodurre eventi persi.
+ms mentre cambia e rallenta fino a 2 s in inattività. Gli aggiornamenti
+successivi sono delta per righe con `base_sequence_id`: questa granularità
+preserva Unicode e sequenze escape senza condividere indici di carattere tra
+Python e JavaScript. Se il client rileva una base inattesa, riconnette e riceve
+un nuovo snapshot autorevole; non serve riprodurre eventi persi.
 
 ## Evoluzione
 

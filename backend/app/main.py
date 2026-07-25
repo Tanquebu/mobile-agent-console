@@ -48,6 +48,7 @@ from .schemas import (
 )
 from .security import COOKIE_NAME, SessionSecurity
 from .services.attachment_service import AttachmentError, AttachmentService
+from .services.output_delta import line_delta
 from .services.snapshot_service import (
     SnapshotError,
     SnapshotService,
@@ -687,16 +688,28 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
                 if content != previous:
                     sequence += 1
                     idle_cycles = 0
-                    previous = content
-                    await websocket.send_json(
-                        {
+                    if previous is None:
+                        message = {
                             "type": "snapshot",
                             "session_id": session_id,
                             "sequence_id": sequence,
                             "timestamp": datetime.now(UTC).isoformat(),
                             "content": content,
                         }
-                    )
+                    else:
+                        delta = line_delta(previous, content)
+                        message = {
+                            "type": "delta",
+                            "session_id": session_id,
+                            "base_sequence_id": sequence - 1,
+                            "sequence_id": sequence,
+                            "timestamp": datetime.now(UTC).isoformat(),
+                            "start": delta.start,
+                            "delete_count": delta.delete_count,
+                            "lines": delta.lines,
+                        }
+                    previous = content
+                    await websocket.send_json(message)
                 else:
                     idle_cycles += 1
                 await asyncio.sleep(0.5 if idle_cycles < 10 else 1.0 if idle_cycles < 30 else 2.0)

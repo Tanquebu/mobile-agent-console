@@ -19,7 +19,8 @@
 
 ## M1 — Hardening del runtime
 
-- [ ] Gestione robusta dei delta e delle sequenze ANSI.
+- [~] Delta robusti per righe con riconnessione su base sequence inattesa;
+  resa ANSI/fullscreen rinviata al terminal mode.
 - [ ] Selezione pane e resize.
 - [x] Stati espliciti per sessione chiusa, disconnessione, backend/tmux non
   disponibile, autenticazione scaduta e conflitto di nome.

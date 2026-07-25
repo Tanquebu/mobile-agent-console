@@ -702,6 +702,8 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
   const outputRef = useRef<HTMLPreElement>(null);
+  const outputLinesRef = useRef<string[]>([]);
+  const outputSequenceRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -716,7 +718,20 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
       socket.onopen = () => { attempts = 0; setConnection("online"); };
       socket.onmessage = (event) => {
         const message = JSON.parse(event.data);
-        if (message.type === "snapshot") setContent(message.content);
+        if (message.type === "snapshot") {
+          outputLinesRef.current = message.content.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+          outputSequenceRef.current = message.sequence_id;
+          setContent(message.content);
+        }
+        if (message.type === "delta") {
+          if (message.base_sequence_id !== outputSequenceRef.current) {
+            socket?.close();
+            return;
+          }
+          outputLinesRef.current.splice(message.start, message.delete_count, ...message.lines);
+          outputSequenceRef.current = message.sequence_id;
+          setContent(outputLinesRef.current.join(""));
+        }
         if (message.type === "session_closed") {
           stopped = true;
           if (timer) clearTimeout(timer);

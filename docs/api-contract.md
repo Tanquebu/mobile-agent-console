@@ -94,6 +94,14 @@ snapshot. Tutte le mutazioni richiedono CSRF.
 {"session_id":"1","content":"...", "captured_at":"2026-07-24T10:00:00Z"}
 ```
 
+## `WS /api/v1/ws/sessions/{id}`
+
+La connessione riceve inizialmente uno `snapshot` completo con `sequence_id`.
+Le modifiche successive sono messaggi `delta` per righe con
+`base_sequence_id`, `sequence_id`, `start`, `delete_count` e `lines`. Il client
+applica un delta soltanto se la sua sequenza corrente coincide con la base;
+altrimenti riconnette per ottenere un nuovo snapshot autorevole.
+
 ## `GET /api/v1/sessions/{id}/directory`
 
 Richiede il cookie di sessione. Elenca il contenuto della working directory
