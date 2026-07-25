@@ -36,6 +36,7 @@ class TmuxGateway(Protocol):
     async def send_key(self, session_id: str, key: str) -> None: ...
     async def terminate_session(self, session_id: str) -> None: ...
     async def check_server(self) -> str | None: ...
+    async def pane_path(self, session_id: str) -> str: ...
 
 
 class TmuxService:
@@ -162,3 +163,8 @@ class TmuxService:
     async def terminate_session(self, session_id: str) -> None:
         target = self.validate_target(session_id)
         await self._run("kill-session", "-t", target)
+
+    async def pane_path(self, session_id: str) -> str:
+        target = self.validate_target(session_id)
+        raw = await self._run("display-message", "-p", "-t", target, "#{pane_current_path}")
+        return raw.decode(errors="replace").strip()

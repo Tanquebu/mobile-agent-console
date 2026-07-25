@@ -49,6 +49,7 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .actions button.secondary { border: 1px solid #3a5142; background: #1b2820; color: #d2e3d7; }
 .actions button:disabled { opacity: .45; cursor: default; }
 .utility-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.utility-actions .full-width { grid-column: 1 / -1; }
 .utility-actions button, .special-actions button { min-height: 40px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .78rem; font-weight: 700; }
 .special-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
 .utility-actions button.danger, .special-actions button.danger { border-color: #704039; color: #ffaaa0; }
@@ -75,6 +76,15 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .whats-new { border: 1px solid #31533c; border-radius: 16px; padding: 16px; background: #17261c; }
 .whats-new h3 { margin: 7px 0 5px; font-size: 1rem; }
 .whats-new p { margin: 0; color: #a9bcaf; line-height: 1.45; }
+.directory-modal h2 { margin: 4px 0 0; font-size: .95rem; font-family: ui-monospace, monospace; word-break: break-all; color: #b8c9bd; }
+.directory-list { display: grid; gap: 8px; margin: 18px 0 0; padding: 0; list-style: none; }
+.directory-entry { display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: "type name copy" "meta meta copy"; align-items: center; gap: 4px 10px; border: 1px solid #263b2d; border-radius: 12px; padding: 10px 12px; background: #101713; }
+.directory-type { grid-area: type; padding: 2px 7px; border-radius: 6px; background: #1e2b23; color: #8ee2aa; font-size: .64rem; font-weight: 800; letter-spacing: .04em; }
+.directory-type.file { color: #9fb3a6; background: #1c2620; }
+.directory-name { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #edf5ef; }
+.directory-meta { grid-area: meta; color: #91a397; font-size: .74rem; }
+.directory-copy { grid-area: copy; min-height: 36px; padding: 0 12px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .74rem; font-weight: 700; }
+.directory-list li.empty { border: 0; background: none; padding: 8px 0; }
 @media (min-width: 720px) {
   body { padding: 24px; background: #080b09; }
   .shell, .console { min-height: calc(100vh - 48px); height: calc(100vh - 48px); border: 1px solid #26352c; border-radius: 20px; overflow: hidden; }

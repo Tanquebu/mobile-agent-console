@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import stat
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -26,6 +27,8 @@ from .schemas import (
     ConfigView,
     ConfirmedAction,
     CreateSessionInput,
+    DirectoryEntryView,
+    DirectoryView,
     KeyInput,
     LoginInput,
     LoginResult,
@@ -39,6 +42,37 @@ from .services.attachment_service import AttachmentError, AttachmentService
 from .services.tmux_service import SessionNotFound, TmuxError, TmuxGateway, TmuxService
 
 logger = logging.getLogger("mobile_agent_console")
+
+DIRECTORY_ENTRY_LIMIT = 2000
+
+
+def _list_directory(directory: Path) -> tuple[list[DirectoryEntryView], bool]:
+    with os.scandir(directory) as iterator:
+        raw_entries = sorted(
+            iterator, key=lambda item: (not item.is_dir(follow_symlinks=False), item.name.lower())
+        )
+    truncated = len(raw_entries) > DIRECTORY_ENTRY_LIMIT
+    entries = []
+    for item in raw_entries[:DIRECTORY_ENTRY_LIMIT]:
+        info = item.stat(follow_symlinks=False)
+        if item.is_dir(follow_symlinks=False):
+            kind = "dir"
+        elif item.is_file(follow_symlinks=False):
+            kind = "file"
+        else:
+            kind = "other"
+        # st_birthtime esiste solo su alcuni filesystem/piattaforme; senza,
+        # usiamo il ctime (ultima modifica dei metadati) come approssimazione.
+        created = getattr(info, "st_birthtime", None) or info.st_ctime
+        entries.append(
+            DirectoryEntryView(
+                name=item.name,
+                type=kind,
+                size=info.st_size if kind == "file" else None,
+                created_at=datetime.fromtimestamp(created, tz=UTC),
+            )
+        )
+    return entries, truncated
 
 
 def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None) -> FastAPI:
@@ -194,6 +228,28 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         except SessionNotFound as exc:
             raise HTTPException(404, "Session not found") from exc
         return OutputView(session_id=session_id, content=content, captured_at=datetime.now(UTC))
+
+    @app.get(
+        "/api/v1/sessions/{session_id}/directory",
+        response_model=DirectoryView,
+        dependencies=[Depends(security.require_session)],
+    )
+    async def session_directory(session_id: str) -> DirectoryView:
+        try:
+            raw_path = await gateway.pane_path(session_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except SessionNotFound as exc:
+            raise HTTPException(404, "Session not found") from exc
+        directory = Path(raw_path).resolve()
+        roots = [Path(root).resolve() for root in settings.allowed_roots]
+        if not any(directory == root or root in directory.parents for root in roots):
+            raise HTTPException(400, "Directory is not allowed")
+        try:
+            entries, truncated = await asyncio.to_thread(_list_directory, directory)
+        except OSError as exc:
+            raise HTTPException(404, "Directory not found") from exc
+        return DirectoryView(session_id=session_id, path=str(directory), entries=entries, truncated=truncated)
 
     @app.post(
         "/api/v1/sessions/{session_id}/attachments",

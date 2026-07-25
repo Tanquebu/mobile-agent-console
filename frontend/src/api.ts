@@ -134,6 +134,25 @@ export async function createSession(name: string, directory: string) {
   });
 }
 
+export type DirectoryEntry = {
+  name: string;
+  type: "dir" | "file" | "other";
+  size: number | null;
+  created_at: string | null;
+};
+
+export type DirectoryListing = {
+  session_id: string;
+  path: string;
+  entries: DirectoryEntry[];
+  truncated: boolean;
+};
+
+export async function fetchDirectory(id: string): Promise<DirectoryListing> {
+  const response = await request(`/api/v1/sessions/${encodeURIComponent(id)}/directory`);
+  return response.json();
+}
+
 export function streamUrl(id: string): string {
   const url = new URL(window.location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";

@@ -134,3 +134,12 @@ def test_terminate_targets_session_id(monkeypatch) -> None:
     recorder = Recorder(monkeypatch)
     asyncio.run(TmuxService("test").terminate_session("7"))
     assert recorder.calls[0][-3:] == ("kill-session", "-t", "$7")
+
+
+def test_pane_path_targets_active_pane(monkeypatch) -> None:
+    recorder = Recorder(monkeypatch, stdout=b"/workspace/demo\n")
+    path = asyncio.run(TmuxService("test").pane_path("7"))
+    assert path == "/workspace/demo"
+    call = recorder.calls[0]
+    assert call[call.index("-t") + 1] == "$7"
+    assert call[-1] == "#{pane_current_path}"

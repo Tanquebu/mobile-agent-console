@@ -79,6 +79,13 @@ API specifiche di Codex, Claude o altri agenti.
   completare.
 - [ ] Preferenze.
 - [ ] Terminal mode xterm.js e tasti speciali.
+- [x] Rinominare il pulsante "Tasti speciali" in "Funzioni speciali".
+- [x] Modale "Contenuto directory": elenco di file e cartelle della working
+  directory della sessione (nome, tipo, dimensione, data di creazione) con
+  pulsante di copy per voce, per agevolare comandi successivi (`cat`, `cd`,
+  ecc.). Endpoint di sola lettura `GET /sessions/{id}/directory` che elenca
+  la directory di lavoro corrente del pane lato server (mai un path
+  arbitrario proveniente dal client) rispettando `MAC_ALLOWED_ROOTS`.
 - [x] Form di creazione sessione responsive anche con path molto lunghi.
 - [x] Autoscroll intelligente: pausa quando l'utente risale l'output e
   ripresa esplicita tramite pulsante.

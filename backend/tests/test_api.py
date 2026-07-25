@@ -180,6 +180,60 @@ def test_create_session_requires_allowed_directory() -> None:
     assert denied.status_code == 400
 
 
+def test_session_directory_lists_entries(tmp_path) -> None:
+    (tmp_path / "notes.txt").write_text("hello")
+    (tmp_path / "archive.tar.gz").write_bytes(b"0" * 42)
+    (tmp_path / "src").mkdir()
+    fake = FakeTmux()
+    fake.directory = str(tmp_path)
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+    )
+    client = TestClient(create_app(settings, fake))
+    assert client.get("/api/v1/sessions/1/directory").status_code == 401
+    login(client)
+    response = client.get("/api/v1/sessions/1/directory")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["session_id"] == "1"
+    assert body["path"] == str(tmp_path)
+    assert body["truncated"] is False
+    names = [entry["name"] for entry in body["entries"]]
+    assert names == ["src", "archive.tar.gz", "notes.txt"]
+    by_name = {entry["name"]: entry for entry in body["entries"]}
+    assert by_name["src"]["type"] == "dir"
+    assert by_name["src"]["size"] is None
+    assert by_name["archive.tar.gz"]["type"] == "file"
+    assert by_name["archive.tar.gz"]["size"] == 42
+    assert by_name["notes.txt"]["created_at"] is not None
+
+
+def test_session_directory_requires_allowed_root(tmp_path) -> None:
+    fake = FakeTmux()
+    fake.directory = "/etc"
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+    )
+    client = TestClient(create_app(settings, fake))
+    login(client)
+    assert client.get("/api/v1/sessions/1/directory").status_code == 400
+
+
+def test_session_directory_missing_and_invalid_session() -> None:
+    client, _ = client_and_fake()
+    login(client)
+    assert client.get("/api/v1/sessions/9/directory").status_code == 404
+    assert client.get("/api/v1/sessions/not-numeric/directory").status_code == 400
+
+
 def test_upload_attachment_and_reference_it_in_prompt(tmp_path) -> None:
     fake = FakeTmux()
     settings = Settings(

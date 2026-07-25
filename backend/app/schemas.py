@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -38,6 +39,20 @@ class AttachmentView(BaseModel):
     media_type: str
     size: int
     path: str
+
+
+class DirectoryEntryView(BaseModel):
+    name: str
+    type: Literal["file", "dir", "other"]
+    size: int | None = None
+    created_at: datetime | None = None
+
+
+class DirectoryView(BaseModel):
+    session_id: str
+    path: str
+    entries: list[DirectoryEntryView]
+    truncated: bool = False
 
 
 class KeyInput(BaseModel):

@@ -10,6 +10,7 @@ class FakeTmux:
         self.keys: list[str] = []
         self.terminated: list[str] = []
         self.server_down = False
+        self.directory = "/workspace"
 
     async def check_server(self) -> str | None:
         return "no server running" if self.server_down else None
@@ -44,3 +45,9 @@ class FakeTmux:
         if session_id != "1":
             raise SessionNotFound(session_id)
         self.terminated.append(session_id)
+
+    async def pane_path(self, session_id: str) -> str:
+        TmuxService.validate_target(session_id)
+        if session_id != "1":
+            raise SessionNotFound(session_id)
+        return self.directory

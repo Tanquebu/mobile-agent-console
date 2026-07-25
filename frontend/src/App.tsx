@@ -3,7 +3,10 @@ import {
   Attachment,
   createSession,
   deleteAttachment,
+  DirectoryEntry,
+  DirectoryListing,
   fetchConfig,
+  fetchDirectory,
   login,
   listSessions,
   restoreSession,
@@ -19,10 +22,110 @@ import {
 type Connection = "connecting" | "online" | "offline";
 
 const LATEST_RELEASE = {
-  title: "Controlli sessione confermati",
+  title: "Contenuto directory",
   description:
-    "Aggiunti Up, Down, Esc, Ctrl-C con conferma e terminazione esplicita della sessione.",
+    "Nuovo pulsante \"Contenuto directory\" con l'elenco di file e cartelle della directory corrente e copy rapido per ogni voce; \"Tasti speciali\" è ora \"Funzioni speciali\".",
 };
+
+function formatSize(size: number | null): string {
+  if (size === null) return "—";
+  if (size < 1024) return `${size} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = size / 1024;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unitIndex]}`;
+}
+
+function formatDate(value: string | null): string {
+  if (!value) return "—";
+  return new Date(value).toLocaleString();
+}
+
+function shellQuote(name: string): string {
+  return /^[\w.-]+$/.test(name) ? name : `'${name.replace(/'/g, "'\\''")}'`;
+}
+
+function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
+  const [listing, setListing] = useState<DirectoryListing | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [copiedName, setCopiedName] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    fetchDirectory(sessionId)
+      .then((result) => { if (!cancelled) setListing(result); })
+      .catch((value) => { if (!cancelled) setError(value instanceof Error ? value.message : String(value)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [sessionId]);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  async function copy(entry: DirectoryEntry) {
+    try {
+      await navigator.clipboard.writeText(shellQuote(entry.name));
+      setCopiedName(entry.name);
+      window.setTimeout(() => setCopiedName(""), 1500);
+    } catch {
+      setError("Copia negli appunti non riuscita.");
+    }
+  }
+
+  return (
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section className="help-modal directory-modal" role="dialog" aria-modal="true" aria-labelledby="directory-title">
+        <header>
+          <div>
+            <span className="eyebrow">CONTENUTO DIRECTORY</span>
+            <h2 id="directory-title">{listing?.path ?? "…"}</h2>
+          </div>
+          <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+        </header>
+        {loading && <p className="empty">Caricamento…</p>}
+        {error && <p className="error">{error}</p>}
+        {!loading && !error && listing && (
+          <>
+            <ul className="directory-list">
+              {listing.entries.map((entry) => (
+                <li key={entry.name} className="directory-entry">
+                  <span className={`directory-type ${entry.type}`}>
+                    {entry.type === "dir" ? "DIR" : entry.type === "file" ? "FILE" : "?"}
+                  </span>
+                  <span className="directory-name" title={entry.name}>{entry.name}</span>
+                  <span className="directory-meta">{formatSize(entry.size)} · {formatDate(entry.created_at)}</span>
+                  <button type="button" className="directory-copy" onClick={() => void copy(entry)}>
+                    {copiedName === entry.name ? "Copiato" : "Copy"}
+                  </button>
+                </li>
+              ))}
+              {listing.entries.length === 0 && <li className="empty">Directory vuota.</li>}
+            </ul>
+            {listing.truncated && <small>Elenco troncato alle prime 2000 voci.</small>}
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
 
 function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) => void; onUnauthorized: () => void }) {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -128,7 +231,8 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
               <li><strong>Crea o apri una sessione.</strong> Le sessioni continuano a vivere in tmux.</li>
               <li><strong>Invia il prompt.</strong> Il testo e il tasto Enter restano azioni separate.</li>
               <li><strong>Allega file.</strong> Immagini e documenti vengono referenziati tramite path.</li>
-              <li><strong>Controlla l’agente.</strong> Up, Down ed Esc sono disponibili nei tasti speciali.</li>
+              <li><strong>Controlla l’agente.</strong> Up, Down ed Esc sono disponibili nelle funzioni speciali.</li>
+              <li><strong>Consulta la directory.</strong> "Contenuto directory" elenca file e cartelle della sessione con copy rapido per nome.</li>
               <li><strong>Interrompi con cautela.</strong> Ctrl-C ferma il processo; Termina chiude tutta la sessione.</li>
             </ol>
             <aside className="whats-new">
@@ -152,6 +256,7 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
   const [deletingAttachmentId, setDeletingAttachmentId] = useState("");
   const [followingOutput, setFollowingOutput] = useState(true);
   const [showSpecialKeys, setShowSpecialKeys] = useState(false);
+  const [showDirectory, setShowDirectory] = useState(false);
   const [controlError, setControlError] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
@@ -340,14 +445,17 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
             aria-expanded={showSpecialKeys}
             onClick={() => setShowSpecialKeys((value) => !value)}
           >
-            Tasti speciali
+            Funzioni speciali
           </button>
-          <button type="button" className="danger" onClick={() => void terminateCurrentSession()}>
+          <button type="button" className="secondary" onClick={() => setShowDirectory(true)}>
+            Contenuto directory
+          </button>
+          <button type="button" className="danger full-width" onClick={() => void terminateCurrentSession()}>
             Termina sessione
           </button>
         </div>
         {showSpecialKeys && (
-          <div className="special-actions" aria-label="Tasti speciali">
+          <div className="special-actions" aria-label="Funzioni speciali">
             <button type="button" onClick={() => void pressSpecialKey("Up")}>↑ Up</button>
             <button type="button" onClick={() => void pressSpecialKey("Down")}>↓ Down</button>
             <button type="button" onClick={() => void pressSpecialKey("Escape")}>Esc</button>
@@ -355,6 +463,9 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
               Ctrl-C
             </button>
           </div>
+        )}
+        {showDirectory && (
+          <DirectoryModal sessionId={session.id} onClose={() => setShowDirectory(false)} />
         )}
         <div className="actions">
           <button

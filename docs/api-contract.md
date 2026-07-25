@@ -63,6 +63,33 @@ Risposta `200`:
 {"session_id":"1","content":"...", "captured_at":"2026-07-24T10:00:00Z"}
 ```
 
+## `GET /api/v1/sessions/{id}/directory`
+
+Richiede il cookie di sessione. Elenca il contenuto della working directory
+corrente del pane (`#{pane_current_path}` tmux, non la directory di
+creazione della sessione), purché ricada ancora sotto una root consentita —
+stessa validazione di `POST /sessions`. Utile per popolare comandi come
+`cat`/`cd` dal client senza eseguire shell arbitrarie lato client.
+
+```json
+{
+  "session_id": "1",
+  "path": "/workspace/demo",
+  "truncated": false,
+  "entries": [
+    {"name": "src", "type": "dir", "size": null, "created_at": "2026-07-20T09:00:00Z"},
+    {"name": "notes.txt", "type": "file", "size": 42, "created_at": "2026-07-24T10:00:00Z"}
+  ]
+}
+```
+
+`type` è `dir`, `file` o `other` (socket, symlink rotto, ecc.); `size` è
+`null` per le voci non-file. `created_at` è il birth time del filesystem
+quando disponibile, altrimenti il ctime (data dell'ultima modifica dei
+metadati) come approssimazione — non garantito su tutti i filesystem. Le
+directory con più di 2000 voci vengono troncate (`truncated:true`), elencando
+solo le prime 2000 in ordine cartelle-poi-file, alfabetico case-insensitive.
+
 ## `POST /api/v1/sessions/{id}/input`
 
 Body `{"text":"...multiline...","attachment_ids":[]}`; massimo 65536
