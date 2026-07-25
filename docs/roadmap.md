@@ -83,6 +83,8 @@ API specifiche di Codex, Claude o altri agenti.
 - [x] Autoscroll intelligente: pausa quando l'utente risale l'output e
   ripresa esplicita tramite pulsante.
 - [x] Contenimento mobile dell'output e scroll limitato al riquadro terminale.
+- [x] Guida rapida in-app con “What's new” limitato all'ultima funzionalità
+  rilasciata.
 
 Integrazione con sistemi esterni di monitoraggio degli agenti: un daemon
 che osservi i pane sullo stesso server tmux host e ne classifichi lo stato

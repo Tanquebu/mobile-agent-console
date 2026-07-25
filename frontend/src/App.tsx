@@ -18,6 +18,12 @@ import {
 
 type Connection = "connecting" | "online" | "offline";
 
+const LATEST_RELEASE = {
+  title: "Controlli sessione confermati",
+  description:
+    "Aggiunti Up, Down, Esc, Ctrl-C con conferma e terminazione esplicita della sessione.",
+};
+
 function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) => void; onUnauthorized: () => void }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [error, setError] = useState("");
@@ -26,6 +32,7 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
   const [directory, setDirectory] = useState("");
   const [presets, setPresets] = useState<[string, string][]>([]);
   const [customDirectory, setCustomDirectory] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
     listSessions().then(setSessions).catch((value) => {
@@ -41,11 +48,25 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
       .catch(() => { /* il campo resta vuoto, l'utente può digitare */ });
   }, []);
 
+  useEffect(() => {
+    if (!showHelp) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowHelp(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [showHelp]);
+
   return (
     <main className="shell">
       <header className="topbar">
         <div><span className="eyebrow">TMUX / PRIVATE NETWORK</span><h1>Sessions</h1></div>
-        <span className="count">{sessions.length}</span>
+        <div className="topbar-actions">
+          <button className="help-button" onClick={() => setShowHelp(true)} aria-label="Apri guida">
+            ?
+          </button>
+          <span className="count">{sessions.length}</span>
+        </div>
       </header>
       <button className="new-session" onClick={() => setCreating((value) => !value)}>+ Nuova sessione</button>
       {creating && <form className="create-form" onSubmit={async (event) => {
@@ -85,6 +106,39 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
         ))}
         {!error && sessions.length === 0 && <p className="empty">Nessuna sessione sul socket configurato.</p>}
       </section>
+      {showHelp && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setShowHelp(false);
+          }}
+        >
+          <section className="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+            <header>
+              <div>
+                <span className="eyebrow">GUIDA RAPIDA</span>
+                <h2 id="help-title">Mobile Agent Console</h2>
+              </div>
+              <button className="modal-close" onClick={() => setShowHelp(false)} aria-label="Chiudi">
+                ×
+              </button>
+            </header>
+            <ol>
+              <li><strong>Crea o apri una sessione.</strong> Le sessioni continuano a vivere in tmux.</li>
+              <li><strong>Invia il prompt.</strong> Il testo e il tasto Enter restano azioni separate.</li>
+              <li><strong>Allega file.</strong> Immagini e documenti vengono referenziati tramite path.</li>
+              <li><strong>Controlla l’agente.</strong> Up, Down ed Esc sono disponibili nei tasti speciali.</li>
+              <li><strong>Interrompi con cautela.</strong> Ctrl-C ferma il processo; Termina chiude tutta la sessione.</li>
+            </ol>
+            <aside className="whats-new">
+              <span className="eyebrow">WHAT’S NEW</span>
+              <h3>{LATEST_RELEASE.title}</h3>
+              <p>{LATEST_RELEASE.description}</p>
+            </aside>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

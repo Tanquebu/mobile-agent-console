@@ -22,6 +22,8 @@ generic terminal, with no dependency on any specific vendor or tool.
   Enter if needed;
 - special-key controls for permission prompts, plus explicitly confirmed
   interrupt and session termination actions;
+- an in-app quick guide whose “What's new” section shows only the latest
+  shipped roadmap item;
 - directory suggestions in the new-session form, prefilled from the
   backend's allowed roots and optionally from your own presets
   (`MAC_WORKSPACE_PRESETS=label=path,...` in `.env`);
