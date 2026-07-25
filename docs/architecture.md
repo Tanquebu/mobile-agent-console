@@ -52,6 +52,10 @@ persistente del workspace. L'avvio applica le migrazioni prima di esporre il
 backend. tmux resta autorevole per le sessioni vive; output, prompt, file e
 segreti non sono salvati nel database.
 
+L'autenticazione usa la tabella `users`: il primo avvio crea l'amministratore
+dal secret di bootstrap e salva soltanto un hash Argon2id. I successivi login
+interrogano il database, non confrontano la password con il secret runtime.
+
 ## Streaming
 
 Ogni connessione riceve uno snapshot, poi il backend cattura il pane ogni 500

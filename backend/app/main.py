@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 from .config import Settings, get_settings
+from .database import Database
 from .schemas import (
     Accepted,
     AttachmentView,
@@ -60,6 +61,7 @@ from .services.snapshot_service import (
     SnapshotSession,
 )
 from .services.tmux_service import SessionNotFound, TmuxError, TmuxGateway, TmuxService
+from .services.user_service import UserService
 
 logger = logging.getLogger("mobile_agent_console")
 
@@ -166,6 +168,8 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     )
     snapshots = SnapshotService(settings.snapshots_root)
     rate_limiter = FixedWindowRateLimiter()
+    database = Database(settings.database_path) if settings.database_auth_enabled else None
+    users = UserService(database.engine) if database else None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -200,6 +204,8 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
                 await cleanup_task
             except asyncio.CancelledError:
                 pass
+            if database:
+                database.dispose()
 
     app = FastAPI(title="Mobile Agent Console", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
@@ -253,7 +259,12 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
                 "Too many login attempts",
                 headers={"Retry-After": str(retry_after)},
             )
-        if not security.authenticate_password(payload.password):
+        if users:
+            user = await asyncio.to_thread(users.authenticate, payload.username, payload.password)
+            authenticated = user is not None
+        else:
+            authenticated = security.authenticate_password(payload.password)
+        if not authenticated:
             raise HTTPException(401, "Invalid credentials")
         cookie, csrf = security.issue_session()
         response.set_cookie(

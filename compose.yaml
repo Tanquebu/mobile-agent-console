@@ -47,6 +47,8 @@ services:
       MAC_ATTACHMENTS_PROMPT_ROOT: /workspace/.agent-attachments
       MAC_SNAPSHOTS_ROOT: /workspace/.agent-snapshots
       MAC_DATABASE_PATH: /workspace/.mobile-agent-console/app.db
+      MAC_DATABASE_AUTH_ENABLED: "true"
+      MAC_BOOTSTRAP_USERNAME: ${MAC_BOOTSTRAP_USERNAME:-admin}
       MAC_MAX_ATTACHMENT_BYTES: ${MAC_MAX_ATTACHMENT_BYTES:-10485760}
       MAC_ATTACHMENT_TTL_SECONDS: ${MAC_ATTACHMENT_TTL_SECONDS:-86400}
     secrets: [mac_login_password, mac_session_secret]

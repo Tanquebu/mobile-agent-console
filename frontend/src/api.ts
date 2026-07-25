@@ -60,10 +60,10 @@ async function request(path: string, init?: RequestInit) {
   return response;
 }
 
-export async function login(password: string): Promise<void> {
+export async function login(username: string, password: string): Promise<void> {
   const response = await request("/api/v1/auth/login", {
     method: "POST",
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ username, password }),
   });
   csrfToken = (await response.json()).csrf_token;
 }

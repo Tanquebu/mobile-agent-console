@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     attachments_root: str = "/workspace/.agent-attachments"
     snapshots_root: str = "/workspace/.agent-snapshots"
     database_path: str = "/workspace/.mobile-agent-console/app.db"
+    database_auth_enabled: bool = False
+    bootstrap_username: str = Field(default="admin", pattern=r"^[A-Za-z0-9_-]{1,64}$")
     attachments_prompt_root: str | None = None
     max_attachment_bytes: int = Field(default=10 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
     attachment_ttl_seconds: int = Field(default=86400, ge=300, le=30 * 86400)

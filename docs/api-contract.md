@@ -89,6 +89,10 @@ snapshot. Tutte le mutazioni richiedono CSRF.
 Login e mutazioni sono soggetti a finestre di rate limit configurabili. Quando
 il limite è superato l'API risponde `429` e include l'header `Retry-After`.
 
+`POST /api/v1/auth/login` accetta `{"username":"admin","password":"..."}`.
+L'username predefinito resta `admin` per compatibilità con i deployment
+single-user; la password è verificata contro l'hash Argon2id persistente.
+
 ## `GET /api/v1/sessions/{id}/output?lines=500`
 
 `lines` è 1..2000. Risposta:

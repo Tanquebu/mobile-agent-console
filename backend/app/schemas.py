@@ -151,6 +151,7 @@ class Accepted(BaseModel):
 
 
 class LoginInput(BaseModel):
+    username: str = Field(default="admin", pattern=r"^[A-Za-z0-9_-]{1,64}$")
     password: str = Field(min_length=1, max_length=1024)
 
 

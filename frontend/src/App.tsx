@@ -1068,6 +1068,7 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
 export default function App() {
   const [active, setActive] = useState<Session | null>(null);
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   useEffect(() => {
@@ -1082,7 +1083,7 @@ export default function App() {
         <form onSubmit={async (event) => {
           event.preventDefault();
           try {
-            await login(password);
+            await login(username, password);
             setAuthenticated(true);
             setLoginError("");
           } catch {
@@ -1091,7 +1092,15 @@ export default function App() {
         }}>
           <span className="eyebrow">PRIVATE CONSOLE</span>
           <h1>Accedi</h1>
-          <p>La password resta sul server e non viene inclusa nell'app.</p>
+          <p>Le credenziali sono verificate dal server e non vengono incluse nell'app.</p>
+          <input
+            type="text"
+            autoComplete="username"
+            aria-label="Nome utente"
+            placeholder="Nome utente"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+          />
           <input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
           <button type="submit">Continua</button>
           {loginError && <p className="error">{loginError}</p>}

@@ -24,11 +24,12 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Confused deputy | permessi espliciti per create/interrupt/terminate e profili server-side |
 | Snapshot manipolati | file UUID mode 0600, schema validato, path nuovamente sottoposti ad allowlist e soli comandi resume costanti |
 | Database locale | path privato nel workspace, nessun prompt/output/segreto, migrazioni versionate |
+| Password account | solo hash Argon2id nel database; secret usato esclusivamente per bootstrap iniziale |
 
 ## Rischi residui del vertical slice
 
-La password condivisa resta un limite single-user e sarà sostituita da account
-con hash Argon2. Nessun segreto entra nel bundle o nelle immagini: Compose
+L'account amministratore persistente resta single-user in questa fase; ruoli e
+gestione account arriveranno separatamente. Nessun segreto entra nel bundle o nelle immagini: Compose
 monta file ignorati da Git. tmux eredita l'autorità dell'utente Linux, quindi la
 compromissione del backend equivale alla compromissione di quell'utente.
 

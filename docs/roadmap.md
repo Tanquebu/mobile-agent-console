@@ -38,7 +38,8 @@
 
 - [x] SQLite/SQLAlchemy con migrazioni Alembic e storage persistente
   validati sull'istanza pubblicata.
-- [ ] Login con hash Argon2.
+- [x] Login con account persistente e hash Argon2id validato sull'istanza
+  pubblicata.
 - [x] Cookie HttpOnly/SameSite.
 - [x] Protezione CSRF.
 - [ ] Ruoli.

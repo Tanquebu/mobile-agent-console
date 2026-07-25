@@ -30,3 +30,8 @@ filesystem restano autorità rispettivamente per sessioni attive e file.
 - un futuro multi-host richiederà rivalutare il metadata store;
 - ogni modifica allo schema richiede una nuova revisione Alembic, senza
   modificare retroattivamente revisioni già distribuite.
+
+La revisione `0002` introduce gli utenti persistenti. Se la tabella è vuota,
+l'avvio crea un solo amministratore usando username configurabile e la password
+secret già prevista dal deployment; viene memorizzato esclusivamente l'hash
+Argon2id. Dopo il bootstrap il secret non viene più letto per autenticare.
