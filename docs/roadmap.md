@@ -49,8 +49,8 @@
 - [ ] Audit metadata.
 - [~] Unit systemd da completare e validare per entrambe le modalità tmux.
 - [ ] Backup.
-- [~] Snapshot persistenti create/list/restore/delete per riavvio VPS;
-  da confermare end-to-end sull'istanza pubblicata.
+- [x] Snapshot persistenti create/list/restore/delete verificati end-to-end
+  dopo riavvio VPS.
 - [ ] Gate: deployment Tailscale verificato senza porta pubblica.
 
 ### M2A — Allegati minimali ai prompt
