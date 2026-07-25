@@ -16,13 +16,20 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .count { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; background: #1e2b23; color: #9be5b3; }
 .help-button { display: grid; place-items: center; width: 36px; min-height: 36px; border: 1px solid #3a5142; border-radius: 50%; background: transparent; color: #d2e3d7; font-weight: 800; }
 .session-list { display: grid; gap: 10px; padding: 0 14px 24px; }
+.session-item { display: grid; gap: 6px; }
+.session-row { display: flex; align-items: stretch; gap: 8px; }
 .new-session { margin: 0 14px 12px; width: calc(100% - 28px); border: 1px solid #3a5142; border-radius: 12px; background: #1b2820; color: #d2e3d7; }
 .create-form { display: grid; gap: 8px; padding: 0 14px 12px; }
 .create-form input, .create-form select { width: 100%; min-width: 0; min-height: 44px; border: 1px solid #344b3b; border-radius: 12px; padding: 10px; background: #18231c; color: white; }
 .create-form select { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .create-form button { border: 0; border-radius: 12px; background: #75d493; color: #092111; font-weight: 750; }
-.session-card { display: flex; align-items: center; gap: 13px; width: 100%; border: 1px solid #293a30; border-radius: 16px; padding: 14px; color: inherit; background: #172019; text-align: left; }
+.session-card { display: flex; align-items: center; gap: 13px; flex: 1; min-width: 0; border: 1px solid #293a30; border-radius: 16px; padding: 14px; color: inherit; background: #172019; text-align: left; }
 .session-card:hover { border-color: #4f7a5c; background: #1a261e; }
+.session-menu { flex: 0 0 44px; width: 44px; border: 1px solid #293a30; border-radius: 14px; background: #172019; color: #a9bcaf; font-size: 1.35rem; font-weight: 800; }
+.session-menu[aria-expanded="true"] { border-color: #4f7a5c; background: #1e2b23; color: #9be5b3; }
+.session-toolbar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-left: 57px; }
+.session-toolbar button { min-height: 38px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .78rem; font-weight: 700; }
+.session-toolbar button.danger { border-color: #704039; color: #ffaaa0; }
 .session-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: #25382b; color: #8ee2aa; font: 700 .82rem ui-monospace, monospace; }
 .session-copy { display: grid; gap: 4px; flex: 1; }
 .session-copy small, .console-header small { color: #91a397; }
@@ -49,7 +56,6 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .actions button.secondary { border: 1px solid #3a5142; background: #1b2820; color: #d2e3d7; }
 .actions button:disabled { opacity: .45; cursor: default; }
 .utility-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
-.utility-actions .full-width { grid-column: 1 / -1; }
 .utility-actions button, .special-actions button { min-height: 40px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .78rem; font-weight: 700; }
 .special-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
 .utility-actions button.danger, .special-actions button.danger { border-color: #704039; color: #ffaaa0; }

@@ -25,9 +25,9 @@ import {
 type Connection = "connecting" | "online" | "offline";
 
 const LATEST_RELEASE = {
-  title: "Rinomina sessioni",
+  title: "Azioni sessione in dashboard",
   description:
-    "Le sessioni possono essere rinominate dalla console e i nomi possono contenere spazi tra le parole.",
+    "Rinomina e termina sono ora raccolte nella toolbar di ciascuna sessione in dashboard.",
 };
 
 function formatSize(size: number | null): string {
@@ -252,6 +252,7 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
   const [presets, setPresets] = useState<[string, string][]>([]);
   const [customDirectory, setCustomDirectory] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [openActionsId, setOpenActionsId] = useState<string | null>(null);
 
   useEffect(() => {
     listSessions().then(setSessions).catch((value) => {
@@ -275,6 +276,36 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [showHelp]);
+
+  async function renameListedSession(session: Session) {
+    const nextName = window.prompt("Nuovo nome della sessione", session.name)?.trim();
+    if (!nextName || nextName === session.name) return;
+    setError("");
+    try {
+      await renameSession(session.id, nextName);
+      setSessions((items) => items.map((item) => (
+        item.id === session.id ? { ...item, name: nextName } : item
+      )));
+      setOpenActionsId(null);
+    } catch (value) {
+      setError(value instanceof Error ? value.message : String(value));
+    }
+  }
+
+  async function terminateListedSession(session: Session) {
+    const confirmed = window.confirm(
+      `Terminare definitivamente la sessione “${session.name}”?`,
+    );
+    if (!confirmed) return;
+    setError("");
+    try {
+      await terminateSession(session.id);
+      setSessions((items) => items.filter((item) => item.id !== session.id));
+      setOpenActionsId(null);
+    } catch (value) {
+      setError(value instanceof Error ? value.message : String(value));
+    }
+  }
 
   return (
     <main className="shell">
@@ -322,14 +353,37 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
       {error && <p className="error">{error}</p>}
       <section className="session-list">
         {sessions.map((session) => (
-          <button className="session-card" key={session.id} onClick={() => onOpen(session)}>
-            <span className="session-icon">&gt;_</span>
-            <span className="session-copy">
-              <strong>{session.name}</strong>
-              <small>{session.current_command} · {session.windows} window</small>
-            </span>
-            <span className="chevron">›</span>
-          </button>
+          <article className="session-item" key={session.id}>
+            <div className="session-row">
+              <button className="session-card" onClick={() => onOpen(session)}>
+                <span className="session-icon">&gt;_</span>
+                <span className="session-copy">
+                  <strong>{session.name}</strong>
+                  <small>{session.current_command} · {session.windows} window</small>
+                </span>
+                <span className="chevron">›</span>
+              </button>
+              <button
+                type="button"
+                className="session-menu"
+                aria-label={`Azioni per ${session.name}`}
+                aria-expanded={openActionsId === session.id}
+                onClick={() => setOpenActionsId((value) => value === session.id ? null : session.id)}
+              >
+                ⋮
+              </button>
+            </div>
+            {openActionsId === session.id && (
+              <div className="session-toolbar" role="toolbar" aria-label={`Azioni per ${session.name}`}>
+                <button type="button" onClick={() => void renameListedSession(session)}>
+                  Rinomina
+                </button>
+                <button type="button" className="danger" onClick={() => void terminateListedSession(session)}>
+                  Termina
+                </button>
+              </div>
+            )}
+          </article>
         ))}
         {!error && sessions.length === 0 && <p className="empty">Nessuna sessione sul socket configurato.</p>}
       </section>
@@ -372,7 +426,6 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
 }
 
 function Console({ session, onBack }: { session: Session; onBack: () => void }) {
-  const [sessionName, setSessionName] = useState(session.name);
   const [content, setContent] = useState("");
   const [draft, setDraft] = useState("");
   const [connection, setConnection] = useState<Connection>("connecting");
@@ -498,37 +551,11 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
     }
   }
 
-  async function terminateCurrentSession() {
-    const confirmed = window.confirm(
-      `Terminare definitivamente la sessione “${sessionName}”?`,
-    );
-    if (!confirmed) return;
-    setControlError("");
-    try {
-      await terminateSession(session.id);
-      onBack();
-    } catch (value) {
-      setControlError(value instanceof Error ? value.message : String(value));
-    }
-  }
-
-  async function renameCurrentSession() {
-    const nextName = window.prompt("Nuovo nome della sessione", sessionName)?.trim();
-    if (!nextName || nextName === sessionName) return;
-    setControlError("");
-    try {
-      await renameSession(session.id, nextName);
-      setSessionName(nextName);
-    } catch (value) {
-      setControlError(value instanceof Error ? value.message : String(value));
-    }
-  }
-
   return (
     <main className="console">
       <header className="console-header">
         <button className="icon-button" onClick={onBack} aria-label="Indietro">‹</button>
-        <div><strong>{sessionName}</strong><small>{session.current_command}</small></div>
+        <div><strong>{session.name}</strong><small>{session.current_command}</small></div>
         <span className={`status ${connection}`}>{connection}</span>
       </header>
       <section className="output-wrap">
@@ -586,12 +613,6 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
           </button>
           <button type="button" className="secondary" onClick={() => setShowDirectory(true)}>
             Contenuto directory
-          </button>
-          <button type="button" className="secondary full-width" onClick={() => void renameCurrentSession()}>
-            Rinomina sessione
-          </button>
-          <button type="button" className="danger full-width" onClick={() => void terminateCurrentSession()}>
-            Termina sessione
           </button>
         </div>
         {showSpecialKeys && (

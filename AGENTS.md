@@ -29,7 +29,8 @@ ignorati da Git.
 - I target API sono session id tmux numerici validati con `^\d{1,10}$` e
   trasformati in `$N` soltanto lato server. Non usare il nome della sessione
   come target tmux.
-- I nomi in creazione rispettano `^[A-Za-z0-9_-]{1,64}$`.
+- I nomi in creazione e rinomina hanno al massimo 64 caratteri e rispettano
+  `^[A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+)*$`.
 - Inviare testo libero tramite `load-buffer -` e `paste-buffer`; `Enter` e gli
   altri tasti restano operazioni separate.
 - L'allowlist delle directory è applicata in `backend/app/main.py` con
@@ -65,6 +66,12 @@ Mantenere il frontend a dipendenze minime finché una modifica non richiede
 esplicitamente una struttura diversa.
 
 ## Verifica
+
+Uno step funzionale è concluso soltanto dopo implementazione, verifiche
+automatiche, deploy mirato e test sull'istanza pubblicata. Non chiedere
+all'utente di testare una modifica che non è ancora stata deployata. Durante
+il deploy ricreare soltanto i servizi stateless coinvolti e preservare sempre
+`tmux-runtime`, salvo richiesta esplicita contraria.
 
 Lo stack completo è supportato tramite Docker Compose:
 
