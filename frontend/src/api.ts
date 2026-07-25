@@ -106,9 +106,24 @@ export async function sendText(id: string, text: string, attachmentIds: string[]
 }
 
 export async function sendEnter(id: string) {
+  await sendKey(id, "Enter");
+}
+
+export async function sendKey(
+  id: string,
+  key: "Enter" | "Up" | "Down" | "Escape" | "C-c",
+  confirmed = false,
+) {
   await request(`/api/v1/sessions/${encodeURIComponent(id)}/keys`, {
     method: "POST",
-    body: JSON.stringify({ key: "Enter" }),
+    body: JSON.stringify({ key, confirmed }),
+  });
+}
+
+export async function terminateSession(id: string) {
+  await request(`/api/v1/sessions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ confirmed: true }),
   });
 }
 

@@ -8,6 +8,7 @@ class FakeTmux:
         self.content = "$ "
         self.texts: list[str] = []
         self.keys: list[str] = []
+        self.terminated: list[str] = []
         self.server_down = False
 
     async def check_server(self) -> str | None:
@@ -33,7 +34,13 @@ class FakeTmux:
         self.texts.append(text)
 
     async def send_key(self, session_id: str, key: str) -> None:
-        if key != "Enter":
+        if key not in {"Enter", "Up", "Down", "Escape", "C-c"}:
             raise ValueError("Unsupported key")
         TmuxService.validate_target(session_id)
         self.keys.append(key)
+
+    async def terminate_session(self, session_id: str) -> None:
+        TmuxService.validate_target(session_id)
+        if session_id != "1":
+            raise SessionNotFound(session_id)
+        self.terminated.append(session_id)

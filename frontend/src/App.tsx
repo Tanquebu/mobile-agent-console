@@ -8,9 +8,11 @@ import {
   listSessions,
   restoreSession,
   sendEnter,
+  sendKey,
   sendText,
   Session,
   streamUrl,
+  terminateSession,
   uploadAttachment,
 } from "./api";
 
@@ -95,6 +97,8 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
   const [uploading, setUploading] = useState(false);
   const [deletingAttachmentId, setDeletingAttachmentId] = useState("");
   const [followingOutput, setFollowingOutput] = useState(true);
+  const [showSpecialKeys, setShowSpecialKeys] = useState(false);
+  const [controlError, setControlError] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
   const outputRef = useRef<HTMLPreElement>(null);
@@ -197,6 +201,33 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
     }
   }
 
+  async function pressSpecialKey(key: "Up" | "Down" | "Escape" | "C-c") {
+    const confirmed = key !== "C-c" || window.confirm(
+      "Inviare Ctrl-C? Il processo attivo potrebbe essere interrotto.",
+    );
+    if (!confirmed) return;
+    setControlError("");
+    try {
+      await sendKey(session.id, key, key === "C-c");
+    } catch (value) {
+      setControlError(value instanceof Error ? value.message : String(value));
+    }
+  }
+
+  async function terminateCurrentSession() {
+    const confirmed = window.confirm(
+      `Terminare definitivamente la sessione “${session.name}”?`,
+    );
+    if (!confirmed) return;
+    setControlError("");
+    try {
+      await terminateSession(session.id);
+      onBack();
+    } catch (value) {
+      setControlError(value instanceof Error ? value.message : String(value));
+    }
+  }
+
   return (
     <main className="console">
       <header className="console-header">
@@ -248,6 +279,29 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
           accept=".csv,.json,.md,.markdown,.pdf,.txt,.xml,image/jpeg,image/png,image/webp"
           onChange={(event) => void selectFiles(event.target.files)}
         />
+        <div className="utility-actions">
+          <button
+            type="button"
+            className="secondary"
+            aria-expanded={showSpecialKeys}
+            onClick={() => setShowSpecialKeys((value) => !value)}
+          >
+            Tasti speciali
+          </button>
+          <button type="button" className="danger" onClick={() => void terminateCurrentSession()}>
+            Termina sessione
+          </button>
+        </div>
+        {showSpecialKeys && (
+          <div className="special-actions" aria-label="Tasti speciali">
+            <button type="button" onClick={() => void pressSpecialKey("Up")}>↑ Up</button>
+            <button type="button" onClick={() => void pressSpecialKey("Down")}>↓ Down</button>
+            <button type="button" onClick={() => void pressSpecialKey("Escape")}>Esc</button>
+            <button type="button" className="danger" onClick={() => void pressSpecialKey("C-c")}>
+              Ctrl-C
+            </button>
+          </div>
+        )}
         <div className="actions">
           <button
             type="button"
@@ -265,6 +319,7 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
             Invia testo
           </button>
         </div>
+        {controlError && <small className="attachment-error">{controlError}</small>}
         {attachmentError && <small className="attachment-error">{attachmentError}</small>}
         <small>Il testo non invia Enter automaticamente.</small>
       </form>

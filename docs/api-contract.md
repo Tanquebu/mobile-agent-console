@@ -100,7 +100,15 @@ Gli allegati non eliminati esplicitamente scadono automaticamente dopo
 
 ## `POST /api/v1/sessions/{id}/keys`
 
-Body `{"key":"Enter"}`. Nello slice è consentito solo `Enter`. Risposta 202.
+Body `{"key":"Enter","confirmed":false}`. Sono consentiti `Enter`, `Up`,
+`Down`, `Escape` e `C-c`; l'interrupt `C-c` richiede obbligatoriamente
+`"confirmed":true`. Risposta 202.
+
+## `DELETE /api/v1/sessions/{id}`
+
+Termina definitivamente la sessione tmux. Richiede autenticazione, CSRF e
+body `{"confirmed":true}`; senza conferma esplicita risponde 400. Risposta
+`204`.
 
 Errori: `400` validazione dominio (incluso id non numerico), `401`
 autenticazione, `404` sessione, `409` creazione impossibile (es. server

@@ -60,6 +60,48 @@ def test_text_and_enter_are_separate_and_csrf_protected() -> None:
     assert fake.keys == ["Enter"]
 
 
+def test_special_keys_interrupt_and_termination_require_confirmation() -> None:
+    client, fake = client_and_fake()
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+
+    for key in ("Up", "Down", "Escape"):
+        response = client.post(
+            "/api/v1/sessions/1/keys",
+            headers=headers,
+            json={"key": key},
+        )
+        assert response.status_code == 202
+    interrupt_denied = client.post(
+        "/api/v1/sessions/1/keys",
+        headers=headers,
+        json={"key": "C-c"},
+    )
+    assert interrupt_denied.status_code == 400
+    interrupt = client.post(
+        "/api/v1/sessions/1/keys",
+        headers=headers,
+        json={"key": "C-c", "confirmed": True},
+    )
+    assert interrupt.status_code == 202
+    assert fake.keys == ["Up", "Down", "Escape", "C-c"]
+
+    assert client.request(
+        "DELETE",
+        "/api/v1/sessions/1",
+        headers=headers,
+        json={"confirmed": False},
+    ).status_code == 400
+    terminated = client.request(
+        "DELETE",
+        "/api/v1/sessions/1",
+        headers=headers,
+        json={"confirmed": True},
+    )
+    assert terminated.status_code == 204
+    assert fake.terminated == ["1"]
+
+
 def test_config_exposes_allowed_roots_to_authenticated_users() -> None:
     client, _ = client_and_fake()
     assert client.get("/api/v1/config").status_code == 401

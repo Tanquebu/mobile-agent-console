@@ -27,9 +27,9 @@
 - [ ] Test di integrazione con tmux reale.
 - [x] Modalità host-tmux sul socket predefinito dell'utente (ADR 005, che
   supera il socket dedicato previsto in origine).
-- [ ] Tasti `Up`/`Down`/`Esc` per i prompt di autorizzazione.
-- [ ] `C-c` (interrupt) dietro conferma esplicita.
-- [ ] Terminazione della sessione come endpoint separato.
+- [x] Tasti `Up`/`Down`/`Esc` per i prompt di autorizzazione.
+- [x] `C-c` (interrupt) dietro conferma esplicita.
+- [x] Terminazione della sessione come endpoint separato e confermato.
 
 ## M2 — MVP sicuro e persistente
 

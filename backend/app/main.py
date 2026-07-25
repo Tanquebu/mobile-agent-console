@@ -24,6 +24,7 @@ from .schemas import (
     Accepted,
     AttachmentView,
     ConfigView,
+    ConfirmedAction,
     CreateSessionInput,
     KeyInput,
     LoginInput,
@@ -270,6 +271,8 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         dependencies=[Depends(security.require_csrf)],
     )
     async def send_key(session_id: str, payload: KeyInput) -> Accepted:
+        if payload.key == "C-c" and not payload.confirmed:
+            raise HTTPException(400, "Interrupt requires explicit confirmation")
         try:
             await gateway.send_key(session_id, payload.key)
         except ValueError as exc:
@@ -277,6 +280,22 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         except SessionNotFound as exc:
             raise HTTPException(404, "Session not found") from exc
         return Accepted()
+
+    @app.delete(
+        "/api/v1/sessions/{session_id}",
+        status_code=204,
+        dependencies=[Depends(security.require_csrf)],
+    )
+    async def terminate_session(session_id: str, payload: ConfirmedAction) -> Response:
+        if not payload.confirmed:
+            raise HTTPException(400, "Session termination requires explicit confirmation")
+        try:
+            await gateway.terminate_session(session_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except SessionNotFound as exc:
+            raise HTTPException(404, "Session not found") from exc
+        return Response(status_code=204)
 
     @app.websocket("/api/v1/ws/sessions/{session_id}")
     async def stream(websocket: WebSocket, session_id: str) -> None:

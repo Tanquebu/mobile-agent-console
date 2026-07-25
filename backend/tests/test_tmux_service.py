@@ -120,7 +120,17 @@ def test_list_sessions_uses_ids_and_keeps_host_names(monkeypatch) -> None:
     assert [(s.id, s.name) for s in isolated] == [("3", "nome con spazi\te tab")]
 
 
-def test_only_enter_is_supported() -> None:
+def test_only_allowlisted_keys_are_supported(monkeypatch) -> None:
+    recorder = Recorder(monkeypatch)
     service = TmuxService("test")
+    for key in ("Enter", "Up", "Down", "Escape", "C-c"):
+        asyncio.run(service.send_key("1", key))
+    assert [call[-1] for call in recorder.calls] == ["Enter", "Up", "Down", "Escape", "C-c"]
     with pytest.raises(ValueError):
-        asyncio.run(service.send_key("1", "C-c"))
+        asyncio.run(service.send_key("1", "C-x"))
+
+
+def test_terminate_targets_session_id(monkeypatch) -> None:
+    recorder = Recorder(monkeypatch)
+    asyncio.run(TmuxService("test").terminate_session("7"))
+    assert recorder.calls[0][-3:] == ("kill-session", "-t", "$7")

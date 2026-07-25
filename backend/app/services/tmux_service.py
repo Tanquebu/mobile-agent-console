@@ -7,6 +7,7 @@ from typing import Protocol
 SESSION_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 TARGET_ID = re.compile(r"^\d{1,10}$")
 RUNTIME_KEEPALIVE = "__runtime__"
+ALLOWED_KEYS = {"Enter", "Up", "Down", "Escape", "C-c"}
 
 
 class TmuxError(RuntimeError):
@@ -33,6 +34,7 @@ class TmuxGateway(Protocol):
     async def capture_output(self, session_id: str, lines: int = 500) -> str: ...
     async def send_text(self, session_id: str, text: str) -> None: ...
     async def send_key(self, session_id: str, key: str) -> None: ...
+    async def terminate_session(self, session_id: str) -> None: ...
     async def check_server(self) -> str | None: ...
 
 
@@ -152,7 +154,11 @@ class TmuxService:
             raise
 
     async def send_key(self, session_id: str, key: str) -> None:
-        if key != "Enter":
+        if key not in ALLOWED_KEYS:
             raise ValueError("Unsupported key")
         target = self.validate_target(session_id)
-        await self._run("send-keys", "-t", target, "Enter")
+        await self._run("send-keys", "-t", target, key)
+
+    async def terminate_session(self, session_id: str) -> None:
+        target = self.validate_target(session_id)
+        await self._run("kill-session", "-t", target)

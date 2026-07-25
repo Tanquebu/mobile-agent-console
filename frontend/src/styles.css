@@ -46,6 +46,10 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .actions button { border: 0; border-radius: 12px; padding: 0 14px; background: #75d493; color: #092111; font-weight: 750; }
 .actions button.secondary { border: 1px solid #3a5142; background: #1b2820; color: #d2e3d7; }
 .actions button:disabled { opacity: .45; cursor: default; }
+.utility-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.utility-actions button, .special-actions button { min-height: 40px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .78rem; font-weight: 700; }
+.special-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
+.utility-actions button.danger, .special-actions button.danger { border-color: #704039; color: #ffaaa0; }
 .file-input { display: none; }
 .attachments { display: flex; gap: 6px; overflow-x: auto; padding: 0 0 8px; }
 .attachment-chip { display: inline-flex; align-items: center; flex: 0 0 auto; max-width: 240px; min-height: 36px; border: 1px solid #344b3b; border-radius: 999px; padding-left: 11px; background: #18231c; color: #d2e3d7; font-size: .78rem; }

@@ -42,6 +42,11 @@ class AttachmentView(BaseModel):
 
 class KeyInput(BaseModel):
     key: str
+    confirmed: bool = False
+
+
+class ConfirmedAction(BaseModel):
+    confirmed: bool = False
 
 
 class Accepted(BaseModel):
