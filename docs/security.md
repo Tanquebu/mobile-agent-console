@@ -13,7 +13,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Esposizione Internet | bind `127.0.0.1` o IP 100.x esplicito; porta host 8081; firewall |
 | Accesso non autorizzato | password runtime, sessione firmata HttpOnly con scadenza |
 | CSRF / furto token | SameSite strict, CSRF in memoria e Origin check |
-| Command injection | argv, `shell=False`, operazioni tipizzate, regex sessioni |
+| Command injection | argv, `shell=False`, operazioni tipizzate, regex sessioni/pane |
 | Input interpretato da tmux | `load-buffer -` + `paste-buffer`; tasti su endpoint separato |
 | Path traversal | nessun path dal client nello slice; poi resolve + `is_relative_to` allowlist |
 | Upload malevoli | nomi fisici UUID, tipi e signature allowlist, limite dimensione, nessuna estrazione archivi |
@@ -70,3 +70,8 @@ controlli di autenticazione e il bind loopback/Tailscale restano invariati
 e diventano più critici. Nota operativa: l'unit systemd in `deploy/systemd/`
 usa `PrivateTmp=true`, incompatibile con un socket in `/tmp` — non usarla
 per componenti che devono raggiungere il socket host.
+
+Quando il client specifica un pane, il backend accetta soltanto un id numerico
+e verifica tramite tmux che appartenga alla sessione indicata prima di usarlo
+per capture, input, tasti o resize. Questo impedisce di usare una sessione
+autorizzata come tramite verso un pane arbitrario dello stesso server.

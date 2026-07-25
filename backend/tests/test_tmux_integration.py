@@ -112,6 +112,33 @@ async def test_real_tmux_pastes_special_text_without_shell_interpretation(
     assert not injected.exists()
 
 
+async def test_real_tmux_lists_targets_and_resizes_session_panes(real_tmux, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    await real_tmux.create_session("multi-pane", str(workspace))
+    session_id = (await real_tmux.list_sessions())[0].id
+    await real_tmux._run(
+        "split-window", "-d", "-t", f"${session_id}", "-c", str(workspace), "bash", "-l"
+    )
+
+    panes = await real_tmux.list_panes(session_id)
+    assert len(panes) == 2
+    target = panes[-1]
+    await real_tmux.send_text(session_id, "printf pane-target-ok", target.id)
+    await real_tmux.send_key(session_id, "Enter", target.id)
+    for _ in range(40):
+        if "pane-target-ok" in await real_tmux.capture_output(session_id, pane_id=target.id):
+            break
+        await asyncio.sleep(0.05)
+    else:
+        raise AssertionError("targeted pane did not receive input")
+
+    await real_tmux.resize_pane(session_id, target.id, 40, 10)
+    resized = next(pane for pane in await real_tmux.list_panes(session_id) if pane.id == target.id)
+    assert resized.width >= 20
+    assert resized.height >= 5
+
+
 async def test_real_tmux_reports_disappeared_server(real_tmux, tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()

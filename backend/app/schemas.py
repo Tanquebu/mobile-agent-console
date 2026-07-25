@@ -22,6 +22,21 @@ class SessionList(BaseModel):
     sessions: list[SessionView]
 
 
+class PaneView(BaseModel):
+    id: str
+    window_index: int
+    pane_index: int
+    active: bool
+    command: str
+    title: str
+    width: int
+    height: int
+
+
+class PaneList(BaseModel):
+    panes: list[PaneView]
+
+
 class OutputView(BaseModel):
     session_id: str
     content: str
@@ -31,6 +46,7 @@ class OutputView(BaseModel):
 class TextInput(BaseModel):
     text: str = Field(max_length=65536)
     attachment_ids: list[str] = Field(default_factory=list, max_length=5)
+    pane_id: str | None = Field(default=None, pattern=r"^\d{1,10}$")
 
 
 class AttachmentView(BaseModel):
@@ -68,6 +84,12 @@ class FileView(BaseModel):
 class KeyInput(BaseModel):
     key: str
     confirmed: bool = False
+    pane_id: str | None = Field(default=None, pattern=r"^\d{1,10}$")
+
+
+class ResizePaneInput(BaseModel):
+    columns: int = Field(ge=20, le=500)
+    rows: int = Field(ge=5, le=300)
 
 
 class ConfirmedAction(BaseModel):

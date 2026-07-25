@@ -125,25 +125,63 @@ function mediaTypeFromName(name: string): string {
   } as Record<string, string>)[extension ?? ""] ?? "application/octet-stream";
 }
 
-export async function sendText(id: string, text: string, attachmentIds: string[] = []) {
+export type Pane = {
+  id: string;
+  window_index: number;
+  pane_index: number;
+  active: boolean;
+  command: string;
+  title: string;
+  width: number;
+  height: number;
+};
+
+export async function listPanes(id: string): Promise<Pane[]> {
+  const response = await request(`/api/v1/sessions/${encodeURIComponent(id)}/panes`);
+  return (await response.json()).panes;
+}
+
+export async function resizePane(id: string, paneId: string, columns: number, rows: number) {
+  await request(
+    `/api/v1/sessions/${encodeURIComponent(id)}/panes/${encodeURIComponent(paneId)}/resize`,
+    { method: "POST", body: JSON.stringify({ columns, rows }) },
+  );
+}
+
+export async function splitPane(id: string, paneId?: string): Promise<Pane> {
+  const query = paneId ? `?pane_id=${encodeURIComponent(paneId)}` : "";
+  const response = await request(
+    `/api/v1/sessions/${encodeURIComponent(id)}/panes/split${query}`,
+    { method: "POST" },
+  );
+  return response.json();
+}
+
+export async function sendText(
+  id: string,
+  text: string,
+  attachmentIds: string[] = [],
+  paneId?: string,
+) {
   await request(`/api/v1/sessions/${encodeURIComponent(id)}/input`, {
     method: "POST",
-    body: JSON.stringify({ text, attachment_ids: attachmentIds }),
+    body: JSON.stringify({ text, attachment_ids: attachmentIds, pane_id: paneId }),
   });
 }
 
-export async function sendEnter(id: string) {
-  await sendKey(id, "Enter");
+export async function sendEnter(id: string, paneId?: string) {
+  await sendKey(id, "Enter", false, paneId);
 }
 
 export async function sendKey(
   id: string,
   key: "Enter" | "Up" | "Down" | "Escape" | "C-c",
   confirmed = false,
+  paneId?: string,
 ) {
   await request(`/api/v1/sessions/${encodeURIComponent(id)}/keys`, {
     method: "POST",
-    body: JSON.stringify({ key, confirmed }),
+    body: JSON.stringify({ key, confirmed, pane_id: paneId }),
   });
 }
 
@@ -262,9 +300,10 @@ export function fileDownloadUrl(id: string, path: string): string {
   return `/api/v1/sessions/${encodeURIComponent(id)}/file/download?path=${encodeURIComponent(path)}`;
 }
 
-export function streamUrl(id: string): string {
+export function streamUrl(id: string, paneId?: string): string {
   const url = new URL(window.location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = `/api/v1/ws/sessions/${encodeURIComponent(id)}`;
+  if (paneId) url.searchParams.set("pane_id", paneId);
   return url.toString();
 }

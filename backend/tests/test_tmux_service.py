@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from app.services.tmux_service import TmuxError, TmuxService
+from app.services.tmux_service import SessionNotFound, TmuxError, TmuxPane, TmuxService
 
 
 class Recorder:
@@ -51,6 +51,7 @@ def test_accepts_safe_session_names() -> None:
 def test_target_accepts_numeric_ids() -> None:
     assert TmuxService.validate_target("3") == "$3"
     assert TmuxService.validate_target("0") == "$0"
+    assert TmuxService.validate_pane_id("12") == "%12"
 
 
 @pytest.mark.parametrize("value", ["$3", "", "demo", "3;x", "3.0", "1" * 11])
@@ -86,6 +87,39 @@ def test_capture_targets_active_pane(monkeypatch) -> None:
     asyncio.run(TmuxService("test").capture_output("7"))
     call = recorder.calls[0]
     assert call[call.index("-t") + 1] == "$7"
+
+
+def test_explicit_pane_is_checked_against_session(monkeypatch) -> None:
+    recorder = Recorder(monkeypatch)
+    service = TmuxService("test")
+
+    async def panes(_session_id: str) -> list[TmuxPane]:
+        return [TmuxPane("12", 1, 0, True, "bash", "shell", 80, 24)]
+
+    monkeypatch.setattr(service, "list_panes", panes)
+    asyncio.run(service.capture_output("7", pane_id="12"))
+    assert recorder.calls[0][recorder.calls[0].index("-t") + 1] == "%12"
+    with pytest.raises(SessionNotFound):
+        asyncio.run(service.capture_output("7", pane_id="99"))
+
+
+def test_list_and_resize_panes(monkeypatch) -> None:
+    recorder = Recorder(monkeypatch, stdout=b"%12\t1\t2\t1\tpython\tworker\t120\t40\n")
+    service = TmuxService("test")
+    panes = asyncio.run(service.list_panes("7"))
+    assert panes == [TmuxPane("12", 1, 2, True, "python", "worker", 120, 40)]
+    asyncio.run(service.resize_pane("7", "12", 100, 30))
+    resize_call = recorder.calls[-1]
+    assert resize_call[-7:] == ("resize-pane", "-t", "%12", "-x", "100", "-y", "30")
+
+
+def test_split_pane_uses_constant_login_shell(monkeypatch) -> None:
+    output = b"%13\t0\t1\t0\tbash\tshell\t40\t24\n"
+    recorder = Recorder(monkeypatch, stdout=output)
+    created = asyncio.run(TmuxService("test").split_pane("7"))
+    assert created.id == "13"
+    assert recorder.calls[-1][-2:] == ("bash", "-l")
+    assert "split-window" in recorder.calls[-1]
 
 
 def test_create_session_uses_login_shell(monkeypatch) -> None:

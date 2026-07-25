@@ -21,7 +21,8 @@
 
 - [~] Delta robusti per righe con riconnessione su base sequence inattesa;
   resa ANSI/fullscreen rinviata al terminal mode.
-- [ ] Selezione pane e resize.
+- [x] Selezione, creazione e resize dei pane, con targeting coerente di
+  output, input e tasti.
 - [x] Stati espliciti per sessione chiusa, disconnessione, backend/tmux non
   disponibile, autenticazione scaduta e conflitto di nome.
 - [ ] Rate limit.

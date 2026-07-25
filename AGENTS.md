@@ -28,7 +28,9 @@ ignorati da Git.
   shell da input client.
 - I target API sono session id tmux numerici validati con `^\d{1,10}$` e
   trasformati in `$N` soltanto lato server. Non usare il nome della sessione
-  come target tmux.
+  come target tmux. I pane id opzionali seguono lo stesso formato numerico,
+  diventano `%N` soltanto lato server e devono essere verificati come
+  appartenenti alla sessione richiesta.
 - I nomi in creazione e rinomina hanno al massimo 64 caratteri e rispettano
   `^[A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+)*$`.
 - Inviare testo libero tramite `load-buffer -` e `paste-buffer`; `Enter` e gli

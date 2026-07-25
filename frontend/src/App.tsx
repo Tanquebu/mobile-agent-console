@@ -16,16 +16,20 @@ import {
   errorMessage,
   login,
   listSessions,
+  listPanes,
   listSnapshots,
+  Pane,
   renameSession,
   restoreSession,
   restoreSnapshot,
+  resizePane,
   sendEnter,
   sendKey,
   sendText,
   Session,
   Snapshot,
   SnapshotMode,
+  splitPane,
   streamUrl,
   terminateSession,
   uploadAttachment,
@@ -701,10 +705,29 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
   const [controlError, setControlError] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
+  const [panes, setPanes] = useState<Pane[]>([]);
+  const [paneId, setPaneId] = useState("");
+  const [splittingPane, setSplittingPane] = useState(false);
   const outputRef = useRef<HTMLPreElement>(null);
   const outputLinesRef = useRef<string[]>([]);
   const outputSequenceRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listPanes(session.id)
+      .then((items) => {
+        if (cancelled) return;
+        setPanes(items);
+        setPaneId((current) => (
+          items.some((pane) => pane.id === current)
+            ? current
+            : (items.find((pane) => pane.active) ?? items[0])?.id ?? ""
+        ));
+      })
+      .catch((value) => { if (!cancelled) setControlError(errorMessage(value)); });
+    return () => { cancelled = true; };
+  }, [session.id]);
 
   useEffect(() => {
     let socket: WebSocket | undefined;
@@ -714,7 +737,7 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
     const connect = () => {
       if (stopped) return;
       setConnection("connecting");
-      socket = new WebSocket(streamUrl(session.id));
+      socket = new WebSocket(streamUrl(session.id, paneId || undefined));
       socket.onopen = () => { attempts = 0; setConnection("online"); };
       socket.onmessage = (event) => {
         const message = JSON.parse(event.data);
@@ -753,7 +776,32 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
       if (timer) clearTimeout(timer);
       socket?.close();
     };
-  }, [session.id]);
+  }, [session.id, paneId]);
+
+  useEffect(() => {
+    const output = outputRef.current;
+    if (!output || !paneId || typeof ResizeObserver === "undefined") return;
+    let timer: number | undefined;
+    let previous = "";
+    const observer = new ResizeObserver(([entry]) => {
+      const columns = Math.max(20, Math.min(500, Math.floor(entry.contentRect.width / 8)));
+      const rows = Math.max(5, Math.min(300, Math.floor(entry.contentRect.height / 20)));
+      const dimensions = `${columns}x${rows}`;
+      if (dimensions === previous) return;
+      previous = dimensions;
+      if (timer) clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        resizePane(session.id, paneId, columns, rows).catch((value) => {
+          setControlError(errorMessage(value));
+        });
+      }, 250);
+    });
+    observer.observe(output);
+    return () => {
+      observer.disconnect();
+      if (timer) clearTimeout(timer);
+    };
+  }, [session.id, paneId]);
 
   useEffect(() => {
     if (followingOutput && outputRef.current) {
@@ -778,7 +826,12 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
     if ((!draft && attachments.length === 0) || sending || uploading) return;
     setSending(true);
     try {
-      await sendText(session.id, draft, attachments.map((attachment) => attachment.id));
+      await sendText(
+        session.id,
+        draft,
+        attachments.map((attachment) => attachment.id),
+        paneId || undefined,
+      );
       setDraft("");
       setAttachments([]);
       setControlError("");
@@ -831,7 +884,7 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
     if (!confirmed) return;
     setControlError("");
     try {
-      await sendKey(session.id, key, key === "C-c");
+      await sendKey(session.id, key, key === "C-c", paneId || undefined);
     } catch (value) {
       setControlError(errorMessage(value));
     }
@@ -840,9 +893,24 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
   async function pressEnter() {
     setControlError("");
     try {
-      await sendEnter(session.id);
+      await sendEnter(session.id, paneId || undefined);
     } catch (value) {
       setControlError(errorMessage(value));
+    }
+  }
+
+  async function createPane() {
+    setSplittingPane(true);
+    setControlError("");
+    try {
+      const created = await splitPane(session.id, paneId || undefined);
+      const items = await listPanes(session.id);
+      setPanes(items);
+      setPaneId(created.id);
+    } catch (value) {
+      setControlError(errorMessage(value));
+    } finally {
+      setSplittingPane(false);
     }
   }
 
@@ -854,7 +922,25 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
         <span className={`status ${connection}`}>{CONNECTION_LABEL[connection]}</span>
       </header>
       <section className="output-wrap">
-        <div className="output-label"><span>OUTPUT RECENTE</span><span>tmux :0.0</span></div>
+        <div className="output-label">
+          <span>OUTPUT RECENTE</span>
+          {panes.length > 1 ? (
+            <select
+              className="pane-selector"
+              aria-label="Pane tmux"
+              value={paneId}
+              onChange={(event) => setPaneId(event.target.value)}
+            >
+              {panes.map((pane) => (
+                <option value={pane.id} key={pane.id}>
+                  {pane.window_index}.{pane.pane_index} · {pane.command}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span>{panes[0] ? `tmux ${panes[0].window_index}.${panes[0].pane_index}` : "tmux"}</span>
+          )}
+        </div>
         {connection === "closed" && (
           <div className="session-closed-banner" role="alert">
             La sessione tmux è stata chiusa. Torna alla dashboard.
@@ -929,6 +1015,13 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
             <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Escape")}>Esc</button>
             <button disabled={connection === "closed"} type="button" className="danger" onClick={() => void pressSpecialKey("C-c")}>
               Ctrl-C
+            </button>
+            <button
+              disabled={connection === "closed" || splittingPane}
+              type="button"
+              onClick={() => void createPane()}
+            >
+              {splittingPane ? "Divisione…" : "Dividi pane"}
             </button>
           </div>
         )}

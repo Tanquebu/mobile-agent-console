@@ -1,6 +1,12 @@
 from datetime import UTC, datetime
 
-from app.services.tmux_service import SessionNotFound, TmuxError, TmuxService, TmuxSession
+from app.services.tmux_service import (
+    SessionNotFound,
+    TmuxError,
+    TmuxPane,
+    TmuxService,
+    TmuxSession,
+)
 
 
 class FakeTmux:
@@ -8,6 +14,8 @@ class FakeTmux:
         self.content = "$ "
         self.texts: list[str] = []
         self.keys: list[str] = []
+        self.targets: list[str | None] = []
+        self.resizes: list[tuple[str, int, int]] = []
         self.terminated: list[str] = []
         self.renamed: list[tuple[str, str]] = []
         self.server_down = False
@@ -40,25 +48,48 @@ class FakeTmux:
             datetime.now(UTC),
         )
 
-    async def capture_output(self, session_id: str, lines: int = 500) -> str:
+    async def list_panes(self, session_id: str) -> list[TmuxPane]:
         TmuxService.validate_target(session_id)
         if session_id not in self.sessions:
             raise SessionNotFound(session_id)
+        return [TmuxPane("10", 0, 0, True, "bash", "demo", 80, 24)]
+
+    async def capture_output(
+        self, session_id: str, lines: int = 500, pane_id: str | None = None
+    ) -> str:
+        TmuxService.validate_target(session_id)
+        if session_id not in self.sessions:
+            raise SessionNotFound(session_id)
+        if pane_id is not None and pane_id != "10":
+            raise SessionNotFound(pane_id)
         return self.content
 
-    async def send_text(self, session_id: str, text: str) -> None:
+    async def send_text(self, session_id: str, text: str, pane_id: str | None = None) -> None:
         TmuxService.validate_target(session_id)
         if session_id not in self.sessions:
             raise SessionNotFound(session_id)
         self.texts.append(text)
+        self.targets.append(pane_id)
 
-    async def send_key(self, session_id: str, key: str) -> None:
+    async def send_key(self, session_id: str, key: str, pane_id: str | None = None) -> None:
         if key not in {"Enter", "Up", "Down", "Escape", "C-c"}:
             raise ValueError("Unsupported key")
         TmuxService.validate_target(session_id)
         if session_id not in self.sessions:
             raise SessionNotFound(session_id)
         self.keys.append(key)
+        self.targets.append(pane_id)
+
+    async def resize_pane(self, session_id: str, pane_id: str, columns: int, rows: int) -> None:
+        if not await self.list_panes(session_id) or pane_id != "10":
+            raise SessionNotFound(pane_id)
+        self.resizes.append((pane_id, columns, rows))
+
+    async def split_pane(self, session_id: str, pane_id: str | None = None) -> TmuxPane:
+        await self.list_panes(session_id)
+        if pane_id not in {None, "10"}:
+            raise SessionNotFound(pane_id)
+        return TmuxPane("11", 0, 1, False, "bash", "demo", 40, 24)
 
     async def terminate_session(self, session_id: str) -> None:
         TmuxService.validate_target(session_id)
@@ -85,7 +116,7 @@ class FakeTmux:
             current.activity_at,
         )
 
-    async def pane_path(self, session_id: str) -> str:
+    async def pane_path(self, session_id: str, pane_id: str | None = None) -> str:
         TmuxService.validate_target(session_id)
         if session_id not in self.sessions:
             raise SessionNotFound(session_id)

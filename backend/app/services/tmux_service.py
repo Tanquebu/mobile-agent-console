@@ -29,16 +29,33 @@ class TmuxSession:
     activity_at: datetime
 
 
+@dataclass(frozen=True)
+class TmuxPane:
+    id: str
+    window_index: int
+    pane_index: int
+    active: bool
+    command: str
+    title: str
+    width: int
+    height: int
+
+
 class TmuxGateway(Protocol):
     async def create_session(self, session_id: str, directory: str, command: str = "bash") -> None: ...
     async def rename_session(self, session_id: str, name: str) -> None: ...
     async def list_sessions(self) -> list[TmuxSession]: ...
-    async def capture_output(self, session_id: str, lines: int = 500) -> str: ...
-    async def send_text(self, session_id: str, text: str) -> None: ...
-    async def send_key(self, session_id: str, key: str) -> None: ...
+    async def list_panes(self, session_id: str) -> list[TmuxPane]: ...
+    async def capture_output(
+        self, session_id: str, lines: int = 500, pane_id: str | None = None
+    ) -> str: ...
+    async def send_text(self, session_id: str, text: str, pane_id: str | None = None) -> None: ...
+    async def send_key(self, session_id: str, key: str, pane_id: str | None = None) -> None: ...
+    async def resize_pane(self, session_id: str, pane_id: str, columns: int, rows: int) -> None: ...
+    async def split_pane(self, session_id: str, pane_id: str | None = None) -> TmuxPane: ...
     async def terminate_session(self, session_id: str) -> None: ...
     async def check_server(self) -> str | None: ...
-    async def pane_path(self, session_id: str) -> str: ...
+    async def pane_path(self, session_id: str, pane_id: str | None = None) -> str: ...
 
 
 class TmuxService:
@@ -70,6 +87,12 @@ class TmuxService:
         if not TARGET_ID.fullmatch(session_id):
             raise ValueError("Invalid session id")
         return f"${session_id}"
+
+    @staticmethod
+    def validate_pane_id(pane_id: str) -> str:
+        if not TARGET_ID.fullmatch(pane_id):
+            raise ValueError("Invalid pane id")
+        return f"%{pane_id}"
 
     async def _run(self, *args: str, stdin: bytes | None = None) -> bytes:
         process = await asyncio.create_subprocess_exec(
@@ -133,8 +156,45 @@ class TmuxService:
             )
         return sessions
 
-    async def capture_output(self, session_id: str, lines: int = 500) -> str:
-        target = self.validate_target(session_id)
+    async def list_panes(self, session_id: str) -> list[TmuxPane]:
+        session_target = self.validate_target(session_id)
+        fmt = (
+            "#{pane_id}\t#{window_index}\t#{pane_index}\t#{pane_active}"
+            "\t#{pane_current_command}\t#{pane_title}\t#{pane_width}\t#{pane_height}"
+        )
+        raw = await self._run("list-panes", "-s", "-t", session_target, "-F", fmt)
+        panes = []
+        for line in raw.decode(errors="replace").splitlines():
+            raw_id, window, pane, active, command, title, width, height = line.split("\t", 7)
+            pane_id = raw_id.removeprefix("%")
+            if TARGET_ID.fullmatch(pane_id):
+                panes.append(
+                    TmuxPane(
+                        id=pane_id,
+                        window_index=int(window),
+                        pane_index=int(pane),
+                        active=active == "1",
+                        command=command,
+                        title=title,
+                        width=int(width),
+                        height=int(height),
+                    )
+                )
+        return panes
+
+    async def _pane_target(self, session_id: str, pane_id: str | None) -> str:
+        session_target = self.validate_target(session_id)
+        if pane_id is None:
+            return session_target
+        pane_target = self.validate_pane_id(pane_id)
+        if not any(pane.id == pane_id for pane in await self.list_panes(session_id)):
+            raise SessionNotFound("Pane not found in session")
+        return pane_target
+
+    async def capture_output(
+        self, session_id: str, lines: int = 500, pane_id: str | None = None
+    ) -> str:
+        target = await self._pane_target(session_id, pane_id)
         raw = await self._run("capture-pane", "-p", "-J", "-S", f"-{lines}", "-t", target)
         return raw.decode(errors="replace")
 
@@ -151,8 +211,8 @@ class TmuxService:
         self.validate_session_id(name)
         await self._run("rename-session", "-t", target, name)
 
-    async def send_text(self, session_id: str, text: str) -> None:
-        target = self.validate_target(session_id)
+    async def send_text(self, session_id: str, text: str, pane_id: str | None = None) -> None:
+        target = await self._pane_target(session_id, pane_id)
         buffer_name = f"mac-{session_id}"
         await self._run("load-buffer", "-b", buffer_name, "-", stdin=text.encode())
         try:
@@ -161,17 +221,47 @@ class TmuxService:
             await self._run("delete-buffer", "-b", buffer_name)
             raise
 
-    async def send_key(self, session_id: str, key: str) -> None:
+    async def send_key(self, session_id: str, key: str, pane_id: str | None = None) -> None:
         if key not in ALLOWED_KEYS:
             raise ValueError("Unsupported key")
-        target = self.validate_target(session_id)
+        target = await self._pane_target(session_id, pane_id)
         await self._run("send-keys", "-t", target, key)
+
+    async def resize_pane(self, session_id: str, pane_id: str, columns: int, rows: int) -> None:
+        target = await self._pane_target(session_id, pane_id)
+        await self._run("resize-pane", "-t", target, "-x", str(columns), "-y", str(rows))
+
+    async def split_pane(self, session_id: str, pane_id: str | None = None) -> TmuxPane:
+        target = await self._pane_target(session_id, pane_id)
+        fmt = (
+            "#{pane_id}\t#{window_index}\t#{pane_index}\t#{pane_active}"
+            "\t#{pane_current_command}\t#{pane_title}\t#{pane_width}\t#{pane_height}"
+        )
+        raw = await self._run(
+            "split-window", "-h", "-d", "-P", "-F", fmt, "-t", target, "bash", "-l"
+        )
+        values = raw.decode(errors="replace").strip().split("\t", 7)
+        if len(values) != 8:
+            raise TmuxError("Unable to read the new pane")
+        raw_id, window, pane, active, command, title, width, height = values
+        pane_id = raw_id.removeprefix("%")
+        self.validate_pane_id(pane_id)
+        return TmuxPane(
+            id=pane_id,
+            window_index=int(window),
+            pane_index=int(pane),
+            active=active == "1",
+            command=command,
+            title=title,
+            width=int(width),
+            height=int(height),
+        )
 
     async def terminate_session(self, session_id: str) -> None:
         target = self.validate_target(session_id)
         await self._run("kill-session", "-t", target)
 
-    async def pane_path(self, session_id: str) -> str:
-        target = self.validate_target(session_id)
+    async def pane_path(self, session_id: str, pane_id: str | None = None) -> str:
+        target = await self._pane_target(session_id, pane_id)
         raw = await self._run("display-message", "-p", "-t", target, "#{pane_current_path}")
         return raw.decode(errors="replace").strip()

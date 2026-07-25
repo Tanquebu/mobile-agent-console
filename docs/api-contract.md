@@ -94,6 +94,17 @@ snapshot. Tutte le mutazioni richiedono CSRF.
 {"session_id":"1","content":"...", "captured_at":"2026-07-24T10:00:00Z"}
 ```
 
+`GET /api/v1/sessions/{id}/panes` elenca i pane della sessione con id numerico,
+coordinate finestra/pane, stato attivo, comando, titolo e dimensioni.
+`pane_id` può essere passato a output e WebSocket e nei body di input/tasti.
+Il backend verifica sempre l'appartenenza alla sessione.
+
+`POST /api/v1/sessions/{id}/panes/{pane_id}/resize` accetta
+`{"columns":100,"rows":30}` con limiti rispettivamente `20..500` e `5..300`.
+`POST /api/v1/sessions/{id}/panes/split?pane_id=N` crea un nuovo pane
+orizzontale con il profilo shell costante `bash -l`; non accetta comandi dal
+client e restituisce il pane creato.
+
 ## `WS /api/v1/ws/sessions/{id}`
 
 La connessione riceve inizialmente uno `snapshot` completo con `sequence_id`.

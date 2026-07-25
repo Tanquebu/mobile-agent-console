@@ -47,6 +47,43 @@ def test_list_and_capture() -> None:
     assert client.get("/api/v1/sessions/1/output").json()["content"] == "$ "
 
 
+def test_list_target_and_resize_pane() -> None:
+    client, fake = client_and_fake()
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+    pane = client.get("/api/v1/sessions/1/panes").json()["panes"][0]
+    assert pane["id"] == "10"
+    assert client.get("/api/v1/sessions/1/output?pane_id=10").status_code == 200
+    assert client.get("/api/v1/sessions/1/output?pane_id=99").status_code == 404
+    assert client.post(
+        "/api/v1/sessions/1/input",
+        headers=headers,
+        json={"text": "targeted", "pane_id": "10"},
+    ).status_code == 202
+    assert fake.targets[-1] == "10"
+    assert client.post(
+        "/api/v1/sessions/1/panes/10/resize",
+        headers=headers,
+        json={"columns": 100, "rows": 30},
+    ).status_code == 200
+    assert fake.resizes == [("10", 100, 30)]
+    assert client.post(
+        "/api/v1/sessions/1/panes/99/resize",
+        headers=headers,
+        json={"columns": 100, "rows": 30},
+    ).status_code == 404
+    split = client.post(
+        "/api/v1/sessions/1/panes/split?pane_id=10",
+        headers=headers,
+    )
+    assert split.status_code == 201
+    assert split.json()["id"] == "11"
+    assert client.post(
+        "/api/v1/sessions/1/panes/split?pane_id=99",
+        headers=headers,
+    ).status_code == 404
+
+
 def test_text_and_enter_are_separate_and_csrf_protected() -> None:
     client, fake = client_and_fake()
     csrf = login(client)

@@ -36,7 +36,10 @@ from .schemas import (
     LoginInput,
     LoginResult,
     OutputView,
+    PaneList,
+    PaneView,
     RenameSessionInput,
+    ResizePaneInput,
     RestoreItemView,
     RestoreResult,
     SessionList,
@@ -431,15 +434,67 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         return Response(status_code=204)
 
     @app.get(
+        "/api/v1/sessions/{session_id}/panes",
+        response_model=PaneList,
+        dependencies=[Depends(security.require_session)],
+    )
+    async def panes(session_id: str) -> PaneList:
+        try:
+            items = await gateway.list_panes(session_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except SessionNotFound as exc:
+            raise HTTPException(404, "Session not found") from exc
+        return PaneList(panes=[PaneView(**vars(item)) for item in items])
+
+    @app.post(
+        "/api/v1/sessions/{session_id}/panes/split",
+        response_model=PaneView,
+        status_code=201,
+        dependencies=[Depends(security.require_csrf)],
+    )
+    async def split_pane(
+        session_id: str,
+        pane_id: Annotated[str | None, Query(pattern=r"^\d{1,10}$")] = None,
+    ) -> PaneView:
+        try:
+            item = await gateway.split_pane(session_id, pane_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except SessionNotFound as exc:
+            raise HTTPException(404, "Pane not found in session") from exc
+        except TmuxError as exc:
+            raise HTTPException(409, "Unable to split pane") from exc
+        return PaneView(**vars(item))
+
+    @app.post(
+        "/api/v1/sessions/{session_id}/panes/{pane_id}/resize",
+        response_model=Accepted,
+        dependencies=[Depends(security.require_csrf)],
+    )
+    async def resize_pane(
+        session_id: str, pane_id: str, payload: ResizePaneInput
+    ) -> Accepted:
+        try:
+            await gateway.resize_pane(session_id, pane_id, payload.columns, payload.rows)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except SessionNotFound as exc:
+            raise HTTPException(404, "Pane not found in session") from exc
+        return Accepted()
+
+    @app.get(
         "/api/v1/sessions/{session_id}/output",
         response_model=OutputView,
         dependencies=[Depends(security.require_session)],
     )
     async def output(
-        session_id: str, lines: Annotated[int, Query(ge=1, le=2000)] = 500
+        session_id: str,
+        lines: Annotated[int, Query(ge=1, le=2000)] = 500,
+        pane_id: Annotated[str | None, Query(pattern=r"^\d{1,10}$")] = None,
     ) -> OutputView:
         try:
-            content = await gateway.capture_output(session_id, lines)
+            content = await gateway.capture_output(session_id, lines, pane_id)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except SessionNotFound as exc:
@@ -584,7 +639,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             text = payload.text + attachments.prompt_suffix(session_id, payload.attachment_ids)
             if len(text) > 65536:
                 raise AttachmentError("Prompt with attachment references is too large")
-            await gateway.send_text(session_id, text)
+            await gateway.send_text(session_id, text, payload.pane_id)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except SessionNotFound as exc:
@@ -613,7 +668,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         if payload.key == "C-c" and not payload.confirmed:
             raise HTTPException(400, "Interrupt requires explicit confirmation")
         try:
-            await gateway.send_key(session_id, payload.key)
+            await gateway.send_key(session_id, payload.key, payload.pane_id)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except SessionNotFound as exc:
@@ -654,7 +709,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         return Accepted()
 
     @app.websocket("/api/v1/ws/sessions/{session_id}")
-    async def stream(websocket: WebSocket, session_id: str) -> None:
+    async def stream(websocket: WebSocket, session_id: str, pane_id: str | None = None) -> None:
         cookie = websocket.cookies.get(COOKIE_NAME)
         try:
             security.validate_session(cookie)
@@ -673,7 +728,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         try:
             while True:
                 try:
-                    content = await gateway.capture_output(session_id, 500)
+                    content = await gateway.capture_output(session_id, 500, pane_id)
                 except (SessionNotFound, ValueError):
                     sequence += 1
                     await websocket.send_json(
