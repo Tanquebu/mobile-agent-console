@@ -51,7 +51,17 @@ class DirectoryEntryView(BaseModel):
 class DirectoryView(BaseModel):
     session_id: str
     path: str
+    root: str
+    parent: str | None = None
     entries: list[DirectoryEntryView]
+    truncated: bool = False
+
+
+class FileView(BaseModel):
+    session_id: str
+    path: str
+    size: int
+    content: str
     truncated: bool = False
 
 

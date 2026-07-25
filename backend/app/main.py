@@ -29,6 +29,7 @@ from .schemas import (
     CreateSessionInput,
     DirectoryEntryView,
     DirectoryView,
+    FileView,
     KeyInput,
     LoginInput,
     LoginResult,
@@ -44,6 +45,15 @@ from .services.tmux_service import SessionNotFound, TmuxError, TmuxGateway, Tmux
 logger = logging.getLogger("mobile_agent_console")
 
 DIRECTORY_ENTRY_LIMIT = 2000
+FILE_PREVIEW_MAX_BYTES = 256 * 1024
+
+
+def _resolve_within_allowed_roots(raw_path: str, roots: list[Path]) -> tuple[Path, Path]:
+    directory = Path(raw_path).resolve()
+    for root in roots:
+        if directory == root or root in directory.parents:
+            return directory, root
+    raise HTTPException(400, "Directory is not allowed")
 
 
 def _list_directory(directory: Path) -> tuple[list[DirectoryEntryView], bool]:
@@ -73,6 +83,29 @@ def _list_directory(directory: Path) -> tuple[list[DirectoryEntryView], bool]:
             )
         )
     return entries, truncated
+
+
+def _read_text_file(file_path: Path) -> tuple[str, int, bool]:
+    size = file_path.stat().st_size
+    with file_path.open("rb") as handle:
+        raw = handle.read(FILE_PREVIEW_MAX_BYTES + 1)
+    truncated = len(raw) > FILE_PREVIEW_MAX_BYTES
+    raw = raw[:FILE_PREVIEW_MAX_BYTES]
+    if b"\x00" in raw:
+        raise ValueError("Binary file, no preview available")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        # Il limite può cadere nel mezzo dell'ultimo carattere UTF-8. In quel
+        # solo caso mostriamo la parte completa; errori precedenti indicano
+        # invece contenuto non UTF-8.
+        if not truncated or exc.end != len(raw):
+            raise ValueError("Binary file, no preview available") from exc
+        try:
+            text = raw[: exc.start].decode("utf-8")
+        except UnicodeDecodeError as nested_exc:
+            raise ValueError("Binary file, no preview available") from nested_exc
+    return text, size, truncated
 
 
 def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None) -> FastAPI:
@@ -189,10 +222,8 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         dependencies=[Depends(security.require_csrf)],
     )
     async def create_session(payload: CreateSessionInput) -> Accepted:
-        directory = Path(payload.directory).resolve()
         roots = [Path(root).resolve() for root in settings.allowed_roots]
-        if not any(directory == root or root in directory.parents for root in roots):
-            raise HTTPException(400, "Directory is not allowed")
+        directory, _ = _resolve_within_allowed_roots(payload.directory, roots)
         try:
             await gateway.create_session(payload.name, str(directory), "bash")
         except ValueError as exc:
@@ -234,22 +265,62 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         response_model=DirectoryView,
         dependencies=[Depends(security.require_session)],
     )
-    async def session_directory(session_id: str) -> DirectoryView:
-        try:
-            raw_path = await gateway.pane_path(session_id)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        except SessionNotFound as exc:
-            raise HTTPException(404, "Session not found") from exc
-        directory = Path(raw_path).resolve()
+    async def session_directory(
+        session_id: str, path: Annotated[str | None, Query(min_length=1, max_length=4096)] = None
+    ) -> DirectoryView:
+        if path is None:
+            try:
+                raw_path = await gateway.pane_path(session_id)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            except SessionNotFound as exc:
+                raise HTTPException(404, "Session not found") from exc
+        else:
+            try:
+                TmuxService.validate_target(session_id)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            raw_path = path
         roots = [Path(root).resolve() for root in settings.allowed_roots]
-        if not any(directory == root or root in directory.parents for root in roots):
-            raise HTTPException(400, "Directory is not allowed")
+        directory, root = _resolve_within_allowed_roots(raw_path, roots)
         try:
             entries, truncated = await asyncio.to_thread(_list_directory, directory)
         except OSError as exc:
             raise HTTPException(404, "Directory not found") from exc
-        return DirectoryView(session_id=session_id, path=str(directory), entries=entries, truncated=truncated)
+        return DirectoryView(
+            session_id=session_id,
+            path=str(directory),
+            root=str(root),
+            parent=str(directory.parent) if directory != root else None,
+            entries=entries,
+            truncated=truncated,
+        )
+
+    @app.get(
+        "/api/v1/sessions/{session_id}/file",
+        response_model=FileView,
+        dependencies=[Depends(security.require_session)],
+    )
+    async def session_file(
+        session_id: str, path: Annotated[str, Query(min_length=1, max_length=4096)]
+    ) -> FileView:
+        try:
+            TmuxService.validate_target(session_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        roots = [Path(root).resolve() for root in settings.allowed_roots]
+        file_path, _ = _resolve_within_allowed_roots(path, roots)
+        if not file_path.exists():
+            raise HTTPException(404, "File not found")
+        if not file_path.is_file():
+            raise HTTPException(400, "Not a file")
+        try:
+            content, size, truncated = await asyncio.to_thread(_read_text_file, file_path)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(404, "File not found") from exc
+        return FileView(session_id=session_id, path=str(file_path), size=size, content=content, truncated=truncated)
 
     @app.post(
         "/api/v1/sessions/{session_id}/attachments",

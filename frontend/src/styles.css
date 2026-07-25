@@ -76,15 +76,22 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .whats-new { border: 1px solid #31533c; border-radius: 16px; padding: 16px; background: #17261c; }
 .whats-new h3 { margin: 7px 0 5px; font-size: 1rem; }
 .whats-new p { margin: 0; color: #a9bcaf; line-height: 1.45; }
-.directory-modal h2 { margin: 4px 0 0; font-size: .95rem; font-family: ui-monospace, monospace; word-break: break-all; color: #b8c9bd; }
-.directory-list { display: grid; gap: 8px; margin: 18px 0 0; padding: 0; list-style: none; }
-.directory-entry { display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: "type name copy" "meta meta copy"; align-items: center; gap: 4px 10px; border: 1px solid #263b2d; border-radius: 12px; padding: 10px 12px; background: #101713; }
+.directory-path { margin: 4px 0 0; font-size: .95rem; font-family: ui-monospace, monospace; word-break: break-all; color: #b8c9bd; }
+.directory-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+.directory-nav button { min-height: 38px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .76rem; font-weight: 700; }
+.directory-nav button:disabled { opacity: .4; cursor: default; }
+.directory-list { display: grid; gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
+.directory-entry { display: flex; align-items: center; gap: 8px; }
+.directory-open { flex: 1; min-width: 0; display: grid; grid-template-columns: auto 1fr; grid-template-areas: "type name" "meta meta"; align-items: center; gap: 4px 10px; border: 1px solid #263b2d; border-radius: 12px; padding: 10px 12px; background: #101713; color: inherit; text-align: left; }
+.directory-open:disabled { opacity: .55; cursor: default; }
 .directory-type { grid-area: type; padding: 2px 7px; border-radius: 6px; background: #1e2b23; color: #8ee2aa; font-size: .64rem; font-weight: 800; letter-spacing: .04em; }
 .directory-type.file { color: #9fb3a6; background: #1c2620; }
+.directory-type.other { color: #c9b98e; background: #2a2515; }
 .directory-name { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #edf5ef; }
 .directory-meta { grid-area: meta; color: #91a397; font-size: .74rem; }
-.directory-copy { grid-area: copy; min-height: 36px; padding: 0 12px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .74rem; font-weight: 700; }
+.directory-copy { flex: 0 0 auto; min-height: 36px; padding: 0 12px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .74rem; font-weight: 700; }
 .directory-list li.empty { border: 0; background: none; padding: 8px 0; }
+.file-preview { margin: 14px 0 0; padding: 14px; border: 1px solid #263b2d; border-radius: 14px; background: #090d0a; color: #d7e5dc; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 60vh; overflow: auto; }
 @media (min-width: 720px) {
   body { padding: 24px; background: #080b09; }
   .shell, .console { min-height: calc(100vh - 48px); height: calc(100vh - 48px); border: 1px solid #26352c; border-radius: 20px; overflow: hidden; }

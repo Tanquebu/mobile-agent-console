@@ -201,6 +201,8 @@ def test_session_directory_lists_entries(tmp_path) -> None:
     body = response.json()
     assert body["session_id"] == "1"
     assert body["path"] == str(tmp_path)
+    assert body["root"] == str(tmp_path)
+    assert body["parent"] is None
     assert body["truncated"] is False
     names = [entry["name"] for entry in body["entries"]]
     assert names == ["src", "archive.tar.gz", "notes.txt"]
@@ -232,6 +234,141 @@ def test_session_directory_missing_and_invalid_session() -> None:
     login(client)
     assert client.get("/api/v1/sessions/9/directory").status_code == 404
     assert client.get("/api/v1/sessions/not-numeric/directory").status_code == 400
+
+
+def test_session_directory_navigates_via_path_param(tmp_path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "nested").mkdir()
+    fake = FakeTmux()
+    fake.directory = str(tmp_path)
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+    )
+    client = TestClient(create_app(settings, fake))
+    login(client)
+
+    child = client.get("/api/v1/sessions/1/directory", params={"path": str(tmp_path / "src")})
+    assert child.status_code == 200
+    child_body = child.json()
+    assert child_body["path"] == str(tmp_path / "src")
+    assert child_body["root"] == str(tmp_path)
+    assert child_body["parent"] == str(tmp_path)
+    assert [entry["name"] for entry in child_body["entries"]] == ["nested"]
+
+    # Con un path esplicito non serve interrogare tmux (niente pane_path), quindi
+    # anche un session id numerico ma inesistente va bene; il formato va comunque
+    # rispettato.
+    missing_session = client.get("/api/v1/sessions/9/directory", params={"path": str(tmp_path)})
+    assert missing_session.status_code == 200
+    invalid_id = client.get("/api/v1/sessions/not-numeric/directory", params={"path": str(tmp_path)})
+    assert invalid_id.status_code == 400
+
+    outside = client.get("/api/v1/sessions/1/directory", params={"path": "/etc"})
+    assert outside.status_code == 400
+
+
+def test_session_file_reads_text_content(tmp_path) -> None:
+    (tmp_path / "notes.md").write_text("# Titolo\n\nCiao à è ⚡\n")
+    fake = FakeTmux()
+    fake.directory = str(tmp_path)
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+    )
+    client = TestClient(create_app(settings, fake))
+    assert client.get(
+        "/api/v1/sessions/1/file", params={"path": str(tmp_path / "notes.md")}
+    ).status_code == 401
+    login(client)
+    response = client.get("/api/v1/sessions/1/file", params={"path": str(tmp_path / "notes.md")})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["path"] == str(tmp_path / "notes.md")
+    assert body["content"] == "# Titolo\n\nCiao à è ⚡\n"
+    assert body["truncated"] is False
+    assert body["size"] == len("# Titolo\n\nCiao à è ⚡\n".encode())
+
+
+def test_session_file_rejects_binary_missing_and_directory(tmp_path) -> None:
+    (tmp_path / "image.bin").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x01\x02")
+    (tmp_path / "src").mkdir()
+    fake = FakeTmux()
+    fake.directory = str(tmp_path)
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+    )
+    client = TestClient(create_app(settings, fake))
+    login(client)
+
+    binary = client.get("/api/v1/sessions/1/file", params={"path": str(tmp_path / "image.bin")})
+    assert binary.status_code == 400
+
+    missing = client.get("/api/v1/sessions/1/file", params={"path": str(tmp_path / "missing.txt")})
+    assert missing.status_code == 404
+
+    is_dir = client.get("/api/v1/sessions/1/file", params={"path": str(tmp_path / "src")})
+    assert is_dir.status_code == 400
+
+    outside = client.get("/api/v1/sessions/1/file", params={"path": "/etc/hostname"})
+    assert outside.status_code == 400
+
+
+def test_session_file_truncates_large_files(tmp_path) -> None:
+    big_file = tmp_path / "big.txt"
+    big_file.write_text("x" * (256 * 1024 + 10))
+    fake = FakeTmux()
+    fake.directory = str(tmp_path)
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+    )
+    client = TestClient(create_app(settings, fake))
+    login(client)
+    response = client.get("/api/v1/sessions/1/file", params={"path": str(big_file)})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["truncated"] is True
+    assert len(body["content"]) == 256 * 1024
+    assert body["size"] == 256 * 1024 + 10
+
+
+def test_session_file_truncation_does_not_split_utf8_character(tmp_path) -> None:
+    prefix = b"x" * (256 * 1024 - 1)
+    content = prefix + "€continua".encode()
+    text_file = tmp_path / "utf8.txt"
+    text_file.write_bytes(content)
+    fake = FakeTmux()
+    fake.directory = str(tmp_path)
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+    )
+    client = TestClient(create_app(settings, fake))
+    login(client)
+
+    response = client.get("/api/v1/sessions/1/file", params={"path": str(text_file)})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["content"] == prefix.decode()
+    assert body["truncated"] is True
+    assert body["size"] == len(content)
 
 
 def test_upload_attachment_and_reference_it_in_prompt(tmp_path) -> None:

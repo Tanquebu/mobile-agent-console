@@ -7,6 +7,8 @@ import {
   DirectoryListing,
   fetchConfig,
   fetchDirectory,
+  fetchFile,
+  FileContent,
   login,
   listSessions,
   restoreSession,
@@ -22,9 +24,9 @@ import {
 type Connection = "connecting" | "online" | "offline";
 
 const LATEST_RELEASE = {
-  title: "Contenuto directory",
+  title: "Directory navigabile con anteprima file",
   description:
-    "Nuovo pulsante \"Contenuto directory\" con l'elenco di file e cartelle della directory corrente e copy rapido per ogni voce; \"Tasti speciali\" è ora \"Funzioni speciali\".",
+    "\"Contenuto directory\" è ora un navigatore: cartelle cliccabili, risali al genitore o torna alla root della sessione, apri i file di testo in sola lettura.",
 };
 
 function formatSize(size: number | null): string {
@@ -77,30 +79,76 @@ async function copyToClipboard(text: string): Promise<boolean> {
   return copied;
 }
 
-function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
-  const [listing, setListing] = useState<DirectoryListing | null>(null);
+function joinPath(base: string, name: string): string {
+  return base.endsWith("/") ? `${base}${name}` : `${base}/${name}`;
+}
+
+function FilePreview({ sessionId, path, onBack }: { sessionId: string; path: string; onBack: () => void }) {
+  const [file, setFile] = useState<FileContent | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [copiedName, setCopiedName] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError("");
-    fetchDirectory(sessionId)
+    setFile(null);
+    fetchFile(sessionId, path)
+      .then((result) => { if (!cancelled) setFile(result); })
+      .catch((value) => { if (!cancelled) setError(value instanceof Error ? value.message : String(value)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [sessionId, path]);
+
+  return (
+    <>
+      <header>
+        <div>
+          <span className="eyebrow">FILE (SOLA LETTURA)</span>
+          <h2 className="directory-path" title={path}>{path}</h2>
+        </div>
+        <button className="modal-close" onClick={onBack} aria-label="Torna all'elenco">‹</button>
+      </header>
+      {loading && <p className="empty">Caricamento…</p>}
+      {error && <p className="error">{error}</p>}
+      {!loading && !error && file && (
+        <>
+          <pre className="file-preview">{file.content || "(file vuoto)"}</pre>
+          {file.truncated && <small>Anteprima troncata: il file continua oltre quanto mostrato.</small>}
+        </>
+      )}
+    </>
+  );
+}
+
+function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
+  const [currentPath, setCurrentPath] = useState<string | undefined>(undefined);
+  const [listing, setListing] = useState<DirectoryListing | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [copiedName, setCopiedName] = useState("");
+  const [openFile, setOpenFile] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    fetchDirectory(sessionId, currentPath)
       .then((result) => { if (!cancelled) setListing(result); })
       .catch((value) => { if (!cancelled) setError(value instanceof Error ? value.message : String(value)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [sessionId]);
+  }, [sessionId, currentPath]);
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape") return;
+      if (openFile !== null) setOpenFile(null);
+      else onClose();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+  }, [onClose, openFile]);
 
   async function copy(entry: DirectoryEntry) {
     const ok = await copyToClipboard(shellQuote(entry.name));
@@ -113,6 +161,13 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     }
   }
 
+  function openEntry(entry: DirectoryEntry) {
+    if (!listing) return;
+    const fullPath = joinPath(listing.path, entry.name);
+    if (entry.type === "dir") setCurrentPath(fullPath);
+    else if (entry.type === "file") setOpenFile(fullPath);
+  }
+
   return (
     <div
       className="modal-backdrop"
@@ -122,33 +177,64 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
       }}
     >
       <section className="help-modal directory-modal" role="dialog" aria-modal="true" aria-labelledby="directory-title">
-        <header>
-          <div>
-            <span className="eyebrow">CONTENUTO DIRECTORY</span>
-            <h2 id="directory-title">{listing?.path ?? "…"}</h2>
-          </div>
-          <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
-        </header>
-        {loading && <p className="empty">Caricamento…</p>}
-        {error && <p className="error">{error}</p>}
-        {!loading && !error && listing && (
+        {openFile !== null ? (
+          <FilePreview sessionId={sessionId} path={openFile} onBack={() => setOpenFile(null)} />
+        ) : (
           <>
-            <ul className="directory-list">
-              {listing.entries.map((entry) => (
-                <li key={entry.name} className="directory-entry">
-                  <span className={`directory-type ${entry.type}`}>
-                    {entry.type === "dir" ? "DIR" : entry.type === "file" ? "FILE" : "?"}
-                  </span>
-                  <span className="directory-name" title={entry.name}>{entry.name}</span>
-                  <span className="directory-meta">{formatSize(entry.size)} · {formatDate(entry.created_at)}</span>
-                  <button type="button" className="directory-copy" onClick={() => void copy(entry)}>
-                    {copiedName === entry.name ? "Copiato" : "Copy"}
-                  </button>
-                </li>
-              ))}
-              {listing.entries.length === 0 && <li className="empty">Directory vuota.</li>}
-            </ul>
-            {listing.truncated && <small>Elenco troncato alle prime 2000 voci.</small>}
+            <header>
+              <div>
+                <span className="eyebrow">CONTENUTO DIRECTORY</span>
+                <h2 id="directory-title" className="directory-path" title={listing?.path}>{listing?.path ?? "…"}</h2>
+              </div>
+              <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+            </header>
+            {listing && (
+              <div className="directory-nav">
+                <button
+                  type="button"
+                  disabled={!listing.parent}
+                  onClick={() => listing.parent && setCurrentPath(listing.parent)}
+                >
+                  ↑ Su
+                </button>
+                <button
+                  type="button"
+                  disabled={listing.path === listing.root}
+                  onClick={() => setCurrentPath(listing.root)}
+                >
+                  ⌂ Root sessione
+                </button>
+              </div>
+            )}
+            {loading && <p className="empty">Caricamento…</p>}
+            {error && <p className="error">{error}</p>}
+            {!loading && !error && listing && (
+              <>
+                <ul className="directory-list">
+                  {listing.entries.map((entry) => (
+                    <li key={entry.name} className="directory-entry">
+                      <button
+                        type="button"
+                        className="directory-open"
+                        disabled={entry.type === "other"}
+                        onClick={() => openEntry(entry)}
+                      >
+                        <span className={`directory-type ${entry.type}`}>
+                          {entry.type === "dir" ? "DIR" : entry.type === "file" ? "FILE" : "?"}
+                        </span>
+                        <span className="directory-name" title={entry.name}>{entry.name}</span>
+                        <span className="directory-meta">{formatSize(entry.size)} · {formatDate(entry.created_at)}</span>
+                      </button>
+                      <button type="button" className="directory-copy" onClick={() => void copy(entry)}>
+                        {copiedName === entry.name ? "Copiato" : "Copy"}
+                      </button>
+                    </li>
+                  ))}
+                  {listing.entries.length === 0 && <li className="empty">Directory vuota.</li>}
+                </ul>
+                {listing.truncated && <small>Elenco troncato alle prime 2000 voci.</small>}
+              </>
+            )}
           </>
         )}
       </section>

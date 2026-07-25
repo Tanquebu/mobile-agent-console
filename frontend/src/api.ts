@@ -144,12 +144,30 @@ export type DirectoryEntry = {
 export type DirectoryListing = {
   session_id: string;
   path: string;
+  root: string;
+  parent: string | null;
   entries: DirectoryEntry[];
   truncated: boolean;
 };
 
-export async function fetchDirectory(id: string): Promise<DirectoryListing> {
-  const response = await request(`/api/v1/sessions/${encodeURIComponent(id)}/directory`);
+export async function fetchDirectory(id: string, path?: string): Promise<DirectoryListing> {
+  const query = path ? `?path=${encodeURIComponent(path)}` : "";
+  const response = await request(`/api/v1/sessions/${encodeURIComponent(id)}/directory${query}`);
+  return response.json();
+}
+
+export type FileContent = {
+  session_id: string;
+  path: string;
+  size: number;
+  content: string;
+  truncated: boolean;
+};
+
+export async function fetchFile(id: string, path: string): Promise<FileContent> {
+  const response = await request(
+    `/api/v1/sessions/${encodeURIComponent(id)}/file?path=${encodeURIComponent(path)}`,
+  );
   return response.json();
 }
 
