@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     workspace_presets: dict[str, str] = {}
     attachments_root: str = "/workspace/.agent-attachments"
     snapshots_root: str = "/workspace/.agent-snapshots"
+    database_path: str = "/workspace/.mobile-agent-console/app.db"
     attachments_prompt_root: str | None = None
     max_attachment_bytes: int = Field(default=10 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
     attachment_ttl_seconds: int = Field(default=86400, ge=300, le=30 * 86400)
@@ -87,6 +88,10 @@ class Settings(BaseSettings):
     @property
     def resolved_attachments_prompt_root(self) -> str:
         return self.attachments_prompt_root or self.attachments_root
+
+    @property
+    def database_url(self) -> str:
+        return f"sqlite:///{Path(self.database_path).resolve()}"
 
 
 @lru_cache

@@ -6,6 +6,7 @@ customizations/
 # Default docker-mode workspace mount created by compose
 workspace/
 .agent-snapshots/
+.mobile-agent-console/
 .venv/
 __pycache__/
 .pytest_cache/

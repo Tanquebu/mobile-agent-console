@@ -36,7 +36,8 @@
 
 ## M2 — MVP sicuro e persistente
 
-- [ ] SQLite/SQLAlchemy.
+- [x] SQLite/SQLAlchemy con migrazioni Alembic e storage persistente
+  validati sull'istanza pubblicata.
 - [ ] Login con hash Argon2.
 - [x] Cookie HttpOnly/SameSite.
 - [x] Protezione CSRF.

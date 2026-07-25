@@ -804,7 +804,9 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
                 else:
                     idle_cycles += 1
                 await asyncio.sleep(0.5 if idle_cycles < 10 else 1.0 if idle_cycles < 30 else 2.0)
-        except WebSocketDisconnect:
+        except (WebSocketDisconnect, RuntimeError):
+            # Starlette/uvicorn possono esporre la chiusura del transport come
+            # RuntimeError se avviene mentre è in corso un send_json.
             return
 
     return app

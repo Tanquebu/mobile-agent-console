@@ -23,6 +23,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Privilege escalation | servizio non-root, stesso utente proprietario del socket tmux |
 | Confused deputy | permessi espliciti per create/interrupt/terminate e profili server-side |
 | Snapshot manipolati | file UUID mode 0600, schema validato, path nuovamente sottoposti ad allowlist e soli comandi resume costanti |
+| Database locale | path privato nel workspace, nessun prompt/output/segreto, migrazioni versionate |
 
 ## Rischi residui del vertical slice
 

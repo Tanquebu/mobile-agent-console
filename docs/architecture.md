@@ -4,7 +4,8 @@
 
 Monolite modulare containerizzato su singolo host: Nginx serve React e inoltra
 API/WebSocket same-origin; FastAPI espone il dominio; un container runtime
-separato possiede tmux. SQLite entrerà con metadati e audit nella milestone 2.
+separato possiede tmux. SQLite conserva i metadati applicativi tramite
+SQLAlchemy e migrazioni Alembic (ADR 006).
 
 ```text
 React PWA ── Nginx same-origin ── FastAPI
@@ -45,6 +46,11 @@ persistente. Il ripristino ricrea shell con nome e directory salvati. I profili
 Codex e Claude possono soltanto aprire i rispettivi selettori nativi di resume
 tramite comandi costanti server-side; nessun comando client arbitrario viene
 persistito o eseguito.
+
+Il database SQLite vive in `.mobile-agent-console/app.db` nella root
+persistente del workspace. L'avvio applica le migrazioni prima di esporre il
+backend. tmux resta autorevole per le sessioni vive; output, prompt, file e
+segreti non sono salvati nel database.
 
 ## Streaming
 

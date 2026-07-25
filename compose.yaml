@@ -33,6 +33,8 @@ services:
       target: base
     user: "10001:10001"
     environment:
+      MAC_HOST: 0.0.0.0
+      MAC_PORT: 8080
       MAC_LOGIN_PASSWORD_FILE: /run/secrets/mac_login_password
       MAC_SESSION_SECRET_FILE: /run/secrets/mac_session_secret
       MAC_COOKIE_SECURE: ${MAC_COOKIE_SECURE:-false}
@@ -44,6 +46,7 @@ services:
       MAC_ATTACHMENTS_ROOT: /workspace/.agent-attachments
       MAC_ATTACHMENTS_PROMPT_ROOT: /workspace/.agent-attachments
       MAC_SNAPSHOTS_ROOT: /workspace/.agent-snapshots
+      MAC_DATABASE_PATH: /workspace/.mobile-agent-console/app.db
       MAC_MAX_ATTACHMENT_BYTES: ${MAC_MAX_ATTACHMENT_BYTES:-10485760}
       MAC_ATTACHMENT_TTL_SECONDS: ${MAC_ATTACHMENT_TTL_SECONDS:-86400}
     secrets: [mac_login_password, mac_session_secret]
