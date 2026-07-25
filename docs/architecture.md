@@ -55,6 +55,8 @@ segreti non sono salvati nel database.
 L'autenticazione usa la tabella `users`: il primo avvio crea l'amministratore
 dal secret di bootstrap e salva soltanto un hash Argon2id. I successivi login
 interrogano il database, non confrontano la password con il secret runtime.
+Il cookie firmato identifica l'username; autorizzazione e stato attivo sono
+ricontrollati nel database a ogni richiesta e durante l'upgrade WebSocket.
 
 ## Streaming
 

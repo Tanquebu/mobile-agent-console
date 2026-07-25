@@ -21,7 +21,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | WebSocket hijacking | cookie autenticato e Origin allowlist; nessun token nell'URL |
 | Leakage | niente output/prompt nell'audit; notifiche senza contenuto di default |
 | Privilege escalation | servizio non-root, stesso utente proprietario del socket tmux |
-| Confused deputy | permessi espliciti per create/interrupt/terminate e profili server-side |
+| Confused deputy | ruoli ricontrollati dal database, permessi espliciti per operazioni mutative |
 | Snapshot manipolati | file UUID mode 0600, schema validato, path nuovamente sottoposti ad allowlist e soli comandi resume costanti |
 | Database locale | path privato nel workspace, nessun prompt/output/segreto, migrazioni versionate |
 | Password account | solo hash Argon2id nel database; secret usato esclusivamente per bootstrap iniziale |
@@ -29,7 +29,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 ## Rischi residui del vertical slice
 
 L'account amministratore persistente resta single-user in questa fase; ruoli e
-gestione account arriveranno separatamente. Nessun segreto entra nel bundle o nelle immagini: Compose
+gestione account applicano `admin`, `operator` e `viewer`. Nessun segreto entra nel bundle o nelle immagini: Compose
 monta file ignorati da Git. tmux eredita l'autorità dell'utente Linux, quindi la
 compromissione del backend equivale alla compromissione di quell'utente.
 
@@ -72,6 +72,13 @@ controlli di autenticazione e il bind loopback/Tailscale restano invariati
 e diventano più critici. Nota operativa: l'unit systemd in `deploy/systemd/`
 usa `PrivateTmp=true`, incompatibile con un socket in `/tmp` — non usarla
 per componenti che devono raggiungere il socket host.
+
+Il cookie v2 include l'username nel payload firmato. Ogni richiesta
+ricontrolla nel database che l'account esista e sia attivo: disabilitare un
+utente revoca quindi anche cookie già emessi. `viewer` può consultare output,
+directory e download; `operator` aggiunge le mutazioni sulle sessioni;
+`admin` gestisce gli account. L'ultimo amministratore attivo non può essere
+disabilitato.
 
 Quando il client specifica un pane, il backend accetta soltanto un id numerico
 e verifica tramite tmux che appartenga alla sessione indicata prima di usarlo

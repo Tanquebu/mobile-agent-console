@@ -30,11 +30,11 @@ def test_database_auth_bootstrap_and_login(tmp_path: Path) -> None:
     database = Database(str(database_path))
     database.migrate("/app/alembic.ini")
     users = UserService(database.engine)
-    assert users.bootstrap_admin("operator", "a-secure-bootstrap-password")
+    assert users.bootstrap_admin("admin", "a-secure-bootstrap-password")
     assert not users.bootstrap_admin("other", "another-secure-password")
-    assert users.authenticate("operator", "wrong") is None
+    assert users.authenticate("admin", "wrong") is None
     assert users.authenticate("missing", "a-secure-bootstrap-password") is None
-    assert users.authenticate("operator", "a-secure-bootstrap-password") is not None
+    assert users.authenticate("admin", "a-secure-bootstrap-password") is not None
     database.dispose()
 
     settings = Settings(
@@ -46,11 +46,62 @@ def test_database_auth_bootstrap_and_login(tmp_path: Path) -> None:
         database_auth_enabled=True,
     )
     client = TestClient(create_app(settings, FakeTmux()))
-    assert client.post(
+    logged_in = client.post(
         "/api/v1/auth/login",
-        json={"username": "operator", "password": "a-secure-bootstrap-password"},
+        json={"username": "admin", "password": "a-secure-bootstrap-password"},
+    )
+    assert logged_in.status_code == 200
+    assert logged_in.json()["role"] == "admin"
+    csrf = logged_in.json()["csrf_token"]
+    headers = {"X-CSRF-Token": csrf}
+    for username, role in (("operator", "operator"), ("viewer", "viewer")):
+        created = client.post(
+            "/api/v1/users",
+            headers=headers,
+            json={
+                "username": username,
+                "password": f"a-secure-{username}-password",
+                "role": role,
+            },
+        )
+        assert created.status_code == 201
+    assert len(client.get("/api/v1/users").json()["users"]) == 3
+
+    viewer = TestClient(create_app(settings, FakeTmux()))
+    viewer_login = viewer.post(
+        "/api/v1/auth/login",
+        json={"username": "viewer", "password": "a-secure-viewer-password"},
+    )
+    viewer_headers = {"X-CSRF-Token": viewer_login.json()["csrf_token"]}
+    assert viewer.get("/api/v1/sessions").status_code == 200
+    assert viewer.get("/api/v1/users").status_code == 403
+    assert viewer.post(
+        "/api/v1/sessions/1/keys", headers=viewer_headers, json={"key": "Enter"}
+    ).status_code == 403
+
+    operator = TestClient(create_app(settings, FakeTmux()))
+    operator_login = operator.post(
+        "/api/v1/auth/login",
+        json={"username": "operator", "password": "a-secure-operator-password"},
+    )
+    operator_headers = {"X-CSRF-Token": operator_login.json()["csrf_token"]}
+    assert operator.post(
+        "/api/v1/sessions/1/keys", headers=operator_headers, json={"key": "Enter"}
+    ).status_code == 202
+    assert operator.get("/api/v1/users").status_code == 403
+
+    assert client.post(
+        "/api/v1/users/viewer/status",
+        headers=headers,
+        json={"active": False},
     ).status_code == 200
+    assert viewer.get("/api/v1/sessions").status_code == 401
+    assert client.post(
+        "/api/v1/users/admin/status",
+        headers=headers,
+        json={"active": False},
+    ).status_code == 409
     assert client.post(
         "/api/v1/auth/login",
-        json={"username": "operator", "password": "legacy-password-not-used"},
+        json={"username": "admin", "password": "legacy-password-not-used"},
     ).status_code == 401

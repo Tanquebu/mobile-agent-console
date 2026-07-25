@@ -60,17 +60,56 @@ async function request(path: string, init?: RequestInit) {
   return response;
 }
 
-export async function login(username: string, password: string): Promise<void> {
+export type Role = "admin" | "operator" | "viewer";
+export type Identity = { username: string; role: Role };
+
+export async function login(username: string, password: string): Promise<Identity> {
   const response = await request("/api/v1/auth/login", {
     method: "POST",
     body: JSON.stringify({ username, password }),
   });
-  csrfToken = (await response.json()).csrf_token;
+  const body = await response.json();
+  csrfToken = body.csrf_token;
+  return { username: body.username, role: body.role };
 }
 
-export async function restoreSession(): Promise<void> {
+export async function restoreSession(): Promise<Identity> {
   const response = await request("/api/v1/auth/session");
-  csrfToken = (await response.json()).csrf_token;
+  const body = await response.json();
+  csrfToken = body.csrf_token;
+  return { username: body.username, role: body.role };
+}
+
+export type UserAccount = {
+  username: string;
+  role: Role;
+  active: boolean;
+  created_at: string;
+};
+
+export async function listUsers(): Promise<UserAccount[]> {
+  const response = await request("/api/v1/users");
+  return (await response.json()).users;
+}
+
+export async function createUser(
+  username: string,
+  password: string,
+  role: Role,
+): Promise<UserAccount> {
+  const response = await request("/api/v1/users", {
+    method: "POST",
+    body: JSON.stringify({ username, password, role }),
+  });
+  return response.json();
+}
+
+export async function setUserActive(username: string, active: boolean): Promise<UserAccount> {
+  const response = await request(`/api/v1/users/${encodeURIComponent(username)}/status`, {
+    method: "POST",
+    body: JSON.stringify({ active }),
+  });
+  return response.json();
 }
 
 export async function listSessions(): Promise<Session[]> {

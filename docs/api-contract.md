@@ -93,6 +93,12 @@ il limite è superato l'API risponde `429` e include l'header `Retry-After`.
 L'username predefinito resta `admin` per compatibilità con i deployment
 single-user; la password è verificata contro l'hash Argon2id persistente.
 
+`GET /api/v1/users`, `POST /api/v1/users` e
+`POST /api/v1/users/{username}/status` sono riservati agli amministratori.
+I ruoli sono `admin`, `operator` e `viewer`; la password di un nuovo account
+deve contenere almeno 16 caratteri. La disattivazione rende immediatamente
+invalide anche le sessioni firmate già emesse.
+
 ## `GET /api/v1/sessions/{id}/output?lines=500`
 
 `lines` è 1..2000. Risposta:

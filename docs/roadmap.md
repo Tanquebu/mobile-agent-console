@@ -42,7 +42,8 @@
   pubblicata.
 - [x] Cookie HttpOnly/SameSite.
 - [x] Protezione CSRF.
-- [ ] Ruoli.
+- [x] Ruoli `admin`/`operator`/`viewer`, gestione utenti e revoca sessioni
+  validati sull'istanza pubblicata.
 - [x] Allowlist delle directory.
 - [~] Profili server-side (presente il solo profilo `shell`).
 - [x] Creazione sessioni.

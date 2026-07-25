@@ -10,8 +10,10 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import (
+    Cookie,
     Depends,
     FastAPI,
+    Header,
     HTTPException,
     Query,
     Request,
@@ -31,6 +33,7 @@ from .schemas import (
     ConfirmedAction,
     CreateSessionInput,
     CreateSnapshotInput,
+    CreateUserInput,
     DirectoryEntryView,
     DirectoryView,
     FileView,
@@ -50,6 +53,9 @@ from .schemas import (
     SnapshotSessionView,
     SnapshotView,
     TextInput,
+    UserList,
+    UserStatusInput,
+    UserView,
 )
 from .security import COOKIE_NAME, SessionSecurity
 from .services.attachment_service import AttachmentError, AttachmentService
@@ -216,6 +222,54 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         allow_headers=["Content-Type", "X-CSRF-Token"],
     )
 
+    def active_user(cookie: str) -> object | None:
+        if not users:
+            return None
+        subject = security.subject_for(cookie) or settings.bootstrap_username
+        user = users.get(subject)
+        if not user or not user.active:
+            raise HTTPException(401, "Invalid session")
+        return user
+
+    def require_active_session(
+        mac_session: str | None = Cookie(default=None),
+    ) -> str:
+        cookie = security.validate_session(mac_session)
+        active_user(cookie)
+        return cookie
+
+    def require_active_csrf(
+        mac_session: str | None = Cookie(default=None),
+        csrf: str | None = Header(default=None, alias="X-CSRF-Token"),
+    ) -> str:
+        cookie = security.require_csrf(mac_session, csrf)
+        active_user(cookie)
+        return cookie
+
+    def require_operator(
+        cookie: str = Depends(require_active_csrf),
+    ) -> str:
+        user = active_user(cookie)
+        if user is not None and user.role not in {"admin", "operator"}:
+            raise HTTPException(403, "Operator role required")
+        return cookie
+
+    def require_admin(
+        cookie: str = Depends(require_active_csrf),
+    ) -> str:
+        user = active_user(cookie)
+        if user is not None and user.role != "admin":
+            raise HTTPException(403, "Admin role required")
+        return cookie
+
+    def require_admin_session(
+        cookie: str = Depends(require_active_session),
+    ) -> str:
+        user = active_user(cookie)
+        if user is not None and user.role != "admin":
+            raise HTTPException(403, "Admin role required")
+        return cookie
+
     def client_key(request: Request) -> str:
         cookie = request.cookies.get(COOKIE_NAME)
         if cookie:
@@ -266,7 +320,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             authenticated = security.authenticate_password(payload.password)
         if not authenticated:
             raise HTTPException(401, "Invalid credentials")
-        cookie, csrf = security.issue_session()
+        cookie, csrf = security.issue_session(payload.username if users else "legacy")
         response.set_cookie(
             COOKIE_NAME,
             cookie,
@@ -276,26 +330,98 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             max_age=settings.session_ttl_seconds,
             path="/",
         )
-        return LoginResult(csrf_token=csrf)
+        return LoginResult(
+            csrf_token=csrf,
+            username=user.username if users and user else "legacy",
+            role=user.role if users and user else "admin",
+        )
 
     @app.post(
         "/api/v1/auth/logout",
         status_code=204,
-        dependencies=[Depends(security.require_csrf)],
+        dependencies=[Depends(require_active_csrf)],
     )
     async def logout(response: Response) -> None:
         response.delete_cookie(COOKIE_NAME, path="/")
 
     @app.get("/api/v1/auth/session", response_model=LoginResult)
     async def current_session(
-        cookie: str = Depends(security.require_session),
+        cookie: str = Depends(require_active_session),
     ) -> LoginResult:
-        return LoginResult(csrf_token=security.csrf_for(cookie))
+        user = active_user(cookie)
+        return LoginResult(
+            csrf_token=security.csrf_for(cookie),
+            username=user.username if user else "legacy",
+            role=user.role if user else "admin",
+        )
+
+    @app.get(
+        "/api/v1/users",
+        response_model=UserList,
+        dependencies=[Depends(require_admin_session)],
+    )
+    async def list_users() -> UserList:
+        if not users:
+            return UserList(users=[])
+        items = await asyncio.to_thread(users.list)
+        return UserList(
+            users=[
+                UserView(
+                    username=item.username,
+                    role=item.role,
+                    active=item.active,
+                    created_at=item.created_at,
+                )
+                for item in items
+            ]
+        )
+
+    @app.post(
+        "/api/v1/users",
+        response_model=UserView,
+        status_code=201,
+        dependencies=[Depends(require_admin)],
+    )
+    async def create_user(payload: CreateUserInput) -> UserView:
+        if not users:
+            raise HTTPException(409, "Database authentication is disabled")
+        try:
+            item = await asyncio.to_thread(
+                users.create, payload.username, payload.password, payload.role
+            )
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return UserView(
+            username=item.username,
+            role=item.role,
+            active=item.active,
+            created_at=item.created_at,
+        )
+
+    @app.post(
+        "/api/v1/users/{username}/status",
+        response_model=UserView,
+        dependencies=[Depends(require_admin)],
+    )
+    async def set_user_status(username: str, payload: UserStatusInput) -> UserView:
+        if not users:
+            raise HTTPException(409, "Database authentication is disabled")
+        try:
+            item = await asyncio.to_thread(users.set_active, username, payload.active)
+        except ValueError as exc:
+            status_code = 404 if str(exc) == "User not found" else 409
+            raise HTTPException(status_code, str(exc)) from exc
+        return UserView(
+            username=item.username,
+            role=item.role,
+            active=item.active,
+            created_at=item.created_at,
+        )
 
     @app.get(
         "/api/v1/config",
         response_model=ConfigView,
-        dependencies=[Depends(security.require_session)],
+        dependencies=[Depends(require_active_session)],
     )
     async def client_config() -> ConfigView:
         return ConfigView(
@@ -307,7 +433,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         "/api/v1/sessions",
         response_model=Accepted,
         status_code=201,
-        dependencies=[Depends(security.require_csrf)],
+        dependencies=[Depends(require_operator)],
     )
     async def create_session(payload: CreateSessionInput) -> Accepted:
         roots = [Path(root).resolve() for root in settings.allowed_roots]
@@ -324,7 +450,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     @app.get(
         "/api/v1/sessions",
         response_model=SessionList,
-        dependencies=[Depends(security.require_session)],
+        dependencies=[Depends(require_active_session)],
     )
     async def sessions() -> SessionList:
         try:
@@ -336,7 +462,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     @app.get(
         "/api/v1/snapshots",
         response_model=SnapshotList,
-        dependencies=[Depends(security.require_session)],
+        dependencies=[Depends(require_active_session)],
     )
     async def list_snapshots() -> SnapshotList:
         items = await asyncio.to_thread(snapshots.list)
@@ -359,7 +485,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         "/api/v1/snapshots",
         response_model=SnapshotView,
         status_code=201,
-        dependencies=[Depends(security.require_csrf)],
+        dependencies=[Depends(require_operator)],
     )
     async def create_snapshot(payload: CreateSnapshotInput) -> SnapshotView:
         try:
@@ -401,7 +527,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     @app.post(
         "/api/v1/snapshots/{snapshot_id}/restore",
         response_model=RestoreResult,
-        dependencies=[Depends(security.require_csrf)],
+        dependencies=[Depends(require_operator)],
     )
     async def restore_snapshot(
         snapshot_id: str,
@@ -466,7 +592,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     @app.delete(
         "/api/v1/snapshots/{snapshot_id}",
         status_code=204,
-        dependencies=[Depends(security.require_csrf)],
+        dependencies=[Depends(require_operator)],
     )
     async def delete_snapshot(
         snapshot_id: str,
@@ -483,7 +609,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     @app.get(
         "/api/v1/sessions/{session_id}/panes",
         response_model=PaneList,
-        dependencies=[Depends(security.require_session)],
+        dependencies=[Depends(require_active_session)],
     )
     async def panes(session_id: str) -> PaneList:
         try:
@@ -498,7 +624,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         "/api/v1/sessions/{session_id}/panes/split",
         response_model=PaneView,
         status_code=201,
-        dependencies=[Depends(security.require_csrf)],
+        dependencies=[Depends(require_operator)],
     )
     async def split_pane(
         session_id: str,
@@ -517,7 +643,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     @app.post(
         "/api/v1/sessions/{session_id}/panes/{pane_id}/resize",
         response_model=Accepted,
-        dependencies=[Depends(security.require_csrf)],
+        dependencies=[Depends(require_operator)],
     )
     async def resize_pane(
         session_id: str, pane_id: str, payload: ResizePaneInput
@@ -533,7 +659,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     @app.get(
         "/api/v1/sessions/{session_id}/output",
         response_model=OutputView,
-        dependencies=[Depends(security.require_session)],
+        dependencies=[Depends(require_active_session)],
     )
     async def output(
         session_id: str,
@@ -551,7 +677,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     @app.get(
         "/api/v1/sessions/{session_id}/directory",
         response_model=DirectoryView,
-        dependencies=[Depends(security.require_session)],
+        dependencies=[Depends(require_active_session)],
     )
     async def session_directory(
         session_id: str, path: Annotated[str | None, Query(min_length=1, max_length=4096)] = None
@@ -587,7 +713,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     @app.get(
         "/api/v1/sessions/{session_id}/file",
         response_model=FileView,
-        dependencies=[Depends(security.require_session)],
+        dependencies=[Depends(require_active_session)],
     )
     async def session_file(
         session_id: str, path: Annotated[str, Query(min_length=1, max_length=4096)]
@@ -612,7 +738,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
 
     @app.get(
         "/api/v1/sessions/{session_id}/file/download",
-        dependencies=[Depends(security.require_session)],
+        dependencies=[Depends(require_active_session)],
     )
     async def download_session_file(
         session_id: str,
@@ -640,7 +766,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         "/api/v1/sessions/{session_id}/attachments",
         response_model=AttachmentView,
         status_code=201,
-        dependencies=[Depends(security.require_csrf)],
+        dependencies=[Depends(require_operator)],
     )
     async def upload_attachment(
         session_id: str,
@@ -679,7 +805,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         "/api/v1/sessions/{session_id}/input",
         response_model=Accepted,
         status_code=202,
-        dependencies=[Depends(security.require_csrf)],
+        dependencies=[Depends(require_operator)],
     )
     async def send_input(session_id: str, payload: TextInput) -> Accepted:
         try:
@@ -696,7 +822,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     @app.delete(
         "/api/v1/sessions/{session_id}/attachments/{attachment_id}",
         status_code=204,
-        dependencies=[Depends(security.require_csrf)],
+        dependencies=[Depends(require_operator)],
     )
     async def delete_attachment(session_id: str, attachment_id: str) -> Response:
         try:
@@ -709,7 +835,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         "/api/v1/sessions/{session_id}/keys",
         response_model=Accepted,
         status_code=202,
-        dependencies=[Depends(security.require_csrf)],
+        dependencies=[Depends(require_operator)],
     )
     async def send_key(session_id: str, payload: KeyInput) -> Accepted:
         if payload.key == "C-c" and not payload.confirmed:
@@ -725,7 +851,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     @app.delete(
         "/api/v1/sessions/{session_id}",
         status_code=204,
-        dependencies=[Depends(security.require_csrf)],
+        dependencies=[Depends(require_operator)],
     )
     async def terminate_session(session_id: str, payload: ConfirmedAction) -> Response:
         if not payload.confirmed:
@@ -741,7 +867,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     @app.post(
         "/api/v1/sessions/{session_id}/rename",
         response_model=Accepted,
-        dependencies=[Depends(security.require_csrf)],
+        dependencies=[Depends(require_operator)],
     )
     async def rename_session(session_id: str, payload: RenameSessionInput) -> Accepted:
         try:
@@ -760,6 +886,8 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         cookie = websocket.cookies.get(COOKIE_NAME)
         try:
             security.validate_session(cookie)
+            if cookie:
+                active_user(cookie)
         except HTTPException:
             cookie = None
         origin = websocket.headers.get("origin", "")

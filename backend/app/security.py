@@ -19,8 +19,8 @@ class SessionSecurity:
     def authenticate_password(self, password: str) -> bool:
         return secrets.compare_digest(password, self.settings.resolved_login_password)
 
-    def issue_session(self) -> tuple[str, str]:
-        payload = f"{int(time.time())}.{secrets.token_urlsafe(24)}"
+    def issue_session(self, subject: str = "legacy") -> tuple[str, str]:
+        payload = f"v2.{int(time.time())}.{subject}.{secrets.token_urlsafe(24)}"
         signature = hmac.new(self.secret, payload.encode(), hashlib.sha256).digest()
         cookie = f"{payload}.{base64.urlsafe_b64encode(signature).decode().rstrip('=')}"
         return cookie, self.csrf_for(cookie)
@@ -29,8 +29,17 @@ class SessionSecurity:
         if not cookie:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Authentication required")
         try:
-            issued, nonce, supplied = cookie.split(".", 2)
-            payload = f"{issued}.{nonce}"
+            parts = cookie.split(".")
+            if len(parts) == 5 and parts[0] == "v2":
+                _, issued, subject, nonce, supplied = parts
+                if not subject:
+                    raise ValueError
+                payload = f"v2.{issued}.{subject}.{nonce}"
+            elif len(parts) == 3:
+                issued, nonce, supplied = parts
+                payload = f"{issued}.{nonce}"
+            else:
+                raise ValueError
             expected = base64.urlsafe_b64encode(
                 hmac.new(self.secret, payload.encode(), hashlib.sha256).digest()
             ).decode().rstrip("=")
@@ -42,6 +51,11 @@ class SessionSecurity:
         if not valid_age or not secrets.compare_digest(supplied, expected):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid session")
         return cookie
+
+    def subject_for(self, cookie: str) -> str | None:
+        self.validate_session(cookie)
+        parts = cookie.split(".")
+        return parts[2] if len(parts) == 5 and parts[0] == "v2" else None
 
     def csrf_for(self, cookie: str) -> str:
         return hmac.new(self.secret, f"csrf:{cookie}".encode(), hashlib.sha256).hexdigest()

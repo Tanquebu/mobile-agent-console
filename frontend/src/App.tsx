@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   Attachment,
+  createUser,
   createSnapshot,
   createSession,
   deleteSnapshot,
@@ -15,24 +16,29 @@ import {
   FileContent,
   errorMessage,
   login,
+  Identity,
   listSessions,
   listPanes,
   listSnapshots,
+  listUsers,
   Pane,
   renameSession,
   restoreSession,
   restoreSnapshot,
+  Role,
   resizePane,
   sendEnter,
   sendKey,
   sendText,
   Session,
+  setUserActive,
   Snapshot,
   SnapshotMode,
   splitPane,
   streamUrl,
   terminateSession,
   uploadAttachment,
+  UserAccount,
 } from "./api";
 
 type Connection = "connecting" | "online" | "offline" | "closed";
@@ -495,7 +501,82 @@ function SnapshotModal({
   );
 }
 
-function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) => void; onUnauthorized: () => void }) {
+function UserModal({ onClose }: { onClose: () => void }) {
+  const [users, setUsers] = useState<UserAccount[]>([]);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState<Role>("viewer");
+  const [error, setError] = useState("");
+
+  async function refresh() {
+    setUsers(await listUsers());
+  }
+
+  useEffect(() => {
+    refresh().catch((value) => setError(errorMessage(value)));
+  }, []);
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="help-modal user-modal" role="dialog" aria-modal="true" aria-labelledby="users-title">
+        <header>
+          <div><span className="eyebrow">ACCESSI</span><h2 id="users-title">Utenti</h2></div>
+          <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+        </header>
+        <form className="user-create" onSubmit={async (event) => {
+          event.preventDefault();
+          setError("");
+          try {
+            await createUser(username, password, role);
+            setUsername("");
+            setPassword("");
+            await refresh();
+          } catch (value) {
+            setError(errorMessage(value));
+          }
+        }}>
+          <input required pattern="[A-Za-z0-9_-]{1,64}" placeholder="Nome utente" value={username} onChange={(event) => setUsername(event.target.value)} />
+          <input required minLength={16} type="password" autoComplete="new-password" placeholder="Password (minimo 16 caratteri)" value={password} onChange={(event) => setPassword(event.target.value)} />
+          <select value={role} onChange={(event) => setRole(event.target.value as Role)}>
+            <option value="viewer">Viewer · sola lettura</option>
+            <option value="operator">Operator · controllo sessioni</option>
+            <option value="admin">Admin · gestione completa</option>
+          </select>
+          <button type="submit">Crea utente</button>
+        </form>
+        {error && <p className="error">{error}</p>}
+        <div className="user-list">
+          {users.map((user) => (
+            <article key={user.username}>
+              <span><strong>{user.username}</strong><small>{user.role}</small></span>
+              <button type="button" onClick={async () => {
+                setError("");
+                try {
+                  await setUserActive(user.username, !user.active);
+                  await refresh();
+                } catch (value) {
+                  setError(errorMessage(value));
+                }
+              }}>
+                {user.active ? "Disattiva" : "Riattiva"}
+              </button>
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SessionList({
+  onOpen,
+  onUnauthorized,
+  identity,
+}: {
+  onOpen: (session: Session) => void;
+  onUnauthorized: () => void;
+  identity: Identity;
+}) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
@@ -505,6 +586,7 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
   const [customDirectory, setCustomDirectory] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showSnapshots, setShowSnapshots] = useState(false);
+  const [showUsers, setShowUsers] = useState(false);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -576,8 +658,15 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
         </div>
       </header>
       <div className="dashboard-actions">
-        <button className="new-session" onClick={() => setCreating((value) => !value)}>+ Nuova sessione</button>
-        <button className="snapshot-button" onClick={() => setShowSnapshots(true)}>Snapshot</button>
+        {identity.role !== "viewer" && (
+          <button className="new-session" onClick={() => setCreating((value) => !value)}>+ Nuova sessione</button>
+        )}
+        {identity.role !== "viewer" && (
+          <button className="snapshot-button" onClick={() => setShowSnapshots(true)}>Snapshot</button>
+        )}
+        {identity.role === "admin" && (
+          <button className="snapshot-button" onClick={() => setShowUsers(true)}>Utenti</button>
+        )}
       </div>
       {creating && <form className="create-form" onSubmit={async (event) => {
         event.preventDefault();
@@ -623,7 +712,7 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
                 </span>
                 <span className="chevron">›</span>
               </button>
-              <button
+              {identity.role !== "viewer" && <button
                 type="button"
                 className="session-menu"
                 aria-label={`Azioni per ${session.name}`}
@@ -631,7 +720,7 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
                 onClick={() => setOpenActionsId((value) => value === session.id ? null : session.id)}
               >
                 ⋮
-              </button>
+              </button>}
             </div>
             {openActionsId === session.id && (
               <div className="session-toolbar" role="toolbar" aria-label={`Azioni per ${session.name}`}>
@@ -688,11 +777,20 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
           onRestored={refreshSessions}
         />
       )}
+      {showUsers && <UserModal onClose={() => setShowUsers(false)} />}
     </main>
   );
 }
 
-function Console({ session, onBack }: { session: Session; onBack: () => void }) {
+function Console({
+  session,
+  onBack,
+  identity,
+}: {
+  session: Session;
+  onBack: () => void;
+  identity: Identity;
+}) {
   const [content, setContent] = useState("");
   const [draft, setDraft] = useState("");
   const [connection, setConnection] = useState<Connection>("connecting");
@@ -955,7 +1053,7 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
           </button>
         )}
       </section>
-      <form className="composer" onSubmit={submit}>
+      <form className={`composer ${identity.role === "viewer" ? "viewer" : ""}`} onSubmit={submit}>
         {attachments.length > 0 && (
           <div className="attachments" aria-label="Allegati al prompt">
             {attachments.map((attachment) => (
@@ -1067,24 +1165,23 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
 
 export default function App() {
   const [active, setActive] = useState<Session | null>(null);
-  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const [identity, setIdentity] = useState<Identity | null | undefined>(undefined);
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   useEffect(() => {
-    restoreSession().then(() => setAuthenticated(true)).catch(() => setAuthenticated(false));
+    restoreSession().then(setIdentity).catch(() => setIdentity(null));
   }, []);
-  if (authenticated === null) {
+  if (identity === undefined) {
     return <main className="login"><p>Verifica sessione…</p></main>;
   }
-  if (!authenticated) {
+  if (identity === null) {
     return (
       <main className="login">
         <form onSubmit={async (event) => {
           event.preventDefault();
           try {
-            await login(username, password);
-            setAuthenticated(true);
+            setIdentity(await login(username, password));
             setLoginError("");
           } catch {
             setLoginError("Credenziali non valide");
@@ -1109,6 +1206,6 @@ export default function App() {
     );
   }
   return active
-    ? <Console session={active} onBack={() => setActive(null)} />
-    : <SessionList onOpen={setActive} onUnauthorized={() => setAuthenticated(false)} />;
+    ? <Console session={active} identity={identity} onBack={() => setActive(null)} />
+    : <SessionList identity={identity} onOpen={setActive} onUnauthorized={() => setIdentity(null)} />;
 }

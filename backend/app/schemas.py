@@ -157,6 +157,29 @@ class LoginInput(BaseModel):
 
 class LoginResult(BaseModel):
     csrf_token: str
+    username: str = "legacy"
+    role: Literal["admin", "operator", "viewer"] = "admin"
+
+
+class UserView(BaseModel):
+    username: str
+    role: Literal["admin", "operator", "viewer"]
+    active: bool
+    created_at: datetime
+
+
+class UserList(BaseModel):
+    users: list[UserView]
+
+
+class CreateUserInput(BaseModel):
+    username: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    password: str = Field(min_length=16, max_length=1024)
+    role: Literal["admin", "operator", "viewer"]
+
+
+class UserStatusInput(BaseModel):
+    active: bool
 
 
 class CreateSessionInput(BaseModel):
