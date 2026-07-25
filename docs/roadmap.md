@@ -14,7 +14,7 @@
 - [x] WebSocket a snapshot completi.
 - [x] UI mobile-first.
 - [x] Gateway fake e test API senza agenti reali.
-- [ ] Verifica e registrazione formale del gate: flusso manuale completo
+- [x] Verifica e registrazione formale del gate: flusso manuale completo
   affidabile.
 
 ## M1 — Hardening del runtime
@@ -41,7 +41,8 @@
 - [x] Allowlist delle directory.
 - [~] Profili server-side (presente il solo profilo `shell`).
 - [x] Creazione sessioni.
-- [~] Rename disponibile; archive da implementare.
+- [x] Rinomina sessioni tramite id numerico, con nomi contenenti spazi.
+- [ ] Archive.
 - [ ] Audit metadata.
 - [~] Unit systemd da completare e validare per entrambe le modalità tmux.
 - [ ] Backup.
@@ -80,12 +81,13 @@ API specifiche di Codex, Claude o altri agenti.
 - [ ] Preferenze.
 - [ ] Terminal mode xterm.js e tasti speciali.
 - [x] Rinominare il pulsante "Tasti speciali" in "Funzioni speciali".
-- [x] Modale "Contenuto directory": elenco di file e cartelle della working
-  directory della sessione (nome, tipo, dimensione, data di creazione) con
-  pulsante di copy per voce, per agevolare comandi successivi (`cat`, `cd`,
-  ecc.). Endpoint di sola lettura `GET /sessions/{id}/directory` che elenca
-  la directory di lavoro corrente del pane lato server (mai un path
-  arbitrario proveniente dal client) rispettando `MAC_ALLOWED_ROOTS`.
+- [x] Browser "Contenuto directory": navigazione tra cartelle entro
+  `MAC_ALLOWED_ROOTS`, ritorno al parent/root, metadati e copy rapido delle
+  voci.
+- [x] Anteprima in sola lettura dei file UTF-8, con rifiuto dei binari e
+  troncamento sicuro a 256 KiB.
+- [x] Toolbar contestuale per sessione nella dashboard con rinomina e
+  terminazione confermata.
 - [x] Form di creazione sessione responsive anche con path molto lunghi.
 - [x] Autoscroll intelligente: pausa quando l'utente risale l'output e
   ripresa esplicita tramite pulsante.
