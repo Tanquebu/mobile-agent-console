@@ -19,6 +19,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from .config import Settings, get_settings
 from .schemas import (
@@ -47,6 +48,19 @@ logger = logging.getLogger("mobile_agent_console")
 
 DIRECTORY_ENTRY_LIMIT = 2000
 FILE_PREVIEW_MAX_BYTES = 256 * 1024
+DOWNLOADABLE_EXTENSIONS = {
+    ".bmp",
+    ".doc",
+    ".docx",
+    ".gif",
+    ".jpeg",
+    ".jpg",
+    ".pdf",
+    ".png",
+    ".tif",
+    ".tiff",
+    ".webp",
+}
 
 
 def _tmux_mutation_error(exc: TmuxError, fallback: str) -> str:
@@ -329,6 +343,32 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         except OSError as exc:
             raise HTTPException(404, "File not found") from exc
         return FileView(session_id=session_id, path=str(file_path), size=size, content=content, truncated=truncated)
+
+    @app.get(
+        "/api/v1/sessions/{session_id}/file/download",
+        dependencies=[Depends(security.require_session)],
+    )
+    async def download_session_file(
+        session_id: str,
+        path: Annotated[str, Query(min_length=1, max_length=4096)],
+    ) -> FileResponse:
+        try:
+            TmuxService.validate_target(session_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        roots = [Path(root).resolve() for root in settings.allowed_roots]
+        file_path, _ = _resolve_within_allowed_roots(path, roots)
+        if not file_path.exists():
+            raise HTTPException(404, "File not found")
+        if not file_path.is_file():
+            raise HTTPException(400, "Not a file")
+        if file_path.suffix.lower() not in DOWNLOADABLE_EXTENSIONS:
+            raise HTTPException(400, "File type is not downloadable")
+        return FileResponse(
+            file_path,
+            filename=file_path.name,
+            content_disposition_type="attachment",
+        )
 
     @app.post(
         "/api/v1/sessions/{session_id}/attachments",

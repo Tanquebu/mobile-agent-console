@@ -9,6 +9,7 @@ import {
   fetchConfig,
   fetchDirectory,
   fetchFile,
+  fileDownloadUrl,
   FileContent,
   errorMessage,
   login,
@@ -93,6 +94,12 @@ function joinPath(base: string, name: string): string {
   return base.endsWith("/") ? `${base}${name}` : `${base}/${name}`;
 }
 
+const DOWNLOADABLE_FILE = /\.(?:bmp|docx?|gif|jpe?g|pdf|png|tiff?|webp)$/i;
+
+function isDownloadable(name: string): boolean {
+  return DOWNLOADABLE_FILE.test(name);
+}
+
 function FilePreview({ sessionId, path, onBack }: { sessionId: string; path: string; onBack: () => void }) {
   const [file, setFile] = useState<FileContent | null>(null);
   const [error, setError] = useState("");
@@ -175,7 +182,18 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     if (!listing) return;
     const fullPath = joinPath(listing.path, entry.name);
     if (entry.type === "dir") setCurrentPath(fullPath);
+    else if (entry.type === "file" && isDownloadable(entry.name)) downloadEntry(entry);
     else if (entry.type === "file") setOpenFile(fullPath);
+  }
+
+  function downloadEntry(entry: DirectoryEntry) {
+    if (!listing) return;
+    const anchor = document.createElement("a");
+    anchor.href = fileDownloadUrl(sessionId, joinPath(listing.path, entry.name));
+    anchor.download = entry.name;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
   }
 
   return (
@@ -238,6 +256,15 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                       <button type="button" className="directory-copy" onClick={() => void copy(entry)}>
                         {copiedName === entry.name ? "Copiato" : "Copy"}
                       </button>
+                      {entry.type === "file" && isDownloadable(entry.name) && (
+                        <button
+                          type="button"
+                          className="directory-download"
+                          onClick={() => downloadEntry(entry)}
+                        >
+                          Download
+                        </button>
+                      )}
                     </li>
                   ))}
                   {listing.entries.length === 0 && <li className="empty">Directory vuota.</li>}

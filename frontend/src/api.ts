@@ -205,6 +205,10 @@ export async function fetchFile(id: string, path: string): Promise<FileContent> 
   return response.json();
 }
 
+export function fileDownloadUrl(id: string, path: string): string {
+  return `/api/v1/sessions/${encodeURIComponent(id)}/file/download?path=${encodeURIComponent(path)}`;
+}
+
 export function streamUrl(id: string): string {
   const url = new URL(window.location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";

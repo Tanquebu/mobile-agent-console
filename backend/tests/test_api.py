@@ -428,6 +428,65 @@ def test_session_file_truncation_does_not_split_utf8_character(tmp_path) -> None
     assert body["size"] == len(content)
 
 
+@pytest.mark.parametrize(
+    ("filename", "content"),
+    [
+        ("diagram.png", b"\x89PNG\r\n\x1a\nfake"),
+        ("report.pdf", b"%PDF-1.7\nfake"),
+        ("notes.doc", b"legacy-word"),
+        ("notes.docx", b"zip-like-word"),
+    ],
+)
+def test_session_file_downloads_supported_binary_types(
+    tmp_path,
+    filename: str,
+    content: bytes,
+) -> None:
+    file_path = tmp_path / filename
+    file_path.write_bytes(content)
+    fake = FakeTmux()
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+    )
+    client = TestClient(create_app(settings, fake))
+    url = "/api/v1/sessions/1/file/download"
+    assert client.get(url, params={"path": str(file_path)}).status_code == 401
+    login(client)
+
+    response = client.get(url, params={"path": str(file_path)})
+    assert response.status_code == 200
+    assert response.content == content
+    assert response.headers["content-disposition"].startswith("attachment;")
+    assert filename in response.headers["content-disposition"]
+
+
+def test_session_file_download_rejects_unsupported_and_outside_paths(tmp_path) -> None:
+    text_file = tmp_path / "notes.txt"
+    text_file.write_text("preview only")
+    fake = FakeTmux()
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+    )
+    client = TestClient(create_app(settings, fake))
+    login(client)
+    url = "/api/v1/sessions/1/file/download"
+
+    unsupported = client.get(url, params={"path": str(text_file)})
+    assert unsupported.status_code == 400
+    outside = client.get(url, params={"path": "/etc/hostname"})
+    assert outside.status_code == 400
+    missing = client.get(url, params={"path": str(tmp_path / "missing.pdf")})
+    assert missing.status_code == 404
+
+
 def test_upload_attachment_and_reference_it_in_prompt(tmp_path) -> None:
     fake = FakeTmux()
     settings = Settings(

@@ -91,6 +91,14 @@ metadati) come approssimazione — non garantito su tutti i filesystem. Le
 directory con più di 2000 voci vengono troncate (`truncated:true`), elencando
 solo le prime 2000 in ordine cartelle-poi-file, alfabetico case-insensitive.
 
+## `GET /api/v1/sessions/{id}/file/download?path=...`
+
+Scarica come allegato un file entro `MAC_ALLOWED_ROOTS`. Richiede il cookie di
+sessione, valida l'id tmux numerico e risolve il path lato server. Sono
+consentiti immagini (`bmp`, `gif`, `jpg/jpeg`, `png`, `tif/tiff`, `webp`), PDF
+e documenti Word (`doc`, `docx`). Il file viene trasmesso in streaming con
+`Content-Disposition: attachment`.
+
 ## `POST /api/v1/sessions/{id}/input`
 
 Body `{"text":"...multiline...","attachment_ids":[]}`; massimo 65536
