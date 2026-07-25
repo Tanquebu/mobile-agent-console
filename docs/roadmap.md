@@ -41,7 +41,7 @@
 - [x] Allowlist delle directory.
 - [~] Profili server-side (presente il solo profilo `shell`).
 - [x] Creazione sessioni.
-- [ ] Rename e archive.
+- [~] Rename disponibile; archive da implementare.
 - [ ] Audit metadata.
 - [~] Unit systemd da completare e validare per entrambe le modalità tmux.
 - [ ] Backup.

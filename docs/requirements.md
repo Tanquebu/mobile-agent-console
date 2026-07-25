@@ -30,15 +30,18 @@ Il primo incremento restringe intenzionalmente l'MVP:
 - usa login runtime, cookie HttpOnly e CSRF same-origin;
 - sopravvive a refresh e disconnessioni.
 
-Non rinomina o termina sessioni. La creazione accetta soltanto un nome con regex
-restrittiva, directory dentro l’allowlist e il profilo server-side `shell`.
+Rinomina e termina sessioni tramite azioni dedicate. Creazione e rinomina
+accettano nomi ASCII con lettere, numeri, `_`, `-` e spazi singoli tra le
+parole; la directory resta dentro l’allowlist e il profilo server-side è
+soltanto `shell`.
 
 ## Requisiti non funzionali
 
 - bind predefinito localhost, oppure IP Tailscale esplicito con `MAC_BIND_IP`;
 - porta host predefinita `8081` per evitare conflitti con altri servizi già presenti sulla 8080;
 - `subprocess` con argv e `shell=False`;
-- nomi sessione `^[A-Za-z0-9_-]{1,64}$`;
+- nomi sessione lunghi al massimo 64 caratteri, con parole ASCII separate da
+  spazi singoli (`_` e `-` consentiti);
 - limite input 64 KiB e output iniziale 500 righe;
 - WebSocket autenticato e riconnessione con snapshot idempotente;
 - interfaccia usabile a 360 px, input multilinea e target touch >= 44 px;

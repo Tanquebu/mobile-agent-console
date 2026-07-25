@@ -20,8 +20,9 @@ Richiede cookie e CSRF; elimina il cookie.
 ## `POST /api/v1/sessions`
 
 Richiede CSRF. Body: `{"name":"demo","directory":"/workspace","profile":"shell"}`.
-Il nome deve rispettare `^[A-Za-z0-9_-]{1,64}$`; la directory deve essere sotto
-una root configurata. Il client non invia un comando eseguibile.
+Il nome, lungo al massimo 64 caratteri, accetta lettere ASCII, numeri, `_`,
+`-` e spazi singoli tra le parole; la directory deve essere sotto una root
+configurata. Il client non invia un comando eseguibile.
 
 ## `GET /api/v1/auth/session`
 
@@ -130,6 +131,13 @@ Gli allegati non eliminati esplicitamente scadono automaticamente dopo
 Body `{"key":"Enter","confirmed":false}`. Sono consentiti `Enter`, `Up`,
 `Down`, `Escape` e `C-c`; l'interrupt `C-c` richiede obbligatoriamente
 `"confirmed":true`. Risposta 202.
+
+## `POST /api/v1/sessions/{id}/rename`
+
+Rinomina la sessione identificata dal suo id numerico. Richiede autenticazione
+e CSRF. Body `{"name":"Refactoring Codex"}` con gli stessi vincoli applicati
+alla creazione. Il nome viene passato a tmux come argomento argv separato e non
+viene mai usato come target. Risposta `200 {"accepted":true}`.
 
 ## `DELETE /api/v1/sessions/{id}`
 

@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 
-SESSION_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+SOCKET_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+SESSION_NAME = re.compile(r"^[A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+)*$")
 TARGET_ID = re.compile(r"^\d{1,10}$")
 RUNTIME_KEEPALIVE = "__runtime__"
 ALLOWED_KEYS = {"Enter", "Up", "Down", "Escape", "C-c"}
@@ -30,6 +31,7 @@ class TmuxSession:
 
 class TmuxGateway(Protocol):
     async def create_session(self, session_id: str, directory: str, command: str = "bash") -> None: ...
+    async def rename_session(self, session_id: str, name: str) -> None: ...
     async def list_sessions(self) -> list[TmuxSession]: ...
     async def capture_output(self, session_id: str, lines: int = 500) -> str: ...
     async def send_text(self, session_id: str, text: str) -> None: ...
@@ -48,7 +50,7 @@ class TmuxService:
         socket_file: str | None = None,
         external_server: bool = False,
     ) -> None:
-        if not SESSION_NAME.fullmatch(socket_name):
+        if not SOCKET_NAME.fullmatch(socket_name):
             raise ValueError("Invalid tmux socket name")
         self._prefix = [binary, "-S", socket_file] if socket_file else (
             [binary, "-S", f"{socket_path.rstrip('/')}/{socket_name}.sock"]
@@ -59,8 +61,8 @@ class TmuxService:
 
     @staticmethod
     def validate_session_id(session_id: str) -> str:
-        if not SESSION_NAME.fullmatch(session_id):
-            raise ValueError("Invalid session id")
+        if len(session_id) > 64 or not SESSION_NAME.fullmatch(session_id):
+            raise ValueError("Invalid session name")
         return session_id
 
     @staticmethod
@@ -143,6 +145,11 @@ class TmuxService:
         if self._external_server:
             await self._require_server()
         await self._run("new-session", "-d", "-s", session_id, "-c", directory, "bash", "-l")
+
+    async def rename_session(self, session_id: str, name: str) -> None:
+        target = self.validate_target(session_id)
+        self.validate_session_id(name)
+        await self._run("rename-session", "-t", target, name)
 
     async def send_text(self, session_id: str, text: str) -> None:
         target = self.validate_target(session_id)

@@ -74,6 +74,10 @@ class ConfirmedAction(BaseModel):
     confirmed: bool = False
 
 
+class RenameSessionInput(BaseModel):
+    name: str = Field(pattern=r"^[A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+)*$", max_length=64)
+
+
 class Accepted(BaseModel):
     accepted: bool = True
 
@@ -87,6 +91,6 @@ class LoginResult(BaseModel):
 
 
 class CreateSessionInput(BaseModel):
-    name: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    name: str = Field(pattern=r"^[A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+)*$", max_length=64)
     directory: str = Field(min_length=1, max_length=4096)
     profile: str = Field(default="shell", pattern=r"^shell$")

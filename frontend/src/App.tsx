@@ -11,6 +11,7 @@ import {
   FileContent,
   login,
   listSessions,
+  renameSession,
   restoreSession,
   sendEnter,
   sendKey,
@@ -24,9 +25,9 @@ import {
 type Connection = "connecting" | "online" | "offline";
 
 const LATEST_RELEASE = {
-  title: "Directory navigabile con anteprima file",
+  title: "Rinomina sessioni",
   description:
-    "\"Contenuto directory\" è ora un navigatore: cartelle cliccabili, risali al genitore o torna alla root della sessione, apri i file di testo in sola lettura.",
+    "Le sessioni possono essere rinominate dalla console e i nomi possono contenere spazi tra le parole.",
 };
 
 function formatSize(size: number | null): string {
@@ -296,7 +297,15 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
           setError(value instanceof Error ? value.message : String(value));
         }
       }}>
-        <input required pattern="[A-Za-z0-9_-]{1,64}" placeholder="Nome sessione" value={name} onChange={(event) => setName(event.target.value)} />
+        <input
+          required
+          pattern="[A-Za-z0-9_-]+( [A-Za-z0-9_-]+)*"
+          maxLength={64}
+          title="Usa lettere, numeri, trattini e spazi singoli tra le parole"
+          placeholder="Nome sessione"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
         {presets.length > 0 && !customDirectory ? (
           <select value={directory} onChange={(event) => {
             if (event.target.value === "__custom__") setCustomDirectory(true);
@@ -363,6 +372,7 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
 }
 
 function Console({ session, onBack }: { session: Session; onBack: () => void }) {
+  const [sessionName, setSessionName] = useState(session.name);
   const [content, setContent] = useState("");
   const [draft, setDraft] = useState("");
   const [connection, setConnection] = useState<Connection>("connecting");
@@ -490,7 +500,7 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
 
   async function terminateCurrentSession() {
     const confirmed = window.confirm(
-      `Terminare definitivamente la sessione “${session.name}”?`,
+      `Terminare definitivamente la sessione “${sessionName}”?`,
     );
     if (!confirmed) return;
     setControlError("");
@@ -502,11 +512,23 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
     }
   }
 
+  async function renameCurrentSession() {
+    const nextName = window.prompt("Nuovo nome della sessione", sessionName)?.trim();
+    if (!nextName || nextName === sessionName) return;
+    setControlError("");
+    try {
+      await renameSession(session.id, nextName);
+      setSessionName(nextName);
+    } catch (value) {
+      setControlError(value instanceof Error ? value.message : String(value));
+    }
+  }
+
   return (
     <main className="console">
       <header className="console-header">
         <button className="icon-button" onClick={onBack} aria-label="Indietro">‹</button>
-        <div><strong>{session.name}</strong><small>{session.current_command}</small></div>
+        <div><strong>{sessionName}</strong><small>{session.current_command}</small></div>
         <span className={`status ${connection}`}>{connection}</span>
       </header>
       <section className="output-wrap">
@@ -564,6 +586,9 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
           </button>
           <button type="button" className="secondary" onClick={() => setShowDirectory(true)}>
             Contenuto directory
+          </button>
+          <button type="button" className="secondary full-width" onClick={() => void renameCurrentSession()}>
+            Rinomina sessione
           </button>
           <button type="button" className="danger full-width" onClick={() => void terminateCurrentSession()}>
             Termina sessione

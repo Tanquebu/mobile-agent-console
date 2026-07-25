@@ -34,7 +34,10 @@ class Recorder:
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
 
 
-@pytest.mark.parametrize("value", ["bad name", "x;touch_pwned", "../demo", "", "x" * 65])
+@pytest.mark.parametrize(
+    "value",
+    [" bad", "bad ", "bad  name", "x;touch_pwned", "../demo", "bad:name", "", "x" * 65],
+)
 def test_rejects_unsafe_session_names(value: str) -> None:
     with pytest.raises(ValueError):
         TmuxService.validate_session_id(value)
@@ -42,6 +45,7 @@ def test_rejects_unsafe_session_names(value: str) -> None:
 
 def test_accepts_safe_session_names() -> None:
     assert TmuxService.validate_session_id("codex_project-1") == "codex_project-1"
+    assert TmuxService.validate_session_id("Refactoring Codex") == "Refactoring Codex"
 
 
 def test_target_accepts_numeric_ids() -> None:
@@ -88,6 +92,12 @@ def test_create_session_uses_login_shell(monkeypatch) -> None:
     recorder = Recorder(monkeypatch)
     asyncio.run(TmuxService("test").create_session("demo", "/workspace"))
     assert recorder.calls[0][-2:] == ("bash", "-l")
+
+
+def test_rename_session_uses_numeric_target_and_separate_name_argv(monkeypatch) -> None:
+    recorder = Recorder(monkeypatch)
+    asyncio.run(TmuxService("test").rename_session("7", "Refactoring Codex"))
+    assert recorder.calls[0][-4:] == ("rename-session", "-t", "$7", "Refactoring Codex")
 
 
 def test_external_server_guard_blocks_autostart(monkeypatch) -> None:

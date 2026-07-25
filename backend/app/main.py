@@ -34,6 +34,7 @@ from .schemas import (
     LoginInput,
     LoginResult,
     OutputView,
+    RenameSessionInput,
     SessionList,
     SessionView,
     TextInput,
@@ -423,6 +424,22 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         except SessionNotFound as exc:
             raise HTTPException(404, "Session not found") from exc
         return Response(status_code=204)
+
+    @app.post(
+        "/api/v1/sessions/{session_id}/rename",
+        response_model=Accepted,
+        dependencies=[Depends(security.require_csrf)],
+    )
+    async def rename_session(session_id: str, payload: RenameSessionInput) -> Accepted:
+        try:
+            await gateway.rename_session(session_id, payload.name)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except SessionNotFound as exc:
+            raise HTTPException(404, "Session not found") from exc
+        except TmuxError as exc:
+            raise HTTPException(409, "Unable to rename session") from exc
+        return Accepted()
 
     @app.websocket("/api/v1/ws/sessions/{session_id}")
     async def stream(websocket: WebSocket, session_id: str) -> None:

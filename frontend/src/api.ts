@@ -127,6 +127,13 @@ export async function terminateSession(id: string) {
   });
 }
 
+export async function renameSession(id: string, name: string) {
+  await request(`/api/v1/sessions/${encodeURIComponent(id)}/rename`, {
+    method: "POST",
+    body: JSON.stringify({ name: name.trim() }),
+  });
+}
+
 export async function createSession(name: string, directory: string) {
   await request("/api/v1/sessions", {
     method: "POST",

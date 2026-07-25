@@ -102,6 +102,34 @@ def test_special_keys_interrupt_and_termination_require_confirmation() -> None:
     assert fake.terminated == ["1"]
 
 
+def test_rename_session_supports_spaces_and_requires_csrf() -> None:
+    client, fake = client_and_fake()
+    csrf = login(client)
+    payload = {"name": "Refactoring Codex"}
+
+    assert client.post("/api/v1/sessions/1/rename", json=payload).status_code == 403
+    renamed = client.post(
+        "/api/v1/sessions/1/rename",
+        headers={"X-CSRF-Token": csrf},
+        json=payload,
+    )
+    assert renamed.status_code == 200
+    assert fake.renamed == [("1", "Refactoring Codex")]
+
+    invalid = client.post(
+        "/api/v1/sessions/1/rename",
+        headers={"X-CSRF-Token": csrf},
+        json={"name": "bad:name"},
+    )
+    assert invalid.status_code == 422
+    missing = client.post(
+        "/api/v1/sessions/9/rename",
+        headers={"X-CSRF-Token": csrf},
+        json=payload,
+    )
+    assert missing.status_code == 404
+
+
 def test_config_exposes_allowed_roots_to_authenticated_users() -> None:
     client, _ = client_and_fake()
     assert client.get("/api/v1/config").status_code == 401
@@ -174,6 +202,12 @@ def test_create_session_requires_allowed_directory() -> None:
         "/api/v1/sessions", headers=headers, json={"name": "new-session", "directory": "/workspace"}
     )
     assert allowed.status_code == 201
+    spaced = client.post(
+        "/api/v1/sessions",
+        headers=headers,
+        json={"name": "Refactoring Codex", "directory": "/workspace"},
+    )
+    assert spaced.status_code == 201
     denied = client.post(
         "/api/v1/sessions", headers=headers, json={"name": "unsafe", "directory": "/etc"}
     )
