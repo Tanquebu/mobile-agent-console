@@ -1,9 +1,12 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from app.config import Settings
 from app.main import create_app
+from app.services.attachment_service import AttachmentService
 from tests.fakes import FakeTmux
 
 PASSWORD = "a-secure-test-password"
@@ -184,6 +187,16 @@ def test_upload_attachment_and_reference_it_in_prompt(tmp_path) -> None:
         json={"text": "test", "attachment_ids": [attachment["id"]]},
     )
     assert wrong_session.status_code == 400
+    delete_path = f"/api/v1/sessions/1/attachments/{attachment['id']}"
+    assert client.delete(delete_path).status_code == 403
+    assert client.delete(delete_path, headers={"X-CSRF-Token": csrf}).status_code == 204
+    assert list(tmp_path.glob("1/*")) == []
+    deleted_reference = client.post(
+        "/api/v1/sessions/1/input",
+        headers={"X-CSRF-Token": csrf},
+        json={"text": "test", "attachment_ids": [attachment["id"]]},
+    )
+    assert deleted_reference.status_code == 400
 
 
 def test_attachment_validation_rejects_unsafe_names_types_and_sizes(tmp_path) -> None:
@@ -223,3 +236,16 @@ def test_attachment_validation_rejects_unsafe_names_types_and_sizes(tmp_path) ->
         json={"text": "test", "attachment_ids": ["0" * 32]},
     )
     assert missing.status_code == 400
+
+
+def test_expired_attachments_are_cleaned_up(tmp_path) -> None:
+    service = AttachmentService(str(tmp_path), str(tmp_path), max_bytes=1024)
+    attachment = service.create("1", "notes.txt", "text/plain", b"temporary")
+    session_dir = tmp_path / "1"
+    stored_path = session_dir / os.path.basename(attachment.path)
+    metadata_path = session_dir / f"{attachment.id}.json"
+    os.utime(stored_path, (100, 100))
+    os.utime(metadata_path, (100, 100))
+
+    assert service.cleanup_expired(ttl_seconds=10, now=111) == 2
+    assert not session_dir.exists()

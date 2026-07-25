@@ -78,6 +78,13 @@ export async function uploadAttachment(id: string, file: File): Promise<Attachme
   return response.json();
 }
 
+export async function deleteAttachment(sessionId: string, attachmentId: string): Promise<void> {
+  await request(
+    `/api/v1/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    { method: "DELETE" },
+  );
+}
+
 function mediaTypeFromName(name: string): string {
   const extension = name.split(".").pop()?.toLowerCase();
   return ({

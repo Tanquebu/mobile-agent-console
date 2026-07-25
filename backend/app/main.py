@@ -64,14 +64,37 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             error = await gateway.check_server()
             if error:
                 logger.warning("Host tmux server unavailable: %s", error)
-        yield
+        cleanup_interval = min(3600, max(60, settings.attachment_ttl_seconds // 4))
+
+        async def cleanup_attachments() -> None:
+            while True:
+                try:
+                    removed = await asyncio.to_thread(
+                        attachments.cleanup_expired,
+                        settings.attachment_ttl_seconds,
+                    )
+                    if removed:
+                        logger.info("Removed %d expired attachment files", removed)
+                except Exception:
+                    logger.exception("Unable to clean up expired attachments")
+                await asyncio.sleep(cleanup_interval)
+
+        cleanup_task = asyncio.create_task(cleanup_attachments())
+        try:
+            yield
+        finally:
+            cleanup_task.cancel()
+            try:
+                await cleanup_task
+            except asyncio.CancelledError:
+                pass
 
     app = FastAPI(title="Mobile Agent Console", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST"],
+        allow_methods=["DELETE", "GET", "POST"],
         allow_headers=["Content-Type", "X-CSRF-Token"],
     )
 
@@ -227,6 +250,18 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         except SessionNotFound as exc:
             raise HTTPException(404, "Session not found") from exc
         return Accepted()
+
+    @app.delete(
+        "/api/v1/sessions/{session_id}/attachments/{attachment_id}",
+        status_code=204,
+        dependencies=[Depends(security.require_csrf)],
+    )
+    async def delete_attachment(session_id: str, attachment_id: str) -> Response:
+        try:
+            attachments.delete(session_id, attachment_id)
+        except AttachmentError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return Response(status_code=204)
 
     @app.post(
         "/api/v1/sessions/{session_id}/keys",

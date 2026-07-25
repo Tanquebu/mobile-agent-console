@@ -1,5 +1,6 @@
 import json
 import re
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from uuid import uuid4
@@ -132,3 +133,36 @@ class AttachmentService:
             display_name = json.dumps(attachment.name, ensure_ascii=False)
             lines.append(f"- {display_name}: {attachment.path}")
         return "\n".join(lines)
+
+    def delete(self, session_id: str, attachment_id: str) -> None:
+        attachment = self.get(session_id, attachment_id)
+        session_dir = self.storage_root / session_id
+        stored_path = session_dir / Path(attachment.path).name
+        metadata_path = session_dir / f"{attachment_id}.json"
+        stored_path.unlink(missing_ok=True)
+        metadata_path.unlink(missing_ok=True)
+        try:
+            session_dir.rmdir()
+        except OSError:
+            pass
+
+    def cleanup_expired(self, ttl_seconds: int, now: float | None = None) -> int:
+        cutoff = (now if now is not None else time.time()) - ttl_seconds
+        removed = 0
+        if not self.storage_root.exists():
+            return removed
+        for session_dir in self.storage_root.iterdir():
+            if not session_dir.is_dir():
+                continue
+            for path in session_dir.iterdir():
+                try:
+                    if path.is_file() and path.stat().st_mtime < cutoff:
+                        path.unlink()
+                        removed += 1
+                except FileNotFoundError:
+                    continue
+            try:
+                session_dir.rmdir()
+            except OSError:
+                pass
+        return removed

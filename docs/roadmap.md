@@ -67,7 +67,8 @@ API specifiche di Codex, Claude o altri agenti.
 - [x] Test per autorizzazione, limiti, tipi non ammessi, traversal e
   associazione alla sessione.
 - [x] Limite coerente del request body sul reverse proxy.
-- [ ] Cleanup automatico o manuale degli allegati temporanei.
+- [x] Eliminazione esplicita dal composer e cleanup automatico TTL degli
+  allegati temporanei.
 
 ## M3 — Esperienza MVP
 

@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   Attachment,
   createSession,
+  deleteAttachment,
   fetchConfig,
   login,
   listSessions,
@@ -92,6 +93,7 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
   const [connection, setConnection] = useState<Connection>("connecting");
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [deletingAttachmentId, setDeletingAttachmentId] = useState("");
   const [followingOutput, setFollowingOutput] = useState(true);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
@@ -182,6 +184,19 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
     }
   }
 
+  async function removeAttachment(attachment: Attachment) {
+    setDeletingAttachmentId(attachment.id);
+    setAttachmentError("");
+    try {
+      await deleteAttachment(session.id, attachment.id);
+      setAttachments((items) => items.filter((item) => item.id !== attachment.id));
+    } catch (value) {
+      setAttachmentError(value instanceof Error ? value.message : String(value));
+    } finally {
+      setDeletingAttachmentId("");
+    }
+  }
+
   return (
     <main className="console">
       <header className="console-header">
@@ -209,7 +224,8 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
                 <button
                   type="button"
                   aria-label={`Rimuovi ${attachment.name}`}
-                  onClick={() => setAttachments((items) => items.filter((item) => item.id !== attachment.id))}
+                  disabled={deletingAttachmentId === attachment.id}
+                  onClick={() => void removeAttachment(attachment)}
                 >
                   ×
                 </button>

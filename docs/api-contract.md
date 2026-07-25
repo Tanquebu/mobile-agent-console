@@ -91,6 +91,13 @@ Risposta:
 
 L'id può essere usato soltanto nella sessione per cui è stato caricato.
 
+## `DELETE /api/v1/sessions/{id}/attachments/{attachment_id}`
+
+Richiede autenticazione e CSRF. Elimina immediatamente contenuto e metadati
+dell'allegato, purché appartenga alla sessione indicata. Risposta `204`.
+Gli allegati non eliminati esplicitamente scadono automaticamente dopo
+`MAC_ATTACHMENT_TTL_SECONDS` (24 ore per default).
+
 ## `POST /api/v1/sessions/{id}/keys`
 
 Body `{"key":"Enter"}`. Nello slice è consentito solo `Enter`. Risposta 202.
