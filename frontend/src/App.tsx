@@ -291,12 +291,6 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
   const [attachmentError, setAttachmentError] = useState("");
   const outputRef = useRef<HTMLPreElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const latestContentRef = useRef("");
-  const followingOutputRef = useRef(followingOutput);
-
-  useEffect(() => {
-    followingOutputRef.current = followingOutput;
-  }, [followingOutput]);
 
   useEffect(() => {
     let socket: WebSocket | undefined;
@@ -310,14 +304,7 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
       socket.onopen = () => { attempts = 0; setConnection("online"); };
       socket.onmessage = (event) => {
         const message = JSON.parse(event.data);
-        if (message.type === "snapshot") {
-          latestContentRef.current = message.content;
-          // Il contenuto è una finestra scorrevole delle ultime righe del pane:
-          // aggiornarlo mentre l'utente è risalito farebbe slittare leggermente
-          // cosa viene mostrato a parità di scrollTop. Si applica solo quando si
-          // sta seguendo l'output; altrimenti resta congelato finché non si riprende.
-          if (followingOutputRef.current) setContent(message.content);
-        }
+        if (message.type === "snapshot") setContent(message.content);
         if (message.type === "session_closed") setConnection("offline");
       };
       socket.onclose = () => {
@@ -346,13 +333,10 @@ function Console({ session, onBack }: { session: Session; onBack: () => void }) 
     const output = outputRef.current;
     if (!output) return;
     const distanceFromBottom = output.scrollHeight - output.scrollTop - output.clientHeight;
-    const shouldFollow = distanceFromBottom < 48;
-    if (shouldFollow && !followingOutput) setContent(latestContentRef.current);
-    setFollowingOutput(shouldFollow);
+    setFollowingOutput(distanceFromBottom < 48);
   }
 
   function resumeFollowingOutput() {
-    setContent(latestContentRef.current);
     setFollowingOutput(true);
     if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
   }
