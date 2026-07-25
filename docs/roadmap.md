@@ -47,6 +47,8 @@
 - [ ] Audit metadata.
 - [~] Unit systemd da completare e validare per entrambe le modalità tmux.
 - [ ] Backup.
+- [~] Snapshot persistenti create/list/restore/delete per riavvio VPS;
+  da confermare end-to-end sull'istanza pubblicata.
 - [ ] Gate: deployment Tailscale verificato senza porta pubblica.
 
 ### M2A — Allegati minimali ai prompt
@@ -88,6 +90,8 @@ API specifiche di Codex, Claude o altri agenti.
 - [x] Anteprima in sola lettura dei file UTF-8, con rifiuto dei binari e
   troncamento sicuro a 256 KiB.
 - [x] Download autenticato di immagini, PDF e documenti Word dalla directory.
+- [x] Filename completi nel browser directory, leggibili su più righe anche
+  su schermi mobili.
 - [x] Toolbar contestuale per sessione nella dashboard con rinomina e
   terminazione confermata.
 - [x] Form di creazione sessione responsive anche con path molto lunghi.

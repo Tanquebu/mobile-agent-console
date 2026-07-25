@@ -2,7 +2,9 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   Attachment,
+  createSnapshot,
   createSession,
+  deleteSnapshot,
   deleteAttachment,
   DirectoryEntry,
   DirectoryListing,
@@ -14,12 +16,16 @@ import {
   errorMessage,
   login,
   listSessions,
+  listSnapshots,
   renameSession,
   restoreSession,
+  restoreSnapshot,
   sendEnter,
   sendKey,
   sendText,
   Session,
+  Snapshot,
+  SnapshotMode,
   streamUrl,
   terminateSession,
   uploadAttachment,
@@ -279,6 +285,212 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   );
 }
 
+function suggestedSnapshotMode(session: Session): SnapshotMode {
+  const command = session.current_command.toLowerCase();
+  if (command.includes("codex")) return "codex";
+  if (command.includes("claude")) return "claude";
+  return "shell";
+}
+
+function defaultSnapshotName(): string {
+  return `Prima del riavvio ${new Date().toLocaleString()}`;
+}
+
+function SnapshotModal({
+  sessions,
+  onClose,
+  onRestored,
+}: {
+  sessions: Session[];
+  onClose: () => void;
+  onRestored: () => Promise<void>;
+}) {
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [name, setName] = useState(defaultSnapshotName);
+  const [selected, setSelected] = useState<Record<string, SnapshotMode>>(
+    Object.fromEntries(sessions.map((session) => [session.id, suggestedSnapshotMode(session)])),
+  );
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [busyId, setBusyId] = useState("");
+  const [error, setError] = useState("");
+  const [restoreReport, setRestoreReport] = useState<string[]>([]);
+
+  async function refreshSnapshots() {
+    setSnapshots(await listSnapshots());
+  }
+
+  useEffect(() => {
+    refreshSnapshots()
+      .catch((value) => setError(errorMessage(value)))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  async function saveSnapshot(event: FormEvent) {
+    event.preventDefault();
+    const entries = Object.entries(selected).map(([session_id, mode]) => ({ session_id, mode }));
+    if (entries.length === 0) {
+      setError("Seleziona almeno una sessione.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await createSnapshot(name, entries);
+      setName(defaultSnapshotName());
+      await refreshSnapshots();
+    } catch (value) {
+      setError(errorMessage(value));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function restore(item: Snapshot) {
+    if (!window.confirm(`Ripristinare lo snapshot “${item.name}”?`)) return;
+    setBusyId(item.id);
+    setError("");
+    setRestoreReport([]);
+    try {
+      const results = await restoreSnapshot(item.id);
+      setRestoreReport(results.map((result) => (
+        `${result.name}: ${result.status} — ${result.detail}`
+      )));
+      await onRestored();
+    } catch (value) {
+      setError(errorMessage(value));
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  async function remove(item: Snapshot) {
+    if (!window.confirm(`Eliminare definitivamente lo snapshot “${item.name}”?`)) return;
+    setBusyId(item.id);
+    setError("");
+    try {
+      await deleteSnapshot(item.id);
+      await refreshSnapshots();
+    } catch (value) {
+      setError(errorMessage(value));
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  return (
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section className="help-modal snapshot-modal" role="dialog" aria-modal="true" aria-labelledby="snapshot-title">
+        <header>
+          <div>
+            <span className="eyebrow">RIAVVIO VPS</span>
+            <h2 id="snapshot-title">Snapshot sessioni</h2>
+          </div>
+          <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+        </header>
+
+        <form className="snapshot-create" onSubmit={(event) => void saveSnapshot(event)}>
+          <label>
+            Nome snapshot
+            <input required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} />
+          </label>
+          <div className="snapshot-session-list">
+            {sessions.map((session) => {
+              const enabled = selected[session.id] !== undefined;
+              return (
+                <div className="snapshot-session" key={session.id}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={(event) => {
+                        setSelected((current) => {
+                          const next = { ...current };
+                          if (event.target.checked) next[session.id] = suggestedSnapshotMode(session);
+                          else delete next[session.id];
+                          return next;
+                        });
+                      }}
+                    />
+                    <span><strong>{session.name}</strong><small>{session.current_command}</small></span>
+                  </label>
+                  <select
+                    disabled={!enabled}
+                    value={selected[session.id] ?? "manual"}
+                    onChange={(event) => setSelected((current) => ({
+                      ...current,
+                      [session.id]: event.target.value as SnapshotMode,
+                    }))}
+                  >
+                    <option value="shell">Solo shell</option>
+                    <option value="codex">Codex: selettore resume</option>
+                    <option value="claude">Claude: selettore resume</option>
+                    <option value="manual">Rilancio manuale</option>
+                  </select>
+                </div>
+              );
+            })}
+            {sessions.length === 0 && <p className="empty">Nessuna sessione attiva da salvare.</p>}
+          </div>
+          <button type="submit" disabled={saving || sessions.length === 0}>
+            {saving ? "Salvataggio…" : "Crea snapshot"}
+          </button>
+        </form>
+
+        <div className="snapshot-existing">
+          <h3>Snapshot salvati</h3>
+          {loading && <p className="empty">Caricamento…</p>}
+          {!loading && snapshots.map((item) => (
+            <article className="snapshot-card" key={item.id}>
+              <div>
+                <strong>{item.name}</strong>
+                <small>{new Date(item.created_at).toLocaleString()} · {item.sessions.length} sessioni</small>
+              </div>
+              <ul>
+                {item.sessions.map((session) => (
+                  <li key={`${session.name}-${session.directory}`}>
+                    {session.name} · {session.mode} · {session.directory}
+                  </li>
+                ))}
+              </ul>
+              <div className="snapshot-actions">
+                <button disabled={busyId === item.id} onClick={() => void restore(item)}>
+                  Ripristina
+                </button>
+                <button className="danger" disabled={busyId === item.id} onClick={() => void remove(item)}>
+                  Elimina
+                </button>
+              </div>
+            </article>
+          ))}
+          {!loading && snapshots.length === 0 && <p className="empty">Nessuno snapshot salvato.</p>}
+        </div>
+        {restoreReport.length > 0 && (
+          <div className="snapshot-report" role="status">
+            <strong>Esito ripristino</strong>
+            <ul>{restoreReport.map((line) => <li key={line}>{line}</li>)}</ul>
+          </div>
+        )}
+        {error && <p className="error">{error}</p>}
+      </section>
+    </div>
+  );
+}
+
 function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) => void; onUnauthorized: () => void }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [error, setError] = useState("");
@@ -288,6 +500,7 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
   const [presets, setPresets] = useState<[string, string][]>([]);
   const [customDirectory, setCustomDirectory] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showSnapshots, setShowSnapshots] = useState(false);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -312,6 +525,10 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [showHelp]);
+
+  async function refreshSessions() {
+    setSessions(await listSessions());
+  }
 
   async function renameListedSession(session: Session) {
     const nextName = window.prompt("Nuovo nome della sessione", session.name)?.trim();
@@ -354,7 +571,10 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
           <span className="count">{sessions.length}</span>
         </div>
       </header>
-      <button className="new-session" onClick={() => setCreating((value) => !value)}>+ Nuova sessione</button>
+      <div className="dashboard-actions">
+        <button className="new-session" onClick={() => setCreating((value) => !value)}>+ Nuova sessione</button>
+        <button className="snapshot-button" onClick={() => setShowSnapshots(true)}>Snapshot</button>
+      </div>
       {creating && <form className="create-form" onSubmit={async (event) => {
         event.preventDefault();
         try {
@@ -456,6 +676,13 @@ function SessionList({ onOpen, onUnauthorized }: { onOpen: (session: Session) =>
             </aside>
           </section>
         </div>
+      )}
+      {showSnapshots && (
+        <SnapshotModal
+          sessions={sessions}
+          onClose={() => setShowSnapshots(false)}
+          onRestored={refreshSessions}
+        />
       )}
     </main>
   );

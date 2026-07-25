@@ -22,6 +22,8 @@ generic terminal, with no dependency on any specific vendor or tool.
   Enter if needed;
 - special-key controls for permission prompts, plus explicitly confirmed
   interrupt and session termination actions;
+- persistent session snapshots that recreate shells after a host reboot and
+  can open the native Codex or Claude resume picker;
 - an in-app quick guide whose “What's new” section shows only the latest
   shipped roadmap item;
 - directory suggestions in the new-session form, prefilled from the
@@ -91,6 +93,22 @@ directory tree sessions may start in (mounted at `/workspace`).
    If `/tmp/tmux-<uid>` did not exist, Docker would create it root-owned
    and tmux would refuse it — hence the ordering.
 
+   For automatic recovery after a reboot, install the user unit included in
+   the repository:
+
+   ```bash
+   mkdir -p ~/.config/systemd/user
+   cp deploy/systemd/mobile-agent-console-tmux-host.service ~/.config/systemd/user/
+   systemctl --user daemon-reload
+   systemctl --user enable --now mobile-agent-console-tmux-host.service
+   ```
+
+   The unit recreates `/tmp/tmux-$UID` with mode `0700` before starting the
+   keepalive. It intentionally has no `ExecStop`, so stopping or upgrading the
+   unit does not kill active tmux sessions. The user manager must start at boot;
+   enable lingering with `loginctl enable-linger "$USER"` when the deployment
+   must recover before the first interactive login.
+
 2. In `.env`, uncomment the host-tmux block (see `.env.example`):
    `COMPOSE_FILE=compose.yaml:compose.host.yaml`, `MAC_UID`/`MAC_GID`,
    `MAC_TMUX_SOCKET_DIR`, `MAC_TMUX_SOCKET_FILE`, `MAC_WORKSPACE_ROOT`.
@@ -114,6 +132,14 @@ directory tree sessions may start in (mounted at `/workspace`).
 
 In host mode, the "directory" field when creating a session takes real host
 paths under `MAC_WORKSPACE_ROOT`, not `/workspace`.
+
+Session snapshots are stored under `.agent-snapshots` in the configured
+workspace root, so they survive recreation of `web`/`backend` and a host
+reboot. They save names, working directories and a safe restore mode, not
+terminal output, process memory, environment variables or arbitrary commands.
+In host mode the tmux server must be running again before restoring. Codex and
+Claude history must also remain available in their normal persistent user
+directories.
 
 ## Secure exposure
 

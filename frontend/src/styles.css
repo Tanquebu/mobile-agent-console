@@ -18,7 +18,9 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .session-list { display: grid; gap: 10px; padding: 0 14px 24px; }
 .session-item { display: grid; gap: 6px; }
 .session-row { display: flex; align-items: stretch; gap: 8px; }
-.new-session { margin: 0 14px 12px; width: calc(100% - 28px); border: 1px solid #3a5142; border-radius: 12px; background: #1b2820; color: #d2e3d7; }
+.dashboard-actions { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin: 0 14px 12px; }
+.new-session, .snapshot-button { border: 1px solid #3a5142; border-radius: 12px; background: #1b2820; color: #d2e3d7; }
+.snapshot-button { padding: 0 14px; color: #9be5b3; }
 .create-form { display: grid; gap: 8px; padding: 0 14px 12px; }
 .create-form input, .create-form select { width: 100%; min-width: 0; min-height: 44px; border: 1px solid #344b3b; border-radius: 12px; padding: 10px; background: #18231c; color: white; }
 .create-form select { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -95,14 +97,38 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .directory-type { grid-area: type; padding: 2px 7px; border-radius: 6px; background: #1e2b23; color: #8ee2aa; font-size: .64rem; font-weight: 800; letter-spacing: .04em; }
 .directory-type.file { color: #9fb3a6; background: #1c2620; }
 .directory-type.other { color: #c9b98e; background: #2a2515; }
-.directory-name { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #edf5ef; }
+.directory-name { grid-area: name; min-width: 0; overflow-wrap: anywhere; color: #edf5ef; }
 .directory-meta { grid-area: meta; color: #91a397; font-size: .74rem; }
 .directory-copy, .directory-download { flex: 0 0 auto; min-height: 36px; padding: 0 10px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .72rem; font-weight: 700; }
 .directory-download { border-color: #41664d; color: #9be5b3; }
 .directory-list li.empty { border: 0; background: none; padding: 8px 0; }
 .file-preview { margin: 14px 0 0; padding: 14px; border: 1px solid #263b2d; border-radius: 14px; background: #090d0a; color: #d7e5dc; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 60vh; overflow: auto; }
+.snapshot-create { display: grid; gap: 12px; margin-top: 18px; }
+.snapshot-create > label { display: grid; gap: 6px; color: #a9bcaf; font-size: .78rem; }
+.snapshot-create > label input, .snapshot-session select { width: 100%; min-height: 42px; border: 1px solid #344b3b; border-radius: 10px; padding: 8px 10px; background: #18231c; color: white; }
+.snapshot-create > button { border: 0; border-radius: 12px; background: #75d493; color: #092111; font-weight: 750; }
+.snapshot-create > button:disabled { opacity: .45; }
+.snapshot-session-list { display: grid; gap: 8px; }
+.snapshot-session { display: grid; gap: 8px; align-items: center; border: 1px solid #293a30; border-radius: 12px; padding: 10px; }
+.snapshot-session > label { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.snapshot-session > label input { width: 20px; height: 20px; flex: 0 0 auto; }
+.snapshot-session > label span { display: grid; min-width: 0; }
+.snapshot-session > label strong, .snapshot-session > label small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.snapshot-session > label small { color: #91a397; }
+.snapshot-existing { margin-top: 24px; }
+.snapshot-existing h3 { margin: 0 0 10px; font-size: 1rem; }
+.snapshot-card { display: grid; gap: 10px; border: 1px solid #293a30; border-radius: 14px; padding: 12px; background: #101713; }
+.snapshot-card + .snapshot-card { margin-top: 8px; }
+.snapshot-card > div:first-child { display: grid; gap: 3px; }
+.snapshot-card small { color: #91a397; }
+.snapshot-card ul, .snapshot-report ul { margin: 0; padding-left: 18px; color: #a9bcaf; font-size: .75rem; overflow-wrap: anywhere; }
+.snapshot-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.snapshot-actions button { min-height: 38px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .78rem; font-weight: 700; }
+.snapshot-actions button.danger { border-color: #704039; color: #ffaaa0; }
+.snapshot-report { margin-top: 14px; border: 1px solid #41664d; border-radius: 12px; padding: 12px; background: #17261c; }
 @media (min-width: 720px) {
   body { padding: 24px; background: #080b09; }
   .shell, .console { min-height: calc(100vh - 48px); height: calc(100vh - 48px); border: 1px solid #26352c; border-radius: 20px; overflow: hidden; }
   .modal-backdrop { place-items: center; }
+  .snapshot-session { grid-template-columns: minmax(0, 1fr) minmax(180px, .8fr); }
 }

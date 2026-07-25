@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ConfigView(BaseModel):
@@ -76,6 +76,52 @@ class ConfirmedAction(BaseModel):
 
 class RenameSessionInput(BaseModel):
     name: str = Field(pattern=r"^[A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+)*$", max_length=64)
+
+
+class SnapshotSelectionInput(BaseModel):
+    session_id: str = Field(pattern=r"^\d{1,10}$")
+    mode: Literal["shell", "codex", "claude", "manual"]
+
+
+class CreateSnapshotInput(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    sessions: list[SnapshotSelectionInput] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def unique_sessions(self) -> "CreateSnapshotInput":
+        ids = [session.session_id for session in self.sessions]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Duplicate session ids")
+        return self
+
+
+class SnapshotSessionView(BaseModel):
+    name: str
+    directory: str
+    mode: Literal["shell", "codex", "claude", "manual"]
+    observed_command: str
+
+
+class SnapshotView(BaseModel):
+    id: str
+    name: str
+    created_at: datetime
+    sessions: list[SnapshotSessionView]
+
+
+class SnapshotList(BaseModel):
+    snapshots: list[SnapshotView]
+
+
+class RestoreItemView(BaseModel):
+    name: str
+    status: Literal["restored", "skipped", "manual", "error"]
+    detail: str
+
+
+class RestoreResult(BaseModel):
+    snapshot_id: str
+    results: list[RestoreItemView]
 
 
 class Accepted(BaseModel):

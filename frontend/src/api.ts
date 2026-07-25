@@ -168,6 +168,59 @@ export async function createSession(name: string, directory: string) {
   });
 }
 
+export type SnapshotMode = "shell" | "codex" | "claude" | "manual";
+
+export type SessionSnapshot = {
+  name: string;
+  directory: string;
+  mode: SnapshotMode;
+  observed_command: string;
+};
+
+export type Snapshot = {
+  id: string;
+  name: string;
+  created_at: string;
+  sessions: SessionSnapshot[];
+};
+
+export type RestoreItem = {
+  name: string;
+  status: "restored" | "skipped" | "manual" | "error";
+  detail: string;
+};
+
+export async function listSnapshots(): Promise<Snapshot[]> {
+  const response = await request("/api/v1/snapshots");
+  return (await response.json()).snapshots;
+}
+
+export async function createSnapshot(
+  name: string,
+  sessions: { session_id: string; mode: SnapshotMode }[],
+): Promise<Snapshot> {
+  const response = await request("/api/v1/snapshots", {
+    method: "POST",
+    body: JSON.stringify({ name: name.trim(), sessions }),
+  });
+  return response.json();
+}
+
+export async function restoreSnapshot(id: string): Promise<RestoreItem[]> {
+  const response = await request(`/api/v1/snapshots/${encodeURIComponent(id)}/restore`, {
+    method: "POST",
+    body: JSON.stringify({ confirmed: true }),
+  });
+  return (await response.json()).results;
+}
+
+export async function deleteSnapshot(id: string): Promise<void> {
+  await request(`/api/v1/snapshots/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ confirmed: true }),
+  });
+}
+
 export type DirectoryEntry = {
   name: string;
   type: "dir" | "file" | "other";

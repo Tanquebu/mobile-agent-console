@@ -1,0 +1,15 @@
+[Unit]
+Description=Mobile Agent Console host tmux keepalive
+Documentation=https://github.com/Tanquebu/mobile-agent-console
+After=default.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/usr/bin/install -d -m 0700 /tmp/tmux-%U
+# Il prefisso "-" rende idempotente l'avvio se la sessione esiste già.
+# Nessun ExecStop: fermare l'unità non deve terminare le sessioni operative.
+ExecStart=-/usr/bin/tmux new-session -d -s keepalive
+
+[Install]
+WantedBy=default.target

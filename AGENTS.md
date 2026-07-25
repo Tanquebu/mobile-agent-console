@@ -56,6 +56,8 @@ model:
   CORS e `MAC_WORKSPACE_PRESETS` (`label=path,...` oppure oggetto JSON).
 - `backend/app/security.py`: cookie firmato e token CSRF.
 - `backend/app/services/tmux_service.py`: gateway tmux reale.
+- `backend/app/services/snapshot_service.py`: snapshot JSON persistenti per
+  ricreare le sessioni dopo un riavvio.
 - `backend/app/main.py`: app factory, route e WebSocket.
 - `backend/app/schemas.py`: contratti e vincoli Pydantic.
 - `backend/tests/fakes.py`: gateway fake per test senza tmux reale.

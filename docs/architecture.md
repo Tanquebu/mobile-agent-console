@@ -39,6 +39,13 @@ da una root esplicita. La sua ricreazione termina i processi: deploy e rollback
 devono ricreare soltanto web/backend. Prima di dichiarare l'HA del runtime sarà
 necessaria una decisione dedicata tra tmux host-systemd e supervisor container.
 
+Gli snapshot di riavvio non conservano processi o memoria: il backend stateless
+scrive metadati JSON atomici in `.agent-snapshots` sotto il workspace
+persistente. Il ripristino ricrea shell con nome e directory salvati. I profili
+Codex e Claude possono soltanto aprire i rispettivi selettori nativi di resume
+tramite comandi costanti server-side; nessun comando client arbitrario viene
+persistito o eseguito.
+
 ## Streaming
 
 Ogni connessione riceve uno snapshot, poi il backend cattura il pane ogni 500

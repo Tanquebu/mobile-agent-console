@@ -85,5 +85,10 @@ Scelte vincolanti:
   `/tmp/tmux-<uid>` non esiste, Docker creerebbe la directory come root e
   tmux host rifiuterebbe di usarla. Consigliata una user unit systemd o una
   sessione keepalive (vedi README).
+- L'unità utente
+  `deploy/systemd/mobile-agent-console-tmux-host.service` prepara
+  `/tmp/tmux-$UID` con permessi `0700` e avvia `keepalive` dopo il reboot.
+  Non contiene `ExecStop`, così fermarla o aggiornarla non termina le
+  sessioni operative.
 - La modalità Docker resta la modalità di default per sviluppo e test
   isolati; il contratto API/WebSocket è identico nelle due modalità.

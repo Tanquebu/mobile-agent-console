@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173"]
     workspace_presets: dict[str, str] = {}
     attachments_root: str = "/workspace/.agent-attachments"
+    snapshots_root: str = "/workspace/.agent-snapshots"
     attachments_prompt_root: str | None = None
     max_attachment_bytes: int = Field(default=10 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
     attachment_ttl_seconds: int = Field(default=86400, ge=300, le=30 * 86400)

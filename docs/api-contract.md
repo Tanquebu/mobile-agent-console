@@ -56,6 +56,36 @@ Risposta `200`:
 {"sessions":[{"id":"1","name":"demo","attached":false,"windows":1,"current_command":"python3","activity_at":"2026-07-24T10:00:00Z"}]}
 ```
 
+## Snapshot di riavvio
+
+`GET /api/v1/snapshots` elenca gli snapshot persistenti autenticati.
+
+`POST /api/v1/snapshots` richiede CSRF e accetta soltanto id numerici e modalità
+tipizzate; nomi e directory sono letti dal server tmux:
+
+```json
+{
+  "name": "Prima del riavvio",
+  "sessions": [
+    {"session_id": "3", "mode": "codex"},
+    {"session_id": "4", "mode": "manual"}
+  ]
+}
+```
+
+Le modalità sono `shell`, `codex`, `claude` e `manual`. Lo snapshot risultante
+contiene nome, directory, comando osservato e data, ma non output, environment,
+PID o comandi client.
+
+`POST /api/v1/snapshots/{snapshot_id}/restore` con
+`{"confirmed":true}` ricrea le sessioni mancanti. I conflitti di nome vengono
+saltati. `codex` invia il comando costante `codex resume`; `claude` invia
+`claude --resume`, aprendo il picker nativo nella directory ripristinata. La
+risposta riporta per ogni sessione `restored`, `skipped`, `manual` o `error`.
+
+`DELETE /api/v1/snapshots/{snapshot_id}` con `{"confirmed":true}` elimina lo
+snapshot. Tutte le mutazioni richiedono CSRF.
+
 ## `GET /api/v1/sessions/{id}/output?lines=500`
 
 `lines` è 1..2000. Risposta:

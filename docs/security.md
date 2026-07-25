@@ -22,6 +22,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Leakage | niente output/prompt nell'audit; notifiche senza contenuto di default |
 | Privilege escalation | servizio non-root, stesso utente proprietario del socket tmux |
 | Confused deputy | permessi espliciti per create/interrupt/terminate e profili server-side |
+| Snapshot manipolati | file UUID mode 0600, schema validato, path nuovamente sottoposti ad allowlist e soli comandi resume costanti |
 
 ## Rischi residui del vertical slice
 
@@ -46,6 +47,12 @@ Per un repository pubblico: `.secrets/`, `.env`, immagini e log non devono mai
 contenere credenziali. Usare secret scanning in CI e ruotare immediatamente
 qualsiasi valore accidentalmente pubblicato; rimuoverlo dalla cronologia non è
 sufficiente a renderlo nuovamente sicuro.
+
+Gli snapshot di riavvio non contengono output del terminale, environment,
+segreti, PID o comandi arbitrari. Nome e directory vengono ricontrollati al
+ripristino; Codex e Claude sono rilanciati soltanto verso il picker di resume
+con stringhe definite dal server. La directory `.agent-snapshots` deve restare
+su storage persistente e non essere versionata.
 
 La modalità host-tmux (ADR 005) amplia l'autorità del backend: il container
 si collega al socket tmux di default dell'utente host, quindi una sua

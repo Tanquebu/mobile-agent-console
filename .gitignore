@@ -5,6 +5,7 @@ CLAUDE.local.md
 customizations/
 # Default docker-mode workspace mount created by compose
 workspace/
+.agent-snapshots/
 .venv/
 __pycache__/
 .pytest_cache/

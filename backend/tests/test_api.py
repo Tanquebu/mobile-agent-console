@@ -203,6 +203,130 @@ def test_create_and_rename_report_duplicate_session_name() -> None:
     assert renamed.json()["detail"] == "Session name already exists"
 
 
+def test_snapshot_create_restore_list_and_delete(tmp_path) -> None:
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    fake = FakeTmux()
+    fake.directory = str(workspace)
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+        snapshots_root=str(tmp_path / ".snapshots"),
+    )
+    client = TestClient(create_app(settings, fake))
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+
+    assert client.get("/api/v1/snapshots").json() == {"snapshots": []}
+    assert client.post(
+        "/api/v1/snapshots",
+        json={
+            "name": "Before reboot",
+            "sessions": [{"session_id": "1", "mode": "codex"}],
+        },
+    ).status_code == 403
+    created = client.post(
+        "/api/v1/snapshots",
+        headers=headers,
+        json={
+            "name": "Before reboot",
+            "sessions": [{"session_id": "1", "mode": "codex"}],
+        },
+    )
+    assert created.status_code == 201
+    snapshot = created.json()
+    assert snapshot["name"] == "Before reboot"
+    assert snapshot["sessions"] == [
+        {
+            "name": "demo",
+            "directory": str(workspace),
+            "mode": "codex",
+            "observed_command": "bash",
+        }
+    ]
+    assert client.get("/api/v1/snapshots").json()["snapshots"][0]["id"] == snapshot["id"]
+
+    denied = client.post(
+        f"/api/v1/snapshots/{snapshot['id']}/restore",
+        headers=headers,
+        json={"confirmed": False},
+    )
+    assert denied.status_code == 400
+
+    fake.sessions.clear()
+    restored = client.post(
+        f"/api/v1/snapshots/{snapshot['id']}/restore",
+        headers=headers,
+        json={"confirmed": True},
+    )
+    assert restored.status_code == 200
+    assert restored.json()["results"] == [
+        {
+            "name": "demo",
+            "status": "restored",
+            "detail": "Shell restored; codex resume picker launched",
+        }
+    ]
+    assert [item.name for item in fake.sessions.values()] == ["demo"]
+    assert fake.texts == ["codex resume"]
+    assert fake.keys == ["Enter"]
+
+    assert client.request(
+        "DELETE",
+        f"/api/v1/snapshots/{snapshot['id']}",
+        headers=headers,
+        json={"confirmed": False},
+    ).status_code == 400
+    deleted = client.request(
+        "DELETE",
+        f"/api/v1/snapshots/{snapshot['id']}",
+        headers=headers,
+        json={"confirmed": True},
+    )
+    assert deleted.status_code == 204
+    assert client.get("/api/v1/snapshots").json() == {"snapshots": []}
+
+
+def test_snapshot_restore_skips_existing_name(tmp_path) -> None:
+    fake = FakeTmux()
+    fake.directory = str(tmp_path)
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+        snapshots_root=str(tmp_path / ".snapshots"),
+    )
+    client = TestClient(create_app(settings, fake))
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+    created = client.post(
+        "/api/v1/snapshots",
+        headers=headers,
+        json={
+            "name": "Conflict",
+            "sessions": [{"session_id": "1", "mode": "shell"}],
+        },
+    ).json()
+
+    restored = client.post(
+        f"/api/v1/snapshots/{created['id']}/restore",
+        headers=headers,
+        json={"confirmed": True},
+    )
+    assert restored.json()["results"] == [
+        {
+            "name": "demo",
+            "status": "skipped",
+            "detail": "A session with this name already exists",
+        }
+    ]
+
+
 def test_websocket_auth_and_snapshot() -> None:
     client, _ = client_and_fake()
     with pytest.raises(WebSocketDisconnect) as rejected, client.websocket_connect(

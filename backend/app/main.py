@@ -28,6 +28,7 @@ from .schemas import (
     ConfigView,
     ConfirmedAction,
     CreateSessionInput,
+    CreateSnapshotInput,
     DirectoryEntryView,
     DirectoryView,
     FileView,
@@ -36,12 +37,22 @@ from .schemas import (
     LoginResult,
     OutputView,
     RenameSessionInput,
+    RestoreItemView,
+    RestoreResult,
     SessionList,
     SessionView,
+    SnapshotList,
+    SnapshotSessionView,
+    SnapshotView,
     TextInput,
 )
 from .security import COOKIE_NAME, SessionSecurity
 from .services.attachment_service import AttachmentError, AttachmentService
+from .services.snapshot_service import (
+    SnapshotError,
+    SnapshotService,
+    SnapshotSession,
+)
 from .services.tmux_service import SessionNotFound, TmuxError, TmuxGateway, TmuxService
 
 logger = logging.getLogger("mobile_agent_console")
@@ -60,6 +71,10 @@ DOWNLOADABLE_EXTENSIONS = {
     ".tif",
     ".tiff",
     ".webp",
+}
+SNAPSHOT_RESUME_COMMANDS = {
+    "codex": "codex resume",
+    "claude": "claude --resume",
 }
 
 
@@ -143,6 +158,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         settings.resolved_attachments_prompt_root,
         settings.max_attachment_bytes,
     )
+    snapshots = SnapshotService(settings.snapshots_root)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -265,6 +281,153 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         except TmuxError as exc:
             raise HTTPException(503, "tmux unavailable") from exc
         return SessionList(sessions=[SessionView(**item.__dict__) for item in items])
+
+    @app.get(
+        "/api/v1/snapshots",
+        response_model=SnapshotList,
+        dependencies=[Depends(security.require_session)],
+    )
+    async def list_snapshots() -> SnapshotList:
+        items = await asyncio.to_thread(snapshots.list)
+        return SnapshotList(
+            snapshots=[
+                SnapshotView(
+                    id=item.id,
+                    name=item.name,
+                    created_at=item.created_at,
+                    sessions=[
+                        SnapshotSessionView(**session.__dict__)
+                        for session in item.sessions
+                    ],
+                )
+                for item in items
+            ]
+        )
+
+    @app.post(
+        "/api/v1/snapshots",
+        response_model=SnapshotView,
+        status_code=201,
+        dependencies=[Depends(security.require_csrf)],
+    )
+    async def create_snapshot(payload: CreateSnapshotInput) -> SnapshotView:
+        try:
+            live_sessions = {item.id: item for item in await gateway.list_sessions()}
+        except TmuxError as exc:
+            raise HTTPException(503, "tmux unavailable") from exc
+        roots = [Path(root).resolve() for root in settings.allowed_roots]
+        captured = []
+        for selection in payload.sessions:
+            live = live_sessions.get(selection.session_id)
+            if live is None:
+                raise HTTPException(404, f"Session {selection.session_id} not found")
+            try:
+                raw_directory = await gateway.pane_path(selection.session_id)
+                directory, _ = _resolve_within_allowed_roots(raw_directory, roots)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            except SessionNotFound as exc:
+                raise HTTPException(404, "Session not found") from exc
+            captured.append(
+                SnapshotSession(
+                    name=live.name,
+                    directory=str(directory),
+                    mode=selection.mode,
+                    observed_command=live.current_command,
+                )
+            )
+        try:
+            item = await asyncio.to_thread(snapshots.create, payload.name, captured)
+        except SnapshotError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return SnapshotView(
+            id=item.id,
+            name=item.name,
+            created_at=item.created_at,
+            sessions=[SnapshotSessionView(**session.__dict__) for session in item.sessions],
+        )
+
+    @app.post(
+        "/api/v1/snapshots/{snapshot_id}/restore",
+        response_model=RestoreResult,
+        dependencies=[Depends(security.require_csrf)],
+    )
+    async def restore_snapshot(
+        snapshot_id: str,
+        payload: ConfirmedAction,
+    ) -> RestoreResult:
+        if not payload.confirmed:
+            raise HTTPException(400, "Snapshot restore requires explicit confirmation")
+        try:
+            snapshot = await asyncio.to_thread(snapshots.get, snapshot_id)
+        except SnapshotError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        try:
+            live_sessions = await gateway.list_sessions()
+        except TmuxError as exc:
+            raise HTTPException(503, "tmux unavailable") from exc
+        existing_names = {item.name for item in live_sessions}
+        roots = [Path(root).resolve() for root in settings.allowed_roots]
+        results = []
+        for saved in snapshot.sessions:
+            if saved.name in existing_names:
+                results.append(
+                    RestoreItemView(
+                        name=saved.name,
+                        status="skipped",
+                        detail="A session with this name already exists",
+                    )
+                )
+                continue
+            try:
+                TmuxService.validate_session_id(saved.name)
+                directory, _ = _resolve_within_allowed_roots(saved.directory, roots)
+                await gateway.create_session(saved.name, str(directory), "bash")
+                existing_names.add(saved.name)
+                if saved.mode in SNAPSHOT_RESUME_COMMANDS:
+                    created = next(
+                        (item for item in await gateway.list_sessions() if item.name == saved.name),
+                        None,
+                    )
+                    if created is None:
+                        raise TmuxError("Created session is not visible")
+                    await gateway.send_text(created.id, SNAPSHOT_RESUME_COMMANDS[saved.mode])
+                    await gateway.send_key(created.id, "Enter")
+                    status = "restored"
+                    detail = f"Shell restored; {saved.mode} resume picker launched"
+                elif saved.mode == "manual":
+                    status = "manual"
+                    detail = "Shell restored; command must be relaunched manually"
+                else:
+                    status = "restored"
+                    detail = "Shell restored"
+            except (ValueError, HTTPException):
+                status = "error"
+                detail = "Saved name or directory is no longer allowed"
+            except TmuxError:
+                status = "error"
+                detail = "tmux could not restore this session"
+            results.append(
+                RestoreItemView(name=saved.name, status=status, detail=detail)
+            )
+        return RestoreResult(snapshot_id=snapshot.id, results=results)
+
+    @app.delete(
+        "/api/v1/snapshots/{snapshot_id}",
+        status_code=204,
+        dependencies=[Depends(security.require_csrf)],
+    )
+    async def delete_snapshot(
+        snapshot_id: str,
+        payload: ConfirmedAction,
+    ) -> Response:
+        if not payload.confirmed:
+            raise HTTPException(400, "Snapshot deletion requires explicit confirmation")
+        try:
+            await asyncio.to_thread(snapshots.delete, snapshot_id)
+        except SnapshotError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return Response(status_code=204)
 
     @app.get(
         "/api/v1/sessions/{session_id}/output",

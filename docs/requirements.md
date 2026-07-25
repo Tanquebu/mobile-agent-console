@@ -35,6 +35,11 @@ accettano nomi ASCII con lettere, numeri, `_`, `-` e spazi singoli tra le
 parole; la directory resta dentro l’allowlist e il profilo server-side è
 soltanto `shell`.
 
+Gli snapshot di riavvio persistono nome, directory e modalità sicura di
+rilancio per un insieme selezionato di sessioni. Non sono checkpoint dei
+processi: dopo un reboot ricreano shell e, opzionalmente, aprono il selettore
+di resume nativo di Codex o Claude.
+
 ## Requisiti non funzionali
 
 - bind predefinito localhost, oppure IP Tailscale esplicito con `MAC_BIND_IP`;
