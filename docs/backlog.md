@@ -34,3 +34,51 @@ Prima dell'implementazione vanno definiti comportamento multi-pane,
 interazione con client tmux già collegati e semantica di ripristino. La
 soluzione dovrebbe confluire nel lavoro M1 su pane selection/resize o nel
 terminal mode previsto in M3.
+
+## Drift dello scroll in pausa e storico assente per app a schermo alternato
+
+**Stato:** differita; il fix tentato è stato revertito perché il side effect
+era peggiore del bug originale.
+
+Bug osservato: con "autoscroll intelligente" in pausa (utente risalito
+nell'output), il contenuto del pane continua comunque a essere sostituito
+nel DOM ad ogni snapshot WebSocket. Poiché `capture-pane` restituisce una
+finestra scorrevole delle ultime righe (non un log append-only), a parità di
+`scrollTop` il testo mostrato slitta gradualmente verso le righe più recenti
+mentre l'agente produce output — un piccolo "glitch" visivo, non un vero
+salto in fondo.
+
+Primo tentativo di fix: congelare il contenuto renderizzato mentre non si
+segue l'output (bufferizzare gli snapshot in un ref e riapplicarli solo alla
+ripresa). Elimina il drift, ma introduce un problema più serio per le
+sessioni che eseguono programmi TUI a schermo alternato (vim, htop, Claude
+Code CLI stesso): tmux non mantiene scrollback per lo schermo alternato,
+quindi `capture-pane` può restituire al massimo l'altezza corrente del pane,
+a prescindere da qualunque `lines` richiesto. Verificato empiricamente su
+una sessione reale:
+
+```
+80x24 alt=1 history=0/2000
+```
+
+Prima del fix, il drift dava l'illusione di uno storico più ampio (ogni
+snapshot rivelava contenuto leggermente diverso durante lo scroll, facendo
+sembrare che ci fosse sempre "un po' di più" da trovare risalendo). Con il
+contenuto congelato quel tetto reale (poche decine di righe) diventa
+evidente e stabile, rendendo di fatto impossibile leggere output storico più
+lungo di una schermata per queste sessioni — un regresso peggiore del
+glitch che il fix risolveva. Commit revertito.
+
+Possibili direzioni future, nessuna banale:
+
+- compensazione precisa dello scroll invece del congelamento: diff tra
+  contenuto precedente e nuovo per individuare quante righe sono state
+  espulse dall'inizio della finestra, misurarne l'altezza renderizzata (il
+  wrapping dipende dal font e dalla larghezza del pane) e traslare
+  `scrollTop` di conseguenza — corregge il drift senza bloccare
+  l'aggiornamento, ma è sensibile a wrapping/robustezza del diff;
+- pane più alto per le sessioni TUI, con gli stessi trade-off di resize già
+  discussi sopra (client collegati, layout multi-pane, reazione delle app
+  fullscreen);
+- accettare il drift residuo come limite noto e minore, documentandolo in
+  UI (es. tooltip sul pulsante "Segui output").
