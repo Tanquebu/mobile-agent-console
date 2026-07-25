@@ -62,6 +62,8 @@ API specifiche di Codex, Claude o altri agenti.
 - [x] Composer mobile con selezione, stato upload e rimozione dal prompt.
 - [x] Invio del testo con `attachment_ids`; riferimenti ai path composti dal
   backend.
+- [x] Test manuale end-to-end da frontend con immagine leggibile dalla
+  sessione agente.
 - [x] Test per autorizzazione, limiti, tipi non ammessi, traversal e
   associazione alla sessione.
 - [x] Limite coerente del request body sul reverse proxy.
@@ -76,6 +78,7 @@ API specifiche di Codex, Claude o altri agenti.
   completare.
 - [ ] Preferenze.
 - [ ] Terminal mode xterm.js e tasti speciali.
+- [x] Form di creazione sessione responsive anche con path molto lunghi.
 
 Integrazione con sistemi esterni di monitoraggio degli agenti: un daemon
 che osservi i pane sullo stesso server tmux host e ne classifichi lo stato

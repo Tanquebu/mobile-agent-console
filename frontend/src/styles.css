@@ -16,7 +16,8 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .session-list { display: grid; gap: 10px; padding: 0 14px 24px; }
 .new-session { margin: 0 14px 12px; width: calc(100% - 28px); border: 1px solid #3a5142; border-radius: 12px; background: #1b2820; color: #d2e3d7; }
 .create-form { display: grid; gap: 8px; padding: 0 14px 12px; }
-.create-form input, .create-form select { min-height: 44px; border: 1px solid #344b3b; border-radius: 12px; padding: 10px; background: #18231c; color: white; }
+.create-form input, .create-form select { width: 100%; min-width: 0; min-height: 44px; border: 1px solid #344b3b; border-radius: 12px; padding: 10px; background: #18231c; color: white; }
+.create-form select { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .create-form button { border: 0; border-radius: 12px; background: #75d493; color: #092111; font-weight: 750; }
 .session-card { display: flex; align-items: center; gap: 13px; width: 100%; border: 1px solid #293a30; border-radius: 16px; padding: 14px; color: inherit; background: #172019; text-align: left; }
 .session-card:hover { border-color: #4f7a5c; background: #1a261e; }
