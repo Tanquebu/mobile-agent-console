@@ -25,6 +25,9 @@ export function errorMessage(value: unknown): string {
     if (value.status === 409 && value.message === "Session name already exists") {
       return "Esiste già una sessione con questo nome.";
     }
+    if (value.status === 429) {
+      return "Troppe richieste ravvicinate. Attendi qualche secondo e riprova.";
+    }
     if (value.status === 502 || value.status === 503) {
       return "Il backend o tmux non è disponibile. Riprova tra poco.";
     }

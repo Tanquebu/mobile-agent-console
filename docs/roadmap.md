@@ -25,7 +25,7 @@
   output, input e tasti.
 - [x] Stati espliciti per sessione chiusa, disconnessione, backend/tmux non
   disponibile, autenticazione scaduta e conflitto di nome.
-- [ ] Rate limit.
+- [x] Rate limit configurabile per login e mutazioni, con `Retry-After`.
 - [x] Origin policy per WebSocket formalizzata e coperta da test.
 - [x] Test di integrazione con tmux reale su socket temporaneo isolato.
 - [x] Modalità host-tmux sul socket predefinito dell'utente (ADR 005, che

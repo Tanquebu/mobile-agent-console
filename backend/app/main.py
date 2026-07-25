@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import os
 import stat
@@ -19,7 +20,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from .config import Settings, get_settings
 from .schemas import (
@@ -52,6 +53,7 @@ from .schemas import (
 from .security import COOKIE_NAME, SessionSecurity
 from .services.attachment_service import AttachmentError, AttachmentService
 from .services.output_delta import line_delta
+from .services.rate_limit import FixedWindowRateLimiter
 from .services.snapshot_service import (
     SnapshotError,
     SnapshotService,
@@ -163,6 +165,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         settings.max_attachment_bytes,
     )
     snapshots = SnapshotService(settings.snapshots_root)
+    rate_limiter = FixedWindowRateLimiter()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -207,6 +210,28 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         allow_headers=["Content-Type", "X-CSRF-Token"],
     )
 
+    def client_key(request: Request) -> str:
+        cookie = request.cookies.get(COOKIE_NAME)
+        if cookie:
+            return "session:" + hashlib.sha256(cookie.encode()).hexdigest()
+        return "ip:" + (request.client.host if request.client else "unknown")
+
+    @app.middleware("http")
+    async def limit_mutations(request: Request, call_next):
+        if request.method in {"POST", "DELETE"} and request.url.path != "/api/v1/auth/login":
+            retry_after = rate_limiter.check(
+                f"mutation:{client_key(request)}",
+                settings.mutation_rate_limit,
+                settings.mutation_rate_window_seconds,
+            )
+            if retry_after is not None:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": "Too many requests"},
+                    headers={"Retry-After": str(retry_after)},
+                )
+        return await call_next(request)
+
     @app.get("/health")
     async def health() -> dict[str, str]:
         result = {"status": "ok"}
@@ -216,7 +241,18 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         return result
 
     @app.post("/api/v1/auth/login", response_model=LoginResult)
-    async def login(payload: LoginInput, response: Response) -> LoginResult:
+    async def login(payload: LoginInput, request: Request, response: Response) -> LoginResult:
+        retry_after = rate_limiter.check(
+            f"login:{client_key(request)}",
+            settings.login_rate_limit,
+            settings.login_rate_window_seconds,
+        )
+        if retry_after is not None:
+            raise HTTPException(
+                429,
+                "Too many login attempts",
+                headers={"Retry-After": str(retry_after)},
+            )
         if not security.authenticate_password(payload.password):
             raise HTTPException(401, "Invalid credentials")
         cookie, csrf = security.issue_session()

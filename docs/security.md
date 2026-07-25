@@ -17,7 +17,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Input interpretato da tmux | `load-buffer -` + `paste-buffer`; tasti su endpoint separato |
 | Path traversal | nessun path dal client nello slice; poi resolve + `is_relative_to` allowlist |
 | Upload malevoli | nomi fisici UUID, tipi e signature allowlist, limite dimensione, nessuna estrazione archivi |
-| Abuso risorse | limiti payload; rate limit e quote nella milestone 2 |
+| Abuso risorse | limiti payload; rate limit in memoria separati per login e mutazioni |
 | WebSocket hijacking | cookie autenticato e Origin allowlist; nessun token nell'URL |
 | Leakage | niente output/prompt nell'audit; notifiche senza contenuto di default |
 | Privilege escalation | servizio non-root, stesso utente proprietario del socket tmux |

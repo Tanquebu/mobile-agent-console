@@ -37,6 +37,36 @@ def test_authentication_required_and_bad_login() -> None:
     assert client.post("/api/v1/auth/login", json={"password": "wrong"}).status_code == 401
 
 
+def test_login_and_mutation_rate_limits() -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        login_rate_limit=2,
+        mutation_rate_limit=2,
+    )
+    login_client = TestClient(create_app(settings, FakeTmux()))
+    assert login_client.post("/api/v1/auth/login", json={"password": "wrong"}).status_code == 401
+    assert login_client.post("/api/v1/auth/login", json={"password": "wrong"}).status_code == 401
+    limited = login_client.post("/api/v1/auth/login", json={"password": PASSWORD})
+    assert limited.status_code == 429
+    assert int(limited.headers["Retry-After"]) >= 1
+
+    client = TestClient(create_app(settings, FakeTmux()))
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+    for _ in range(2):
+        assert client.post(
+            "/api/v1/sessions/1/keys", headers=headers, json={"key": "Enter"}
+        ).status_code == 202
+    limited = client.post(
+        "/api/v1/sessions/1/keys", headers=headers, json={"key": "Enter"}
+    )
+    assert limited.status_code == 429
+    assert limited.json() == {"detail": "Too many requests"}
+
+
 def test_list_and_capture() -> None:
     client, _ = client_and_fake()
     csrf = login(client)

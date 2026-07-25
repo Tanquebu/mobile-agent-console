@@ -86,6 +86,9 @@ risposta riporta per ogni sessione `restored`, `skipped`, `manual` o `error`.
 `DELETE /api/v1/snapshots/{snapshot_id}` con `{"confirmed":true}` elimina lo
 snapshot. Tutte le mutazioni richiedono CSRF.
 
+Login e mutazioni sono soggetti a finestre di rate limit configurabili. Quando
+il limite è superato l'API risponde `429` e include l'header `Retry-After`.
+
 ## `GET /api/v1/sessions/{id}/output?lines=500`
 
 `lines` è 1..2000. Risposta:
