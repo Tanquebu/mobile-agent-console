@@ -33,6 +33,8 @@ from .schemas import (
     AttachmentView,
     AuditEventView,
     AuditList,
+    BackupList,
+    BackupView,
     ConfigView,
     ConfirmedAction,
     CreateSessionInput,
@@ -65,6 +67,7 @@ from .security import COOKIE_NAME, SessionSecurity
 from .services.archive_service import ArchiveService
 from .services.attachment_service import AttachmentError, AttachmentService
 from .services.audit_service import AuditService
+from .services.backup_service import BackupError, BackupService
 from .services.output_delta import line_delta
 from .services.rate_limit import FixedWindowRateLimiter
 from .services.snapshot_service import (
@@ -179,6 +182,12 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         settings.max_attachment_bytes,
     )
     snapshots = SnapshotService(settings.snapshots_root)
+    backups = BackupService(
+        settings.backups_root,
+        settings.database_path,
+        settings.snapshots_root,
+        settings.backup_retention,
+    )
     rate_limiter = FixedWindowRateLimiter()
     database = Database(settings.database_path) if settings.database_auth_enabled else None
     users = UserService(database.engine) if database else None
@@ -452,6 +461,61 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
                 for item in items
             ]
         )
+
+    @app.get(
+        "/api/v1/backups",
+        response_model=BackupList,
+        dependencies=[Depends(require_admin_session)],
+    )
+    async def list_backups() -> BackupList:
+        items = await asyncio.to_thread(backups.list)
+        return BackupList(
+            backups=[BackupView(**item.__dict__) for item in items]
+        )
+
+    @app.post(
+        "/api/v1/backups",
+        response_model=BackupView,
+        status_code=201,
+        dependencies=[Depends(require_admin)],
+    )
+    async def create_backup() -> BackupView:
+        if not database:
+            raise HTTPException(503, "Backup requires the metadata database")
+        try:
+            item = await asyncio.to_thread(backups.create)
+        except BackupError as exc:
+            raise HTTPException(500, str(exc)) from exc
+        return BackupView(**item.__dict__)
+
+    @app.get(
+        "/api/v1/backups/{backup_id}/download",
+        dependencies=[Depends(require_admin_session)],
+    )
+    async def download_backup(backup_id: str) -> FileResponse:
+        try:
+            path = await asyncio.to_thread(backups.archive_path, backup_id)
+        except BackupError as exc:
+            status_code = 404 if str(exc) == "Backup not found" else 409
+            raise HTTPException(status_code, str(exc)) from exc
+        return FileResponse(
+            path,
+            media_type="application/zip",
+            filename=f"mobile-agent-console-{backup_id}.zip",
+        )
+
+    @app.delete(
+        "/api/v1/backups/{backup_id}",
+        status_code=204,
+        dependencies=[Depends(require_admin)],
+    )
+    async def delete_backup(backup_id: str, payload: ConfirmedAction) -> None:
+        if not payload.confirmed:
+            raise HTTPException(400, "Backup deletion requires explicit confirmation")
+        try:
+            await asyncio.to_thread(backups.delete, backup_id)
+        except BackupError as exc:
+            raise HTTPException(404, str(exc)) from exc
 
     @app.post(
         "/api/v1/users",

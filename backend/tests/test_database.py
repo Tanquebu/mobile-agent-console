@@ -50,6 +50,8 @@ def test_database_auth_bootstrap_and_login(tmp_path: Path) -> None:
         cors_origins=["http://testserver"],
         database_path=str(database_path),
         database_auth_enabled=True,
+        backups_root=str(tmp_path / "backups"),
+        snapshots_root=str(tmp_path / "snapshots"),
     )
     fake = FakeTmux()
     client = TestClient(create_app(settings, fake))
@@ -61,6 +63,16 @@ def test_database_auth_bootstrap_and_login(tmp_path: Path) -> None:
     assert logged_in.json()["role"] == "admin"
     csrf = logged_in.json()["csrf_token"]
     headers = {"X-CSRF-Token": csrf}
+    assert client.get("/api/v1/backups").json() == {"backups": []}
+    created_backup = client.post("/api/v1/backups", headers=headers)
+    assert created_backup.status_code == 201
+    backup = created_backup.json()
+    assert len(backup["sha256"]) == 64
+    assert backup["files"] == 1
+    assert client.get("/api/v1/backups").json()["backups"][0]["id"] == backup["id"]
+    downloaded = client.get(f"/api/v1/backups/{backup['id']}/download")
+    assert downloaded.status_code == 200
+    assert downloaded.headers["content-type"] == "application/zip"
     for username, role in (("operator", "operator"), ("viewer", "viewer")):
         created = client.post(
             "/api/v1/users",
@@ -82,6 +94,7 @@ def test_database_auth_bootstrap_and_login(tmp_path: Path) -> None:
     viewer_headers = {"X-CSRF-Token": viewer_login.json()["csrf_token"]}
     assert viewer.get("/api/v1/sessions").status_code == 200
     assert viewer.get("/api/v1/users").status_code == 403
+    assert viewer.get("/api/v1/backups").status_code == 403
     assert viewer.post(
         "/api/v1/sessions/1/keys", headers=viewer_headers, json={"key": "Enter"}
     ).status_code == 403
@@ -96,6 +109,14 @@ def test_database_auth_bootstrap_and_login(tmp_path: Path) -> None:
         "/api/v1/sessions/1/keys", headers=operator_headers, json={"key": "Enter"}
     ).status_code == 202
     assert operator.get("/api/v1/users").status_code == 403
+    assert operator.post("/api/v1/backups", headers=operator_headers).status_code == 403
+    assert client.request(
+        "DELETE",
+        f"/api/v1/backups/{backup['id']}",
+        headers=headers,
+        json={"confirmed": True},
+    ).status_code == 204
+    assert client.get("/api/v1/backups").json() == {"backups": []}
 
     archived = client.post(
         "/api/v1/sessions/1/archive",

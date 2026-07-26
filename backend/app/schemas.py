@@ -135,6 +135,18 @@ class SnapshotList(BaseModel):
     snapshots: list[SnapshotView]
 
 
+class BackupView(BaseModel):
+    id: str
+    created_at: datetime
+    size: int
+    sha256: str
+    files: int
+
+
+class BackupList(BaseModel):
+    backups: list[BackupView]
+
+
 class RestoreItemView(BaseModel):
     name: str
     status: Literal["restored", "skipped", "manual", "error"]

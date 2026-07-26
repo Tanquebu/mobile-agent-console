@@ -162,6 +162,30 @@ In host mode the tmux server must be running again before restoring. Codex and
 Claude history must also remain available in their normal persistent user
 directories.
 
+## Backup and restore
+
+Administrators can create, list, download and delete backups from the
+dashboard. Each ZIP contains a consistent SQLite copy, session snapshot JSON
+files and a manifest with per-file SHA-256 checksums. By default the newest ten
+archives are retained (`MAC_BACKUP_RETENTION`).
+
+Restore is intentionally offline. Keep `tmux-runtime` (or host tmux) running,
+stop only the stateless services, then restore the selected archive:
+
+```bash
+docker compose stop backend web
+docker compose run --rm --no-deps backend \
+  python scripts/restore_backup.py /workspace/.mobile-agent-console/backups/BACKUP_ID.zip \
+  --database /workspace/.mobile-agent-console/app.db \
+  --snapshots /workspace/.agent-snapshots
+docker compose up -d --no-deps backend web
+```
+
+In host mode use the real `MAC_WORKSPACE_ROOT` paths instead of `/workspace`.
+The restore validates every checksum and SQLite integrity before replacement.
+Copy downloaded archives to encrypted off-host storage: local retention alone
+does not protect against loss of the VPS.
+
 ## Secure exposure
 
 The published port binds to `127.0.0.1` or to an explicit Tailscale IP

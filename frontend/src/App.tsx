@@ -4,13 +4,17 @@ import {
   ArchivedSession,
   AuditEvent,
   Attachment,
+  Backup,
   archiveSession,
+  backupDownloadUrl,
+  createBackup,
   createUser,
   createSnapshot,
   createSession,
   deleteArchive,
   deleteSnapshot,
   deleteAttachment,
+  deleteBackup,
   DirectoryEntry,
   DirectoryListing,
   fetchConfig,
@@ -24,6 +28,7 @@ import {
   listSessions,
   listArchives,
   listAudit,
+  listBackups,
   listPanes,
   listSnapshots,
   listUsers,
@@ -58,9 +63,9 @@ const CONNECTION_LABEL: Record<Connection, string> = {
 };
 
 const LATEST_RELEASE = {
-  title: "Dashboard desktop",
+  title: "Backup amministrativi",
   description:
-    "La dashboard ora scorre correttamente e usa una griglia a due colonne sugli schermi larghi.",
+    "Gli admin possono creare, scaricare ed eliminare backup verificabili di database e snapshot.",
 };
 
 function formatSize(size: number | null): string {
@@ -632,6 +637,88 @@ function AuditModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+function BackupModal({ onClose }: { onClose: () => void }) {
+  const [backups, setBackups] = useState<Backup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [busyId, setBusyId] = useState("");
+  const [error, setError] = useState("");
+
+  async function refresh() {
+    setBackups(await listBackups());
+  }
+
+  useEffect(() => {
+    refresh()
+      .catch((value) => setError(errorMessage(value)))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function create() {
+    setCreating(true);
+    setError("");
+    try {
+      await createBackup();
+      await refresh();
+    } catch (value) {
+      setError(errorMessage(value));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function remove(item: Backup) {
+    if (!window.confirm(`Eliminare definitivamente il backup del ${formatDate(item.created_at)}?`)) return;
+    setBusyId(item.id);
+    setError("");
+    try {
+      await deleteBackup(item.id);
+      await refresh();
+    } catch (value) {
+      setError(errorMessage(value));
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section className="help-modal snapshot-modal" role="dialog" aria-modal="true" aria-labelledby="backup-title">
+        <header>
+          <div><span className="eyebrow">DATI PERSISTENTI</span><h2 id="backup-title">Backup</h2></div>
+          <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+        </header>
+        <p className="empty">Include database applicativo e snapshot. Il restore si esegue offline.</p>
+        <button className="new-session backup-create" disabled={creating} onClick={() => void create()}>
+          {creating ? "Creazione…" : "Crea backup"}
+        </button>
+        <div className="snapshot-existing">
+          {loading && <p className="empty">Caricamento…</p>}
+          {!loading && backups.map((item) => (
+            <article className="snapshot-card" key={item.id}>
+              <div>
+                <strong>{formatDate(item.created_at)}</strong>
+                <small>{formatSize(item.size)} · {item.files} file</small>
+                <small title={item.sha256}>SHA-256: {item.sha256.slice(0, 16)}…</small>
+              </div>
+              <div className="snapshot-actions">
+                <a className="backup-download" href={backupDownloadUrl(item.id)}>Scarica</a>
+                <button className="danger" disabled={busyId === item.id} onClick={() => void remove(item)}>
+                  Elimina
+                </button>
+              </div>
+            </article>
+          ))}
+          {!loading && backups.length === 0 && <p className="empty">Nessun backup disponibile.</p>}
+        </div>
+        {error && <p className="error">{error}</p>}
+      </section>
+    </div>
+  );
+}
+
 function UserModal({ onClose }: { onClose: () => void }) {
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [username, setUsername] = useState("");
@@ -720,6 +807,7 @@ function SessionList({
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [showArchives, setShowArchives] = useState(false);
   const [showAudit, setShowAudit] = useState(false);
+  const [showBackups, setShowBackups] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
 
@@ -821,6 +909,9 @@ function SessionList({
         )}
         {identity.role === "admin" && (
           <button className="snapshot-button" onClick={() => setShowAudit(true)}>Audit</button>
+        )}
+        {identity.role === "admin" && (
+          <button className="snapshot-button" onClick={() => setShowBackups(true)}>Backup</button>
         )}
       </div>
       {creating && <form className="create-form" onSubmit={async (event) => {
@@ -947,6 +1038,7 @@ function SessionList({
       )}
       {showUsers && <UserModal onClose={() => setShowUsers(false)} />}
       {showAudit && <AuditModal onClose={() => setShowAudit(false)} />}
+      {showBackups && <BackupModal onClose={() => setShowBackups(false)} />}
       {showArchives && (
         <ArchiveModal
           onClose={() => setShowArchives(false)}

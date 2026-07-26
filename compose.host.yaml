@@ -26,6 +26,7 @@ services:
       MAC_ATTACHMENTS_ROOT: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.agent-attachments
       MAC_ATTACHMENTS_PROMPT_ROOT: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.agent-attachments
       MAC_SNAPSHOTS_ROOT: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.agent-snapshots
+      MAC_BACKUPS_ROOT: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.mobile-agent-console/backups
       MAC_DATABASE_PATH: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.mobile-agent-console/app.db
     volumes:
       # Montare la DIRECTORY del socket, non il file: se il server tmux

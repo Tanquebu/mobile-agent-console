@@ -26,6 +26,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Snapshot manipolati | file UUID mode 0600, schema validato, path nuovamente sottoposti ad allowlist e soli comandi resume costanti |
 | Archivio manipolato | directory ricontrollata contro l'allowlist e profilo server-side prima del rilancio |
 | Database locale | path privato nel workspace, nessun prompt/output/segreto, migrazioni versionate |
+| Backup manipolati | checksum archivio e file, manifest con path chiusi, restore offline e riservato all'operatore host |
 | Password account | solo hash Argon2id nel database; secret usato esclusivamente per bootstrap iniziale |
 
 ## Rischi residui del vertical slice
@@ -80,6 +81,13 @@ utente revoca quindi anche cookie già emessi. `viewer` può consultare output,
 directory e download; `operator` aggiunge le mutazioni sulle sessioni;
 `admin` gestisce gli account. L'ultimo amministratore attivo non può essere
 disabilitato.
+
+Creazione, elenco, download ed eliminazione dei backup sono riservati agli
+amministratori e le mutazioni entrano nell'audit. I backup contengono hash
+password e metadati applicativi: devono quindi restare con permessi `0600` e,
+se copiati fuori dalla VPS, su storage cifrato. Gli allegati temporanei con TTL
+non sono inclusi. Il restore non è esposto via HTTP e deve essere eseguito con
+backend fermo.
 
 Quando il client specifica un pane, il backend accetta soltanto un id numerico
 e verifica tramite tmux che appartenga alla sessione indicata prima di usarlo

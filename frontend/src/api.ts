@@ -106,6 +106,35 @@ export async function listAudit(limit = 200): Promise<AuditEvent[]> {
   return (await response.json()).events;
 }
 
+export type Backup = {
+  id: string;
+  created_at: string;
+  size: number;
+  sha256: string;
+  files: number;
+};
+
+export async function listBackups(): Promise<Backup[]> {
+  const response = await request("/api/v1/backups");
+  return (await response.json()).backups;
+}
+
+export async function createBackup(): Promise<Backup> {
+  const response = await request("/api/v1/backups", { method: "POST" });
+  return response.json();
+}
+
+export async function deleteBackup(id: string): Promise<void> {
+  await request(`/api/v1/backups/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ confirmed: true }),
+  });
+}
+
+export function backupDownloadUrl(id: string): string {
+  return `/api/v1/backups/${encodeURIComponent(id)}/download`;
+}
+
 export async function createUser(
   username: string,
   password: string,

@@ -25,6 +25,7 @@ RUN pip install --no-cache-dir .
 COPY app ./app
 COPY alembic.ini .
 COPY migrations ./migrations
+COPY scripts ./scripts
 USER mac
 CMD ["python", "-m", "app.start"]
 

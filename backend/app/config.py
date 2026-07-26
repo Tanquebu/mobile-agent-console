@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     workspace_presets: dict[str, str] = {}
     attachments_root: str = "/workspace/.agent-attachments"
     snapshots_root: str = "/workspace/.agent-snapshots"
+    backups_root: str = "/workspace/.mobile-agent-console/backups"
+    backup_retention: int = Field(default=10, ge=1, le=100)
     database_path: str = "/workspace/.mobile-agent-console/app.db"
     database_auth_enabled: bool = False
     bootstrap_username: str = Field(default="admin", pattern=r"^[A-Za-z0-9_-]{1,64}$")

@@ -53,6 +53,13 @@ persistente del workspace. L'avvio applica le migrazioni prima di esporre il
 backend. tmux resta autorevole per le sessioni vive; output, prompt, file e
 segreti non sono salvati nel database.
 
+I backup amministrativi sono archivi ZIP locali sotto
+`.mobile-agent-console/backups`. Una copia consistente di SQLite viene creata
+con la backup API nativa e affiancata agli snapshot JSON. Il manifest contiene
+dimensioni e SHA-256 dei singoli file; un checksum dell'intero archivio viene
+salvato separatamente e verificato prima del download. La retention predefinita
+mantiene gli ultimi dieci backup. Il restore è esclusivamente offline.
+
 L'archivio conserva soltanto nome, directory, profilo, autore e data. Archiviare
 è un'azione esplicita che scrive i metadati prima di terminare la sessione
 tmux; il rilancio usa esclusivamente un profilo server-side e rimuove la voce

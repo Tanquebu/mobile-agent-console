@@ -55,7 +55,8 @@
   admin validato sull'istanza pubblicata.
 - [x] User unit systemd Compose per modalità Docker e host installate e
   validate sull'istanza pubblicata, preservando le sessioni tmux.
-- [ ] Backup.
+- [x] Backup amministrativi di database e snapshot con manifest, checksum,
+  retention, download e restore offline validati sull'istanza pubblicata.
 - [x] Snapshot persistenti create/list/restore/delete verificati end-to-end
   dopo riavvio VPS.
 - [ ] Gate: deployment Tailscale verificato senza porta pubblica.
