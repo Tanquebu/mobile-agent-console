@@ -59,7 +59,8 @@
   retention, download e restore offline validati sull'istanza pubblicata.
 - [x] Snapshot persistenti create/list/restore/delete verificati end-to-end
   dopo riavvio VPS.
-- [ ] Gate: deployment Tailscale verificato senza porta pubblica.
+- [x] Gate: deployment Tailscale verificato senza porta pubblica
+  (`docs/gates/tailscale-deployment.md`).
 
 ### M2A — Allegati minimali ai prompt
 
