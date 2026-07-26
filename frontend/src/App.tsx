@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   ArchivedSession,
+  AuditEvent,
   Attachment,
   archiveSession,
   createUser,
@@ -22,6 +23,7 @@ import {
   Identity,
   listSessions,
   listArchives,
+  listAudit,
   listPanes,
   listSnapshots,
   listUsers,
@@ -56,9 +58,9 @@ const CONNECTION_LABEL: Record<Connection, string> = {
 };
 
 const LATEST_RELEASE = {
-  title: "Archivio sessioni",
+  title: "Audit delle operazioni",
   description:
-    "Archivia una sessione e rilanciala in seguito; Codex e Claude riaprono il proprio selettore di resume.",
+    "Gli amministratori possono consultare attore, operazione, target, esito e data delle azioni sensibili.",
 };
 
 function formatSize(size: number | null): string {
@@ -589,6 +591,47 @@ function ArchiveModal({
   );
 }
 
+function AuditModal({ onClose }: { onClose: () => void }) {
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    listAudit()
+      .then(setEvents)
+      .catch((value) => setError(errorMessage(value)))
+      .finally(() => setLoading(false));
+  }, []);
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section className="help-modal snapshot-modal" role="dialog" aria-modal="true" aria-labelledby="audit-title">
+        <header>
+          <div><span className="eyebrow">SOLA LETTURA</span><h2 id="audit-title">Audit operazioni</h2></div>
+          <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+        </header>
+        <div className="snapshot-existing audit-list">
+          {loading && <p className="empty">Caricamento…</p>}
+          {!loading && events.map((event) => (
+            <article className="snapshot-card" key={event.id}>
+              <div>
+                <strong>{event.action}</strong>
+                <small>{event.actor} · HTTP {event.outcome}</small>
+                <small>{event.target}</small>
+                <small>{new Date(event.created_at).toLocaleString()}</small>
+              </div>
+            </article>
+          ))}
+          {!loading && events.length === 0 && <p className="empty">Nessun evento registrato.</p>}
+        </div>
+        {error && <p className="error">{error}</p>}
+      </section>
+    </div>
+  );
+}
+
 function UserModal({ onClose }: { onClose: () => void }) {
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [username, setUsername] = useState("");
@@ -676,6 +719,7 @@ function SessionList({
   const [showHelp, setShowHelp] = useState(false);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [showArchives, setShowArchives] = useState(false);
+  const [showAudit, setShowAudit] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
 
@@ -774,6 +818,9 @@ function SessionList({
         )}
         {identity.role === "admin" && (
           <button className="snapshot-button" onClick={() => setShowUsers(true)}>Utenti</button>
+        )}
+        {identity.role === "admin" && (
+          <button className="snapshot-button" onClick={() => setShowAudit(true)}>Audit</button>
         )}
       </div>
       {creating && <form className="create-form" onSubmit={async (event) => {
@@ -899,6 +946,7 @@ function SessionList({
         />
       )}
       {showUsers && <UserModal onClose={() => setShowUsers(false)} />}
+      {showAudit && <AuditModal onClose={() => setShowAudit(false)} />}
       {showArchives && (
         <ArchiveModal
           onClose={() => setShowArchives(false)}

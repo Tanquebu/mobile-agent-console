@@ -51,7 +51,8 @@
 - [x] Rinomina sessioni tramite id numerico, con nomi contenenti spazi.
 - [x] Archive di metadati con rilancio, selettore resume ed eliminazione
   validato sull'istanza pubblicata.
-- [ ] Audit metadata.
+- [x] Audit append-only dei metadati delle operazioni sensibili con vista
+  admin validato sull'istanza pubblicata.
 - [~] Unit systemd da completare e validare per entrambe le modalità tmux.
 - [ ] Backup.
 - [x] Snapshot persistenti create/list/restore/delete verificati end-to-end

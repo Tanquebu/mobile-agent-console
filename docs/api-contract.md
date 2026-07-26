@@ -39,6 +39,13 @@ risolve in argv costanti e il client non invia un comando eseguibile.
 Le mutazioni richiedono ruolo `operator` o `admin`. Nessun output, prompt,
 environment, segreto o allegato entra nell'archivio.
 
+## `GET /api/v1/audit`
+
+Richiede ruolo `admin`. Restituisce gli eventi più recenti in ordine inverso;
+`limit` è compreso tra 1 e 500 e vale 200 per default. Ogni evento contiene
+`id`, `actor`, `action`, `target`, `outcome` e `created_at`. L'audit non
+conserva body, query string, IP, prompt, output, filename o segreti.
+
 ## `GET /api/v1/auth/session`
 
 Valida il cookie e restituisce un nuovo token CSRF, permettendo refresh e

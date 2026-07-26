@@ -92,6 +92,20 @@ export async function listUsers(): Promise<UserAccount[]> {
   return (await response.json()).users;
 }
 
+export type AuditEvent = {
+  id: number;
+  actor: string;
+  action: string;
+  target: string;
+  outcome: number;
+  created_at: string;
+};
+
+export async function listAudit(limit = 200): Promise<AuditEvent[]> {
+  const response = await request(`/api/v1/audit?limit=${limit}`);
+  return (await response.json()).events;
+}
+
 export async function createUser(
   username: string,
   password: string,

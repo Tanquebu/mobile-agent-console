@@ -31,6 +31,8 @@ from .schemas import (
     ArchivedSessionView,
     ArchiveList,
     AttachmentView,
+    AuditEventView,
+    AuditList,
     ConfigView,
     ConfirmedAction,
     CreateSessionInput,
@@ -62,6 +64,7 @@ from .schemas import (
 from .security import COOKIE_NAME, SessionSecurity
 from .services.archive_service import ArchiveService
 from .services.attachment_service import AttachmentError, AttachmentService
+from .services.audit_service import AuditService
 from .services.output_delta import line_delta
 from .services.rate_limit import FixedWindowRateLimiter
 from .services.snapshot_service import (
@@ -180,6 +183,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     database = Database(settings.database_path) if settings.database_auth_enabled else None
     users = UserService(database.engine) if database else None
     archives = ArchiveService(database.engine) if database else None
+    audit = AuditService(database.engine) if database else None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -293,6 +297,28 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             return "claude"
         return "shell"
 
+    def audit_actor(request: Request) -> str:
+        cookie = request.cookies.get(COOKIE_NAME)
+        if not cookie:
+            return "anonymous"
+        try:
+            return security.subject_for(cookie) or settings.bootstrap_username
+        except HTTPException:
+            return "anonymous"
+
+    async def record_audit(
+        actor: str,
+        action: str,
+        target: str,
+        outcome: int,
+    ) -> None:
+        if not audit:
+            return
+        try:
+            await asyncio.to_thread(audit.record, actor, action, target, outcome)
+        except Exception:
+            logger.exception("Unable to persist audit event")
+
     @app.middleware("http")
     async def limit_mutations(request: Request, call_next):
         if request.method in {"POST", "DELETE"} and request.url.path != "/api/v1/auth/login":
@@ -308,6 +334,21 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
                     headers={"Retry-After": str(retry_after)},
                 )
         return await call_next(request)
+
+    @app.middleware("http")
+    async def audit_mutations(request: Request, call_next):
+        response = await call_next(request)
+        if request.method in {"POST", "DELETE"} and request.url.path != "/api/v1/auth/login":
+            route = request.scope.get("route")
+            route_path = getattr(route, "path", request.url.path)
+            if not route_path.endswith(("/input", "/keys", "/resize")):
+                await record_audit(
+                    audit_actor(request),
+                    f"{request.method} {route_path}",
+                    request.url.path,
+                    response.status_code,
+                )
+        return response
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -325,6 +366,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             settings.login_rate_window_seconds,
         )
         if retry_after is not None:
+            await record_audit(payload.username, "LOGIN", "/api/v1/auth/login", 429)
             raise HTTPException(
                 429,
                 "Too many login attempts",
@@ -336,6 +378,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         else:
             authenticated = security.authenticate_password(payload.password)
         if not authenticated:
+            await record_audit(payload.username, "LOGIN", "/api/v1/auth/login", 401)
             raise HTTPException(401, "Invalid credentials")
         cookie, csrf = security.issue_session(payload.username if users else "legacy")
         response.set_cookie(
@@ -347,6 +390,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             max_age=settings.session_ttl_seconds,
             path="/",
         )
+        await record_audit(payload.username, "LOGIN", "/api/v1/auth/login", 200)
         return LoginResult(
             csrf_token=csrf,
             username=user.username if users and user else "legacy",
@@ -389,6 +433,22 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
                     active=item.active,
                     created_at=item.created_at,
                 )
+                for item in items
+            ]
+        )
+
+    @app.get(
+        "/api/v1/audit",
+        response_model=AuditList,
+        dependencies=[Depends(require_admin_session)],
+    )
+    async def list_audit(limit: int = Query(default=200, ge=1, le=500)) -> AuditList:
+        if not audit:
+            return AuditList(events=[])
+        items = await asyncio.to_thread(audit.list, limit)
+        return AuditList(
+            events=[
+                AuditEventView.model_validate(item, from_attributes=True)
                 for item in items
             ]
         )

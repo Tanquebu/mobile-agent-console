@@ -60,6 +60,11 @@ dall'archivio dopo la creazione riuscita.
 Per i profili Codex e Claude il rilancio apre il selettore nativo di resume
 tramite comandi costanti server-side; la shell viene invece ricreata normalmente.
 
+L'audit append-only registra attore, operazione tipizzata, target, esito HTTP e
+timestamp delle mutazioni significative. Non registra body, query string, IP,
+prompt, output, nomi file o segreti; input, tasti e resize ad alta frequenza
+sono esclusi. La lettura è riservata agli amministratori.
+
 L'autenticazione usa la tabella `users`: il primo avvio crea l'amministratore
 dal secret di bootstrap e salva soltanto un hash Argon2id. I successivi login
 interrogano il database, non confrontano la password con il secret runtime.

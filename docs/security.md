@@ -20,6 +20,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Abuso risorse | limiti payload; rate limit in memoria separati per login e mutazioni |
 | WebSocket hijacking | cookie autenticato e Origin allowlist; nessun token nell'URL |
 | Leakage | niente output/prompt nell'audit; notifiche senza contenuto di default |
+| Audit sensibile o eccessivo | solo metadati tipizzati; esclusi body, query, IP, prompt, output, filename e operazioni terminali ad alta frequenza |
 | Privilege escalation | servizio non-root, stesso utente proprietario del socket tmux |
 | Confused deputy | ruoli ricontrollati dal database, permessi espliciti per operazioni mutative |
 | Snapshot manipolati | file UUID mode 0600, schema validato, path nuovamente sottoposti ad allowlist e soli comandi resume costanti |

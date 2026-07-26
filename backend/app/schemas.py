@@ -163,6 +163,19 @@ class ArchiveList(BaseModel):
     archives: list[ArchivedSessionView]
 
 
+class AuditEventView(BaseModel):
+    id: int
+    actor: str
+    action: str
+    target: str
+    outcome: int
+    created_at: datetime
+
+
+class AuditList(BaseModel):
+    events: list[AuditEventView]
+
+
 class LoginInput(BaseModel):
     username: str = Field(default="admin", pattern=r"^[A-Za-z0-9_-]{1,64}$")
     password: str = Field(min_length=1, max_length=1024)

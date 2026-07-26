@@ -39,3 +39,7 @@ Argon2id. Dopo il bootstrap il secret non viene più letto per autenticare.
 La revisione `0003` introduce l'archivio delle sessioni concluse. Conserva
 soltanto nome, directory, profilo, autore e timestamp; non conserva output,
 prompt, environment o contenuti degli allegati.
+
+La revisione `0004` introduce l'audit append-only. Ogni record contiene soltanto
+attore, operazione tipizzata, target, status HTTP e timestamp. La vista è
+limitata agli amministratori e restituisce al massimo 500 eventi per richiesta.

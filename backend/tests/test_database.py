@@ -21,7 +21,13 @@ def test_database_migrates_to_head_and_is_reentrant(tmp_path: Path) -> None:
     assert database_path.stat().st_mode & 0o777 == 0o600
     assert database_path.parent.stat().st_mode & 0o777 == 0o700
     tables = set(inspect(database.engine).get_table_names())
-    assert tables == {"alembic_version", "app_metadata", "archived_sessions", "users"}
+    assert tables == {
+        "alembic_version",
+        "app_metadata",
+        "archived_sessions",
+        "audit_events",
+        "users",
+    }
     database.dispose()
 
 
@@ -143,3 +149,20 @@ def test_database_auth_bootstrap_and_login(tmp_path: Path) -> None:
         "/api/v1/auth/login",
         json={"username": "admin", "password": "legacy-password-not-used"},
     ).status_code == 401
+    assert viewer.get("/api/v1/audit").status_code in {401, 403}
+    audit_response = client.get("/api/v1/audit")
+    assert audit_response.status_code == 200
+    events = audit_response.json()["events"]
+    assert any(
+        event["actor"] == "admin"
+        and event["action"] == "POST /api/v1/sessions/{session_id}/archive"
+        and event["outcome"] == 201
+        for event in events
+    )
+    assert any(
+        event["actor"] == "admin"
+        and event["action"] == "LOGIN"
+        and event["outcome"] == 401
+        for event in events
+    )
+    assert all("password" not in str(event).lower() for event in events)

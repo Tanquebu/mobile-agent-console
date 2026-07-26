@@ -47,3 +47,16 @@ class ArchivedSession(Base):
     archived_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    actor: Mapped[str] = mapped_column(String(64), index=True)
+    action: Mapped[str] = mapped_column(String(160), index=True)
+    target: Mapped[str] = mapped_column(String(512))
+    outcome: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True
+    )
