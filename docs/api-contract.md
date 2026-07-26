@@ -25,6 +25,20 @@ Il nome, lungo al massimo 64 caratteri, accetta lettere ASCII, numeri, `_`,
 configurata. I profili ammessi sono `shell`, `codex` e `claude`; il server li
 risolve in argv costanti e il client non invia un comando eseguibile.
 
+## Archivio sessioni
+
+- `GET /api/v1/archives`: elenca i metadati archiviati.
+- `POST /api/v1/sessions/{id}/archive`: con `{"confirmed":true}` salva nome,
+  directory, profilo, autore e data, quindi termina la sessione tmux.
+- `POST /api/v1/archives/{id}/restore`: con `{"confirmed":true}` ricrea la
+  sessione tramite il profilo server-side; per Codex e Claude apre il selettore
+  nativo di resume e rimuove la voce dopo il successo.
+- `DELETE /api/v1/archives/{id}`: con `{"confirmed":true}` elimina
+  definitivamente i soli metadati.
+
+Le mutazioni richiedono ruolo `operator` o `admin`. Nessun output, prompt,
+environment, segreto o allegato entra nell'archivio.
+
 ## `GET /api/v1/auth/session`
 
 Valida il cookie e restituisce un nuovo token CSRF, permettendo refresh e

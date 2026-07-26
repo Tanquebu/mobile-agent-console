@@ -53,6 +53,13 @@ persistente del workspace. L'avvio applica le migrazioni prima di esporre il
 backend. tmux resta autorevole per le sessioni vive; output, prompt, file e
 segreti non sono salvati nel database.
 
+L'archivio conserva soltanto nome, directory, profilo, autore e data. Archiviare
+è un'azione esplicita che scrive i metadati prima di terminare la sessione
+tmux; il rilancio usa esclusivamente un profilo server-side e rimuove la voce
+dall'archivio dopo la creazione riuscita.
+Per i profili Codex e Claude il rilancio apre il selettore nativo di resume
+tramite comandi costanti server-side; la shell viene invece ricreata normalmente.
+
 L'autenticazione usa la tabella `users`: il primo avvio crea l'amministratore
 dal secret di bootstrap e salva soltanto un hash Argon2id. I successivi login
 interrogano il database, non confrontano la password con il secret runtime.

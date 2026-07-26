@@ -150,6 +150,19 @@ class Accepted(BaseModel):
     accepted: bool = True
 
 
+class ArchivedSessionView(BaseModel):
+    id: str
+    name: str
+    directory: str
+    profile: Literal["shell", "codex", "claude"]
+    archived_by: str
+    archived_at: datetime
+
+
+class ArchiveList(BaseModel):
+    archives: list[ArchivedSessionView]
+
+
 class LoginInput(BaseModel):
     username: str = Field(default="admin", pattern=r"^[A-Za-z0-9_-]{1,64}$")
     password: str = Field(min_length=1, max_length=1024)

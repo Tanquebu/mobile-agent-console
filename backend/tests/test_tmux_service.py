@@ -136,6 +136,26 @@ def test_create_session_uses_server_side_profile(monkeypatch, profile, expected)
     assert recorder.calls[0][-len(expected) :] == expected
 
 
+@pytest.mark.parametrize(
+    ("profile", "expected"),
+    [
+        ("shell", ("bash", "-l")),
+        ("codex", ("bash", "-l", "-c", "exec codex resume")),
+        ("claude", ("bash", "-l", "-c", "exec claude --resume")),
+    ],
+)
+def test_create_session_uses_server_side_resume_profile(
+    monkeypatch, profile, expected
+) -> None:
+    recorder = Recorder(monkeypatch)
+    asyncio.run(
+        TmuxService("test").create_session(
+            "demo", "/workspace", profile, resume=True
+        )
+    )
+    assert recorder.calls[0][-len(expected) :] == expected
+
+
 def test_create_session_rejects_unknown_profile(monkeypatch) -> None:
     recorder = Recorder(monkeypatch)
     with pytest.raises(ValueError, match="Unsupported profile"):

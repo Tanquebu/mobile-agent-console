@@ -35,3 +35,7 @@ La revisione `0002` introduce gli utenti persistenti. Se la tabella è vuota,
 l'avvio crea un solo amministratore usando username configurabile e la password
 secret già prevista dal deployment; viene memorizzato esclusivamente l'hash
 Argon2id. Dopo il bootstrap il secret non viene più letto per autenticare.
+
+La revisione `0003` introduce l'archivio delle sessioni concluse. Conserva
+soltanto nome, directory, profilo, autore e timestamp; non conserva output,
+prompt, environment o contenuti degli allegati.

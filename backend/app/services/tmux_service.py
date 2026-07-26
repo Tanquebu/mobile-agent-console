@@ -14,6 +14,11 @@ PROFILE_ARGV = {
     "codex": ("bash", "-l", "-c", "exec codex"),
     "claude": ("bash", "-l", "-c", "exec claude"),
 }
+RESUME_PROFILE_ARGV = {
+    "shell": PROFILE_ARGV["shell"],
+    "codex": ("bash", "-l", "-c", "exec codex resume"),
+    "claude": ("bash", "-l", "-c", "exec claude --resume"),
+}
 
 
 class TmuxError(RuntimeError):
@@ -48,7 +53,11 @@ class TmuxPane:
 
 class TmuxGateway(Protocol):
     async def create_session(
-        self, session_id: str, directory: str, profile: str = "shell"
+        self,
+        session_id: str,
+        directory: str,
+        profile: str = "shell",
+        resume: bool = False,
     ) -> None: ...
     async def rename_session(self, session_id: str, name: str) -> None: ...
     async def list_sessions(self) -> list[TmuxSession]: ...
@@ -206,10 +215,14 @@ class TmuxService:
         return raw.decode(errors="replace")
 
     async def create_session(
-        self, session_id: str, directory: str, profile: str = "shell"
+        self,
+        session_id: str,
+        directory: str,
+        profile: str = "shell",
+        resume: bool = False,
     ) -> None:
         self.validate_session_id(session_id)
-        command = PROFILE_ARGV.get(profile)
+        command = (RESUME_PROFILE_ARGV if resume else PROFILE_ARGV).get(profile)
         if command is None:
             raise ValueError("Unsupported profile")
         if self._external_server:

@@ -18,6 +18,7 @@ class FakeTmux:
         self.resizes: list[tuple[str, int, int]] = []
         self.terminated: list[str] = []
         self.renamed: list[tuple[str, str]] = []
+        self.created: list[tuple[str, str, str, bool]] = []
         self.server_down = False
         self.duplicate_name = False
         self.directory = "/workspace"
@@ -32,7 +33,11 @@ class FakeTmux:
         return list(self.sessions.values())
 
     async def create_session(
-        self, session_id: str, directory: str, profile: str = "shell"
+        self,
+        session_id: str,
+        directory: str,
+        profile: str = "shell",
+        resume: bool = False,
     ) -> None:
         if self.server_down:
             raise TmuxError("Host tmux server is not running; start tmux on the host first")
@@ -40,6 +45,7 @@ class FakeTmux:
             raise TmuxError(f"duplicate session: {session_id}")
         if any(item.name == session_id for item in self.sessions.values()):
             raise TmuxError(f"duplicate session: {session_id}")
+        self.created.append((session_id, directory, profile, resume))
         new_id = str(max((int(item) for item in self.sessions), default=0) + 1)
         self.sessions[new_id] = TmuxSession(
             new_id,

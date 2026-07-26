@@ -34,3 +34,16 @@ class User(Base):
         default=lambda: datetime.now(UTC),
         onupdate=lambda: datetime.now(UTC),
     )
+
+
+class ArchivedSession(Base):
+    __tablename__ = "archived_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), index=True)
+    directory: Mapped[str] = mapped_column(String(4096))
+    profile: Mapped[str] = mapped_column(String(32))
+    archived_by: Mapped[str] = mapped_column(String(64))
+    archived_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )

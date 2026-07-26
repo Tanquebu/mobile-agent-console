@@ -234,6 +234,42 @@ export async function terminateSession(id: string) {
   });
 }
 
+export type ArchivedSession = {
+  id: string;
+  name: string;
+  directory: string;
+  profile: "shell" | "codex" | "claude";
+  archived_by: string;
+  archived_at: string;
+};
+
+export async function listArchives(): Promise<ArchivedSession[]> {
+  const response = await request("/api/v1/archives");
+  return (await response.json()).archives;
+}
+
+export async function archiveSession(id: string): Promise<ArchivedSession> {
+  const response = await request(`/api/v1/sessions/${encodeURIComponent(id)}/archive`, {
+    method: "POST",
+    body: JSON.stringify({ confirmed: true }),
+  });
+  return response.json();
+}
+
+export async function restoreArchive(id: string): Promise<void> {
+  await request(`/api/v1/archives/${encodeURIComponent(id)}/restore`, {
+    method: "POST",
+    body: JSON.stringify({ confirmed: true }),
+  });
+}
+
+export async function deleteArchive(id: string): Promise<void> {
+  await request(`/api/v1/archives/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ confirmed: true }),
+  });
+}
+
 export async function renameSession(id: string, name: string) {
   await request(`/api/v1/sessions/${encodeURIComponent(id)}/rename`, {
     method: "POST",

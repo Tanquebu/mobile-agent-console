@@ -77,6 +77,12 @@ all'utente di testare una modifica che non è ancora stata deployata. Durante
 il deploy ricreare soltanto i servizi stateless coinvolti e preservare sempre
 `tmux-runtime`, salvo richiesta esplicita contraria.
 
+Alla chiusura di ogni round funzionale significativo, aggiornare anche
+`LATEST_RELEASE` in `frontend/src/App.tsx`: il riquadro “What's new” deve
+descrivere l'ultima funzionalità effettivamente rilasciata e validata, non una
+novità precedente. L'aggiornamento fa parte dello stesso round e deve quindi
+essere incluso nelle verifiche, nel deploy e nel commit.
+
 Lo stack completo è supportato tramite Docker Compose:
 
 ```bash

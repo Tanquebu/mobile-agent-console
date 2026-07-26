@@ -1,10 +1,13 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   ApiError,
+  ArchivedSession,
   Attachment,
+  archiveSession,
   createUser,
   createSnapshot,
   createSession,
+  deleteArchive,
   deleteSnapshot,
   deleteAttachment,
   DirectoryEntry,
@@ -18,12 +21,14 @@ import {
   login,
   Identity,
   listSessions,
+  listArchives,
   listPanes,
   listSnapshots,
   listUsers,
   Pane,
   renameSession,
   restoreSession,
+  restoreArchive,
   restoreSnapshot,
   Role,
   resizePane,
@@ -51,9 +56,9 @@ const CONNECTION_LABEL: Record<Connection, string> = {
 };
 
 const LATEST_RELEASE = {
-  title: "Azioni sessione in dashboard",
+  title: "Archivio sessioni",
   description:
-    "Rinomina e termina sono ora raccolte nella toolbar di ciascuna sessione in dashboard.",
+    "Archivia una sessione e rilanciala in seguito; Codex e Claude riaprono il proprio selettore di resume.",
 };
 
 function formatSize(size: number | null): string {
@@ -501,6 +506,89 @@ function SnapshotModal({
   );
 }
 
+function ArchiveModal({
+  onClose,
+  onRestored,
+}: {
+  onClose: () => void;
+  onRestored: () => Promise<void>;
+}) {
+  const [archives, setArchives] = useState<ArchivedSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState("");
+  const [error, setError] = useState("");
+
+  async function refresh() {
+    setArchives(await listArchives());
+  }
+
+  useEffect(() => {
+    refresh()
+      .catch((value) => setError(errorMessage(value)))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function restore(item: ArchivedSession) {
+    if (!window.confirm(`Rilanciare la sessione “${item.name}”?`)) return;
+    setBusyId(item.id);
+    setError("");
+    try {
+      await restoreArchive(item.id);
+      await Promise.all([refresh(), onRestored()]);
+    } catch (value) {
+      setError(errorMessage(value));
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  async function remove(item: ArchivedSession) {
+    if (!window.confirm(`Eliminare definitivamente “${item.name}” dall’archivio?`)) return;
+    setBusyId(item.id);
+    setError("");
+    try {
+      await deleteArchive(item.id);
+      await refresh();
+    } catch (value) {
+      setError(errorMessage(value));
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section className="help-modal snapshot-modal" role="dialog" aria-modal="true" aria-labelledby="archive-title">
+        <header>
+          <div><span className="eyebrow">METADATI SESSIONI</span><h2 id="archive-title">Archivio</h2></div>
+          <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+        </header>
+        <div className="snapshot-existing">
+          {loading && <p className="empty">Caricamento…</p>}
+          {!loading && archives.map((item) => (
+            <article className="snapshot-card" key={item.id}>
+              <div>
+                <strong>{item.name}</strong>
+                <small>{item.profile} · {new Date(item.archived_at).toLocaleString()}</small>
+                <small>{item.directory}</small>
+                <small>Archiviata da {item.archived_by}</small>
+              </div>
+              <div className="snapshot-actions">
+                <button disabled={busyId === item.id} onClick={() => void restore(item)}>Rilancia</button>
+                <button className="danger" disabled={busyId === item.id} onClick={() => void remove(item)}>Elimina</button>
+              </div>
+            </article>
+          ))}
+          {!loading && archives.length === 0 && <p className="empty">Nessuna sessione archiviata.</p>}
+        </div>
+        {error && <p className="error">{error}</p>}
+      </section>
+    </div>
+  );
+}
+
 function UserModal({ onClose }: { onClose: () => void }) {
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [username, setUsername] = useState("");
@@ -587,6 +675,7 @@ function SessionList({
   const [customDirectory, setCustomDirectory] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [showSnapshots, setShowSnapshots] = useState(false);
+  const [showArchives, setShowArchives] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
 
@@ -647,6 +736,21 @@ function SessionList({
     }
   }
 
+  async function archiveListedSession(session: Session) {
+    const confirmed = window.confirm(
+      `Archiviare “${session.name}”? I metadati saranno conservati e la sessione tmux verrà terminata.`,
+    );
+    if (!confirmed) return;
+    setError("");
+    try {
+      await archiveSession(session.id);
+      setSessions((items) => items.filter((item) => item.id !== session.id));
+      setOpenActionsId(null);
+    } catch (value) {
+      setError(errorMessage(value));
+    }
+  }
+
   return (
     <main className="shell">
       <header className="topbar">
@@ -664,6 +768,9 @@ function SessionList({
         )}
         {identity.role !== "viewer" && (
           <button className="snapshot-button" onClick={() => setShowSnapshots(true)}>Snapshot</button>
+        )}
+        {identity.role !== "viewer" && (
+          <button className="snapshot-button" onClick={() => setShowArchives(true)}>Archivio</button>
         )}
         {identity.role === "admin" && (
           <button className="snapshot-button" onClick={() => setShowUsers(true)}>Utenti</button>
@@ -738,6 +845,9 @@ function SessionList({
                 <button type="button" onClick={() => void renameListedSession(session)}>
                   Rinomina
                 </button>
+                <button type="button" onClick={() => void archiveListedSession(session)}>
+                  Archivia
+                </button>
                 <button type="button" className="danger" onClick={() => void terminateListedSession(session)}>
                   Termina
                 </button>
@@ -789,6 +899,12 @@ function SessionList({
         />
       )}
       {showUsers && <UserModal onClose={() => setShowUsers(false)} />}
+      {showArchives && (
+        <ArchiveModal
+          onClose={() => setShowArchives(false)}
+          onRestored={refreshSessions}
+        />
+      )}
     </main>
   );
 }
@@ -839,6 +955,7 @@ function Console({
   }, [session.id]);
 
   useEffect(() => {
+    if (!paneId) return;
     let socket: WebSocket | undefined;
     let timer: number | undefined;
     let stopped = false;
@@ -846,7 +963,7 @@ function Console({
     const connect = () => {
       if (stopped) return;
       setConnection("connecting");
-      socket = new WebSocket(streamUrl(session.id, paneId || undefined));
+      socket = new WebSocket(streamUrl(session.id, paneId));
       socket.onopen = () => { attempts = 0; setConnection("online"); };
       socket.onmessage = (event) => {
         const message = JSON.parse(event.data);
@@ -891,7 +1008,8 @@ function Console({
     const output = outputRef.current;
     if (!output || !paneId || typeof ResizeObserver === "undefined") return;
     let timer: number | undefined;
-    let previous = "";
+    const pane = panes.find((item) => item.id === paneId);
+    let previous = pane ? `${pane.width}x${pane.height}` : "";
     const observer = new ResizeObserver(([entry]) => {
       const columns = Math.max(20, Math.min(500, Math.floor(entry.contentRect.width / 8)));
       const rows = Math.max(5, Math.min(300, Math.floor(entry.contentRect.height / 20)));
@@ -903,14 +1021,14 @@ function Console({
         resizePane(session.id, paneId, columns, rows).catch((value) => {
           setControlError(errorMessage(value));
         });
-      }, 250);
+      }, 750);
     });
     observer.observe(output);
     return () => {
       observer.disconnect();
       if (timer) clearTimeout(timer);
     };
-  }, [session.id, paneId]);
+  }, [session.id, paneId, panes]);
 
   useEffect(() => {
     if (followingOutput && outputRef.current) {

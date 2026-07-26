@@ -21,7 +21,7 @@ def test_database_migrates_to_head_and_is_reentrant(tmp_path: Path) -> None:
     assert database_path.stat().st_mode & 0o777 == 0o600
     assert database_path.parent.stat().st_mode & 0o777 == 0o700
     tables = set(inspect(database.engine).get_table_names())
-    assert tables == {"alembic_version", "app_metadata", "users"}
+    assert tables == {"alembic_version", "app_metadata", "archived_sessions", "users"}
     database.dispose()
 
 
@@ -45,7 +45,8 @@ def test_database_auth_bootstrap_and_login(tmp_path: Path) -> None:
         database_path=str(database_path),
         database_auth_enabled=True,
     )
-    client = TestClient(create_app(settings, FakeTmux()))
+    fake = FakeTmux()
+    client = TestClient(create_app(settings, fake))
     logged_in = client.post(
         "/api/v1/auth/login",
         json={"username": "admin", "password": "a-secure-bootstrap-password"},
@@ -89,6 +90,43 @@ def test_database_auth_bootstrap_and_login(tmp_path: Path) -> None:
         "/api/v1/sessions/1/keys", headers=operator_headers, json={"key": "Enter"}
     ).status_code == 202
     assert operator.get("/api/v1/users").status_code == 403
+
+    archived = client.post(
+        "/api/v1/sessions/1/archive",
+        headers=headers,
+        json={"confirmed": True},
+    )
+    assert archived.status_code == 201
+    archive = archived.json()
+    assert archive["name"] == "demo"
+    assert archive["profile"] == "shell"
+    assert archive["archived_by"] == "admin"
+    assert "1" not in fake.sessions
+    assert client.get("/api/v1/archives").json()["archives"][0]["id"] == archive["id"]
+    assert viewer.get("/api/v1/archives").status_code == 200
+    restored = client.post(
+        f"/api/v1/archives/{archive['id']}/restore",
+        headers=headers,
+        json={"confirmed": True},
+    )
+    assert restored.status_code == 201
+    assert fake.created[-1] == ("demo", "/workspace", "shell", True)
+    assert client.get("/api/v1/archives").json() == {"archives": []}
+    assert any(item.name == "demo" for item in fake.sessions.values())
+
+    live_id = next(item.id for item in fake.sessions.values() if item.name == "demo")
+    archived_again = client.post(
+        f"/api/v1/sessions/{live_id}/archive",
+        headers=headers,
+        json={"confirmed": True},
+    ).json()
+    assert client.request(
+        "DELETE",
+        f"/api/v1/archives/{archived_again['id']}",
+        headers=headers,
+        json={"confirmed": True},
+    ).status_code == 204
+    assert client.get("/api/v1/archives").json() == {"archives": []}
 
     assert client.post(
         "/api/v1/users/viewer/status",

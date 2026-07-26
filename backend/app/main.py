@@ -28,6 +28,8 @@ from .config import Settings, get_settings
 from .database import Database
 from .schemas import (
     Accepted,
+    ArchivedSessionView,
+    ArchiveList,
     AttachmentView,
     ConfigView,
     ConfirmedAction,
@@ -58,6 +60,7 @@ from .schemas import (
     UserView,
 )
 from .security import COOKIE_NAME, SessionSecurity
+from .services.archive_service import ArchiveService
 from .services.attachment_service import AttachmentError, AttachmentService
 from .services.output_delta import line_delta
 from .services.rate_limit import FixedWindowRateLimiter
@@ -176,6 +179,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     rate_limiter = FixedWindowRateLimiter()
     database = Database(settings.database_path) if settings.database_auth_enabled else None
     users = UserService(database.engine) if database else None
+    archives = ArchiveService(database.engine) if database else None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -275,6 +279,19 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         if cookie:
             return "session:" + hashlib.sha256(cookie.encode()).hexdigest()
         return "ip:" + (request.client.host if request.client else "unknown")
+
+    def archive_service() -> ArchiveService:
+        if not archives:
+            raise HTTPException(503, "Archive requires the metadata database")
+        return archives
+
+    def session_profile(command: str) -> str:
+        lowered = command.lower()
+        if "codex" in lowered:
+            return "codex"
+        if "claude" in lowered:
+            return "claude"
+        return "shell"
 
     @app.middleware("http")
     async def limit_mutations(request: Request, call_next):
@@ -480,6 +497,101 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
                 for item in items
             ]
         )
+
+    @app.get(
+        "/api/v1/archives",
+        response_model=ArchiveList,
+        dependencies=[Depends(require_active_session)],
+    )
+    async def list_archives() -> ArchiveList:
+        items = await asyncio.to_thread(archive_service().list)
+        return ArchiveList(
+            archives=[
+                ArchivedSessionView.model_validate(item, from_attributes=True)
+                for item in items
+            ]
+        )
+
+    @app.post(
+        "/api/v1/sessions/{session_id}/archive",
+        response_model=ArchivedSessionView,
+        status_code=201,
+    )
+    async def archive_session(
+        session_id: str,
+        payload: ConfirmedAction,
+        cookie: str = Depends(require_operator),
+    ) -> ArchivedSessionView:
+        if not payload.confirmed:
+            raise HTTPException(400, "Archiving requires explicit confirmation")
+        try:
+            live = next(
+                (item for item in await gateway.list_sessions() if item.id == session_id),
+                None,
+            )
+            if not live:
+                raise SessionNotFound(session_id)
+            directory = await gateway.pane_path(session_id)
+        except (ValueError, SessionNotFound) as exc:
+            raise HTTPException(404, "Session not found") from exc
+        service = archive_service()
+        user = active_user(cookie)
+        item = await asyncio.to_thread(
+            service.create,
+            live.name,
+            directory,
+            session_profile(live.current_command),
+            user.username if user is not None else "legacy",
+        )
+        try:
+            await gateway.terminate_session(session_id)
+        except (ValueError, SessionNotFound, TmuxError) as exc:
+            await asyncio.to_thread(service.delete, item.id)
+            raise HTTPException(409, "Unable to archive session") from exc
+        return ArchivedSessionView.model_validate(item, from_attributes=True)
+
+    @app.post(
+        "/api/v1/archives/{archive_id}/restore",
+        response_model=Accepted,
+        status_code=201,
+        dependencies=[Depends(require_operator)],
+    )
+    async def restore_archive(archive_id: str, payload: ConfirmedAction) -> Accepted:
+        if not payload.confirmed:
+            raise HTTPException(400, "Archive restore requires explicit confirmation")
+        service = archive_service()
+        item = await asyncio.to_thread(service.get, archive_id)
+        if not item:
+            raise HTTPException(404, "Archive not found")
+        roots = [Path(root).resolve() for root in settings.allowed_roots]
+        directory, _ = _resolve_within_allowed_roots(item.directory, roots)
+        try:
+            await gateway.create_session(
+                item.name,
+                str(directory),
+                item.profile,
+                resume=True,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except TmuxError as exc:
+            detail = _tmux_mutation_error(exc, "Unable to restore archive")
+            raise HTTPException(409, detail) from exc
+        await asyncio.to_thread(service.delete, archive_id)
+        return Accepted()
+
+    @app.delete(
+        "/api/v1/archives/{archive_id}",
+        status_code=204,
+        dependencies=[Depends(require_operator)],
+    )
+    async def delete_archive(archive_id: str, payload: ConfirmedAction) -> Response:
+        if not payload.confirmed:
+            raise HTTPException(400, "Archive deletion requires explicit confirmation")
+        deleted = await asyncio.to_thread(archive_service().delete, archive_id)
+        if not deleted:
+            raise HTTPException(404, "Archive not found")
+        return Response(status_code=204)
 
     @app.post(
         "/api/v1/snapshots",

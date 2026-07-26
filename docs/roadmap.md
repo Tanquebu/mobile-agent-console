@@ -49,7 +49,8 @@
   pubblicata.
 - [x] Creazione sessioni.
 - [x] Rinomina sessioni tramite id numerico, con nomi contenenti spazi.
-- [ ] Archive.
+- [x] Archive di metadati con rilancio, selettore resume ed eliminazione
+  validato sull'istanza pubblicata.
 - [ ] Audit metadata.
 - [~] Unit systemd da completare e validare per entrambe le modalità tmux.
 - [ ] Backup.
