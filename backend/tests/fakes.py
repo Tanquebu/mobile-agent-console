@@ -31,7 +31,9 @@ class FakeTmux:
     async def list_sessions(self) -> list[TmuxSession]:
         return list(self.sessions.values())
 
-    async def create_session(self, session_id: str, directory: str, command: str = "bash") -> None:
+    async def create_session(
+        self, session_id: str, directory: str, profile: str = "shell"
+    ) -> None:
         if self.server_down:
             raise TmuxError("Host tmux server is not running; start tmux on the host first")
         if self.duplicate_name:
@@ -44,7 +46,7 @@ class FakeTmux:
             session_id,
             False,
             1,
-            command,
+            {"shell": "bash", "codex": "codex", "claude": "claude"}[profile],
             datetime.now(UTC),
         )
 

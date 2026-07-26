@@ -33,7 +33,7 @@ Il primo incremento restringe intenzionalmente l'MVP:
 Rinomina e termina sessioni tramite azioni dedicate. Creazione e rinomina
 accettano nomi ASCII con lettere, numeri, `_`, `-` e spazi singoli tra le
 parole; la directory resta dentro l’allowlist e il profilo server-side è
-soltanto `shell`.
+selezionato tra `shell`, `codex` e `claude`.
 
 Gli snapshot di riavvio persistono nome, directory e modalità sicura di
 rilancio per un insieme selezionato di sessioni. Non sono checkpoint dei

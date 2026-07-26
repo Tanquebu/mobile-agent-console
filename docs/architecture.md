@@ -30,7 +30,8 @@ React PWA ── Nginx same-origin ── FastAPI
 
 Il browser non conosce comandi shell. Gli endpoint ricevono identificatori e
 operazioni tipizzate; directory e profili vengono risolti/validati server-side.
-L’endpoint di creazione espone soltanto il profilo `shell` in questo incremento.
+L’endpoint di creazione espone i profili `shell`, `codex` e `claude`, risolti
+in argv costanti server-side.
 
 ## Container e persistenza
 

@@ -45,7 +45,8 @@
 - [x] Ruoli `admin`/`operator`/`viewer`, gestione utenti e revoca sessioni
   validati sull'istanza pubblicata.
 - [x] Allowlist delle directory.
-- [~] Profili server-side (presente il solo profilo `shell`).
+- [x] Profili server-side `shell`/`codex`/`claude` validati sull'istanza
+  pubblicata.
 - [x] Creazione sessioni.
 - [x] Rinomina sessioni tramite id numerico, con nomi contenenti spazi.
 - [ ] Archive.

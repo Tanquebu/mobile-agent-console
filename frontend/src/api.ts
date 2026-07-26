@@ -241,10 +241,12 @@ export async function renameSession(id: string, name: string) {
   });
 }
 
-export async function createSession(name: string, directory: string) {
+export type SessionProfile = "shell" | "codex" | "claude";
+
+export async function createSession(name: string, directory: string, profile: SessionProfile) {
   await request("/api/v1/sessions", {
     method: "POST",
-    body: JSON.stringify({ name: name.trim(), directory: directory.trim(), profile: "shell" }),
+    body: JSON.stringify({ name: name.trim(), directory: directory.trim(), profile }),
   });
 }
 

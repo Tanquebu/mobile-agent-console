@@ -439,7 +439,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         roots = [Path(root).resolve() for root in settings.allowed_roots]
         directory, _ = _resolve_within_allowed_roots(payload.directory, roots)
         try:
-            await gateway.create_session(payload.name, str(directory), "bash")
+            await gateway.create_session(payload.name, str(directory), payload.profile)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except TmuxError as exc:
@@ -559,7 +559,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             try:
                 TmuxService.validate_session_id(saved.name)
                 directory, _ = _resolve_within_allowed_roots(saved.directory, roots)
-                await gateway.create_session(saved.name, str(directory), "bash")
+                await gateway.create_session(saved.name, str(directory), "shell")
                 existing_names.add(saved.name)
                 if saved.mode in SNAPSHOT_RESUME_COMMANDS:
                     created = next(

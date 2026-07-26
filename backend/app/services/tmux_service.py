@@ -9,6 +9,11 @@ SESSION_NAME = re.compile(r"^[A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+)*$")
 TARGET_ID = re.compile(r"^\d{1,10}$")
 RUNTIME_KEEPALIVE = "__runtime__"
 ALLOWED_KEYS = {"Enter", "Up", "Down", "Escape", "C-c"}
+PROFILE_ARGV = {
+    "shell": ("bash", "-l"),
+    "codex": ("bash", "-l", "-c", "exec codex"),
+    "claude": ("bash", "-l", "-c", "exec claude"),
+}
 
 
 class TmuxError(RuntimeError):
@@ -42,7 +47,9 @@ class TmuxPane:
 
 
 class TmuxGateway(Protocol):
-    async def create_session(self, session_id: str, directory: str, command: str = "bash") -> None: ...
+    async def create_session(
+        self, session_id: str, directory: str, profile: str = "shell"
+    ) -> None: ...
     async def rename_session(self, session_id: str, name: str) -> None: ...
     async def list_sessions(self) -> list[TmuxSession]: ...
     async def list_panes(self, session_id: str) -> list[TmuxPane]: ...
@@ -198,13 +205,16 @@ class TmuxService:
         raw = await self._run("capture-pane", "-p", "-J", "-S", f"-{lines}", "-t", target)
         return raw.decode(errors="replace")
 
-    async def create_session(self, session_id: str, directory: str, command: str = "bash") -> None:
+    async def create_session(
+        self, session_id: str, directory: str, profile: str = "shell"
+    ) -> None:
         self.validate_session_id(session_id)
-        if command != "bash":
+        command = PROFILE_ARGV.get(profile)
+        if command is None:
             raise ValueError("Unsupported profile")
         if self._external_server:
             await self._require_server()
-        await self._run("new-session", "-d", "-s", session_id, "-c", directory, "bash", "-l")
+        await self._run("new-session", "-d", "-s", session_id, "-c", directory, *command)
 
     async def rename_session(self, session_id: str, name: str) -> None:
         target = self.validate_target(session_id)

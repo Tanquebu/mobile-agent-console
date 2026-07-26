@@ -122,10 +122,25 @@ def test_split_pane_uses_constant_login_shell(monkeypatch) -> None:
     assert "split-window" in recorder.calls[-1]
 
 
-def test_create_session_uses_login_shell(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("profile", "expected"),
+    [
+        ("shell", ("bash", "-l")),
+        ("codex", ("bash", "-l", "-c", "exec codex")),
+        ("claude", ("bash", "-l", "-c", "exec claude")),
+    ],
+)
+def test_create_session_uses_server_side_profile(monkeypatch, profile, expected) -> None:
     recorder = Recorder(monkeypatch)
-    asyncio.run(TmuxService("test").create_session("demo", "/workspace"))
-    assert recorder.calls[0][-2:] == ("bash", "-l")
+    asyncio.run(TmuxService("test").create_session("demo", "/workspace", profile))
+    assert recorder.calls[0][-len(expected) :] == expected
+
+
+def test_create_session_rejects_unknown_profile(monkeypatch) -> None:
+    recorder = Recorder(monkeypatch)
+    with pytest.raises(ValueError, match="Unsupported profile"):
+        asyncio.run(TmuxService("test").create_session("demo", "/workspace", "custom"))
+    assert recorder.calls == []
 
 
 def test_rename_session_uses_numeric_target_and_separate_name_argv(monkeypatch) -> None:

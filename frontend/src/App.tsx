@@ -582,6 +582,7 @@ function SessionList({
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [directory, setDirectory] = useState("");
+  const [profile, setProfile] = useState<"shell" | "codex" | "claude">("shell");
   const [presets, setPresets] = useState<[string, string][]>([]);
   const [customDirectory, setCustomDirectory] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -671,8 +672,9 @@ function SessionList({
       {creating && <form className="create-form" onSubmit={async (event) => {
         event.preventDefault();
         try {
-          await createSession(name, directory);
-          setCreating(false); setName(""); setError(""); setSessions(await listSessions());
+          await createSession(name, directory, profile);
+          setCreating(false); setName(""); setProfile("shell"); setError("");
+          setSessions(await listSessions());
         } catch (value) {
           setError(errorMessage(value));
         }
@@ -697,7 +699,16 @@ function SessionList({
         ) : (
           <input required placeholder="Directory consentita" value={directory} onChange={(event) => setDirectory(event.target.value)} />
         )}
-        <button type="submit">Crea shell</button>
+        <select
+          aria-label="Profilo sessione"
+          value={profile}
+          onChange={(event) => setProfile(event.target.value as "shell" | "codex" | "claude")}
+        >
+          <option value="shell">Shell</option>
+          <option value="codex">Codex</option>
+          <option value="claude">Claude</option>
+        </select>
+        <button type="submit">Crea sessione</button>
       </form>}
       {error && <p className="error">{error}</p>}
       <section className="session-list">

@@ -22,7 +22,8 @@ Richiede cookie e CSRF; elimina il cookie.
 Richiede CSRF. Body: `{"name":"demo","directory":"/workspace","profile":"shell"}`.
 Il nome, lungo al massimo 64 caratteri, accetta lettere ASCII, numeri, `_`,
 `-` e spazi singoli tra le parole; la directory deve essere sotto una root
-configurata. Il client non invia un comando eseguibile.
+configurata. I profili ammessi sono `shell`, `codex` e `claude`; il server li
+risolve in argv costanti e il client non invia un comando eseguibile.
 
 ## `GET /api/v1/auth/session`
 

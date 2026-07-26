@@ -185,4 +185,4 @@ class UserStatusInput(BaseModel):
 class CreateSessionInput(BaseModel):
     name: str = Field(pattern=r"^[A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+)*$", max_length=64)
     directory: str = Field(min_length=1, max_length=4096)
-    profile: str = Field(default="shell", pattern=r"^shell$")
+    profile: Literal["shell", "codex", "claude"] = "shell"

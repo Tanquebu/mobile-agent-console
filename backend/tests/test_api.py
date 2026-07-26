@@ -409,7 +409,7 @@ def test_websocket_auth_and_snapshot() -> None:
 
 
 def test_create_session_requires_allowed_directory() -> None:
-    client, _ = client_and_fake()
+    client, fake = client_and_fake()
     csrf = login(client)
     headers = {"X-CSRF-Token": csrf}
     allowed = client.post(
@@ -422,6 +422,20 @@ def test_create_session_requires_allowed_directory() -> None:
         json={"name": "Refactoring Codex", "directory": "/workspace"},
     )
     assert spaced.status_code == 201
+    codex = client.post(
+        "/api/v1/sessions",
+        headers=headers,
+        json={"name": "Codex Agent", "directory": "/workspace", "profile": "codex"},
+    )
+    assert codex.status_code == 201
+    assert any(session.name == "Codex Agent" and session.current_command == "codex"
+               for session in fake.sessions.values())
+    unsupported = client.post(
+        "/api/v1/sessions",
+        headers=headers,
+        json={"name": "unsafe-profile", "directory": "/workspace", "profile": "custom"},
+    )
+    assert unsupported.status_code == 422
     denied = client.post(
         "/api/v1/sessions", headers=headers, json={"name": "unsafe", "directory": "/etc"}
     )
