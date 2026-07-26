@@ -186,6 +186,23 @@ The restore validates every checksum and SQLite integrity before replacement.
 Copy downloaded archives to encrypted off-host storage: local retention alone
 does not protect against loss of the VPS.
 
+## Provider rate limits
+
+The optional user timer `mobile-agent-console-rate-limits.timer` runs the local
+Codex and Claude rate-limit scripts once per minute, without Claude `--fresh`,
+and writes a sanitized status file below `.mobile-agent-console`. Install the
+service and timer beside the other user units, ensure
+`MAC_WORKSPACE_ROOT` is set in
+`~/.config/mobile-agent-console/environment`, then enable it:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now mobile-agent-console-rate-limits.timer
+```
+
+The dashboard refreshes these values once per minute. Provider credentials and
+Codex transcripts are never mounted into the backend container.
+
 ## Secure exposure
 
 The published port binds to `127.0.0.1` or to an explicit Tailscale IP

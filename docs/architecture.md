@@ -107,3 +107,9 @@ Le unit systemd sono user unit separate per modalità Docker e host. Entrambe
 delegano l'avvio a Compose; allo stop e al reload agiscono soltanto su `backend`
 e `web`, preservando il runtime tmux. In modalità host la unit applicativa
 ordina il keepalive prima di Compose e non usa `PrivateTmp`.
+
+Un timer systemd host-side esegue ogni minuto gli script locali di controllo
+quote Codex e Claude senza modalità `--fresh`. Il collector scrive soltanto un
+JSON sanitizzato in `.mobile-agent-console/provider-rate-limits.json`; il
+backend legge quel file e non riceve accesso a credenziali Claude o transcript
+Codex. L'assenza o l'errore di un provider non influenza il runtime tmux.

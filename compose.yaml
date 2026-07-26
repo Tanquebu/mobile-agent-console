@@ -48,6 +48,7 @@ services:
       MAC_SNAPSHOTS_ROOT: /workspace/.agent-snapshots
       MAC_BACKUPS_ROOT: /workspace/.mobile-agent-console/backups
       MAC_BACKUP_RETENTION: ${MAC_BACKUP_RETENTION:-10}
+      MAC_PROVIDER_RATE_LIMITS_PATH: /workspace/.mobile-agent-console/provider-rate-limits.json
       MAC_DATABASE_PATH: /workspace/.mobile-agent-console/app.db
       MAC_DATABASE_AUTH_ENABLED: "true"
       MAC_BOOTSTRAP_USERNAME: ${MAC_BOOTSTRAP_USERNAME:-admin}

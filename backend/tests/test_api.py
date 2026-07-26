@@ -13,13 +13,16 @@ PASSWORD = "a-secure-test-password"
 SECRET = "a-secure-session-secret-value"
 
 
-def client_and_fake() -> tuple[TestClient, FakeTmux]:
+def client_and_fake(
+    provider_rate_limits_path: str = "/workspace/.mobile-agent-console/provider-rate-limits.json",
+) -> tuple[TestClient, FakeTmux]:
     fake = FakeTmux()
     settings = Settings(
         login_password=PASSWORD,
         session_secret=SECRET,
         cookie_secure=False,
         cors_origins=["http://testserver"],
+        provider_rate_limits_path=provider_rate_limits_path,
     )
     return TestClient(create_app(settings, fake)), fake
 
@@ -75,6 +78,22 @@ def test_list_and_capture() -> None:
     assert listed["id"] == "1"
     assert listed["name"] == "demo"
     assert client.get("/api/v1/sessions/1/output").json()["content"] == "$ "
+
+
+def test_provider_rate_limits_are_authenticated_and_sanitized(tmp_path) -> None:
+    path = tmp_path / "limits.json"
+    path.write_text(
+        '{"collected_at":"2026-07-26T15:30:00+00:00","providers":['
+        '{"provider":"claude","available":true,"observed_at":"2026-07-26T15:01:34Z",'
+        '"windows":[{"label":"5h","used_percent":12,"detail":"reset later"}],'
+        '"reached_type":null,"error":null}]}',
+        encoding="utf-8",
+    )
+    client, _ = client_and_fake(str(path))
+    assert client.get("/api/v1/provider-rate-limits").status_code == 401
+    login(client)
+    payload = client.get("/api/v1/provider-rate-limits").json()
+    assert payload["providers"][0]["windows"][0]["used_percent"] == 12
 
 
 def test_list_target_and_resize_pane() -> None:

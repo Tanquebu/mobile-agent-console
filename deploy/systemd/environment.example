@@ -1,3 +1,5 @@
 # Copiare in ~/.config/mobile-agent-console/environment.
 # Il path deve contenere compose.yaml e il file .env del deployment.
 MAC_INSTALL_DIR=/home/example/.local/share/mobile-agent-console
+# Root persistente condivisa con il backend.
+MAC_WORKSPACE_ROOT=/home/example/projects

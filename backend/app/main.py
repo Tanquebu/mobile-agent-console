@@ -70,6 +70,7 @@ from .services.audit_service import AuditService
 from .services.backup_service import BackupError, BackupService
 from .services.output_delta import line_delta
 from .services.rate_limit import FixedWindowRateLimiter
+from .services.rate_limit_status_service import RateLimitStatus, RateLimitStatusService
 from .services.snapshot_service import (
     SnapshotError,
     SnapshotService,
@@ -189,6 +190,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         settings.backup_retention,
     )
     rate_limiter = FixedWindowRateLimiter()
+    provider_rate_limits = RateLimitStatusService(settings.provider_rate_limits_path)
     database = Database(settings.database_path) if settings.database_auth_enabled else None
     users = UserService(database.engine) if database else None
     archives = ArchiveService(database.engine) if database else None
@@ -569,6 +571,14 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             allowed_roots=settings.allowed_roots,
             workspace_presets=settings.workspace_presets,
         )
+
+    @app.get(
+        "/api/v1/provider-rate-limits",
+        response_model=RateLimitStatus | None,
+        dependencies=[Depends(require_active_session)],
+    )
+    async def get_provider_rate_limits() -> RateLimitStatus | None:
+        return await asyncio.to_thread(provider_rate_limits.read)
 
     @app.post(
         "/api/v1/sessions",

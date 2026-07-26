@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh Mobile Agent Console provider rate limits
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=10s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

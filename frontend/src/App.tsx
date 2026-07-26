@@ -20,6 +20,7 @@ import {
   fetchConfig,
   fetchDirectory,
   fetchFile,
+  fetchProviderRateLimits,
   fileDownloadUrl,
   FileContent,
   errorMessage,
@@ -33,6 +34,7 @@ import {
   listSnapshots,
   listUsers,
   Pane,
+  ProviderRateLimits,
   renameSession,
   restoreSession,
   restoreArchive,
@@ -63,9 +65,9 @@ const CONNECTION_LABEL: Record<Connection, string> = {
 };
 
 const LATEST_RELEASE = {
-  title: "Backup amministrativi",
+  title: "Quote provider",
   description:
-    "Gli admin possono creare, scaricare ed eliminare backup verificabili di database e snapshot.",
+    "La dashboard mostra le quote Codex e Claude con un gradiente verde-rosso basato sull’utilizzo.",
 };
 
 function formatSize(size: number | null): string {
@@ -84,6 +86,12 @@ function formatSize(size: number | null): string {
 function formatDate(value: string | null): string {
   if (!value) return "—";
   return new Date(value).toLocaleString();
+}
+
+function rateLimitColor(usedPercent: number | null): string | undefined {
+  if (usedPercent === null) return undefined;
+  const percentage = Math.max(0, Math.min(100, usedPercent));
+  return `hsl(${120 - percentage * 1.2} 65% 62%)`;
 }
 
 function shellQuote(name: string): string {
@@ -810,6 +818,7 @@ function SessionList({
   const [showBackups, setShowBackups] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
+  const [providerLimits, setProviderLimits] = useState<ProviderRateLimits | null>(null);
 
   useEffect(() => {
     listSessions().then(setSessions).catch((value) => {
@@ -823,6 +832,23 @@ function SessionList({
         setDirectory((value) => value || entries[0]?.[1] || config.allowed_roots[0] || "");
       })
       .catch(() => { /* il campo resta vuoto, l'utente può digitare */ });
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      fetchProviderRateLimits()
+        .then((value) => {
+          if (active) setProviderLimits(value);
+        })
+        .catch(() => { /* le sessioni restano utilizzabili se il collector manca */ });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -914,6 +940,33 @@ function SessionList({
           <button className="snapshot-button" onClick={() => setShowBackups(true)}>Backup</button>
         )}
       </div>
+      {providerLimits && (
+        <section className="provider-limits" aria-label="Quote provider">
+          {providerLimits.providers.map((provider) => (
+            <article key={provider.provider}>
+              <header>
+                <strong>{provider.provider}</strong>
+                <small>{provider.observed_at ? formatDate(provider.observed_at) : "non disponibile"}</small>
+              </header>
+              {provider.available ? (
+                <div className="provider-windows">
+                  {provider.windows.map((window) => (
+                    <span key={window.label} title={window.detail ?? undefined}>
+                      <small>{window.label}</small>
+                      <strong style={{ color: rateLimitColor(window.used_percent) }}>
+                        {window.used_percent === null ? "n/d" : `${Math.round(window.used_percent)}%`}
+                      </strong>
+                      {window.detail && <em>{window.detail}</em>}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <small className="provider-unavailable">{provider.error ?? "Dati non disponibili"}</small>
+              )}
+            </article>
+          ))}
+        </section>
+      )}
       {creating && <form className="create-form" onSubmit={async (event) => {
         event.preventDefault();
         try {

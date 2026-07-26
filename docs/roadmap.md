@@ -86,6 +86,8 @@ API specifiche di Codex, Claude o altri agenti.
 
 ## M3 — Esperienza MVP
 
+- [x] Quote rate-limit Codex e Claude nella dashboard tramite collector
+  sanitizzato host-side, validate sull'istanza pubblicata.
 - [ ] Chat blocks.
 - [ ] Euristiche di attenzione configurabili.
 - [ ] Notifiche PWA locali.

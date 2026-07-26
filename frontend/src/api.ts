@@ -165,6 +165,31 @@ export type AppConfig = {
   workspace_presets: Record<string, string>;
 };
 
+export type ProviderRateLimitWindow = {
+  label: string;
+  used_percent: number | null;
+  detail: string | null;
+};
+
+export type ProviderRateLimit = {
+  provider: string;
+  available: boolean;
+  observed_at: string | null;
+  windows: ProviderRateLimitWindow[];
+  reached_type: string | null;
+  error: string | null;
+};
+
+export type ProviderRateLimits = {
+  collected_at: string;
+  providers: ProviderRateLimit[];
+};
+
+export async function fetchProviderRateLimits(): Promise<ProviderRateLimits | null> {
+  const response = await request("/api/v1/provider-rate-limits");
+  return response.json();
+}
+
 export async function fetchConfig(): Promise<AppConfig> {
   const response = await request("/api/v1/config");
   return response.json();

@@ -27,6 +27,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Archivio manipolato | directory ricontrollata contro l'allowlist e profilo server-side prima del rilancio |
 | Database locale | path privato nel workspace, nessun prompt/output/segreto, migrazioni versionate |
 | Backup manipolati | checksum archivio e file, manifest con path chiusi, restore offline e riservato all'operatore host |
+| Quote provider sensibili | collector host-side, output JSON sanitizzato; credenziali e transcript non montati nel backend |
 | Password account | solo hash Argon2id nel database; secret usato esclusivamente per bootstrap iniziale |
 
 ## Rischi residui del vertical slice
@@ -88,6 +89,11 @@ password e metadati applicativi: devono quindi restare con permessi `0600` e,
 se copiati fuori dalla VPS, su storage cifrato. Gli allegati temporanei con TTL
 non sono inclusi. Il restore non è esposto via HTTP e deve essere eseguito con
 backend fermo.
+
+Il collector quote invoca soltanto i due path di script fissati nella user unit,
+con argv e timeout, senza `shell=True` e senza `--fresh`. Nel file condiviso
+finiscono provider, percentuali, reset, timestamp ed eventuali errori troncati:
+mai token, header HTTP o contenuti dei transcript. Il file usa permessi `0600`.
 
 Quando il client specifica un pane, il backend accetta soltanto un id numerico
 e verifica tramite tmux che appartenga alla sessione indicata prima di usarlo
