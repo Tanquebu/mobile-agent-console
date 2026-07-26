@@ -95,3 +95,8 @@ una sessione nell'API è il session id tmux (`$N`, esposto come stringa
 numerica senza `$`): i nomi — anche quelli arbitrari delle sessioni host
 preesistenti — servono solo per il display e per la creazione. Capture e
 input hanno come target il pane attivo della sessione, non `0.0`.
+
+Le unit systemd sono user unit separate per modalità Docker e host. Entrambe
+delegano l'avvio a Compose; allo stop e al reload agiscono soltanto su `backend`
+e `web`, preservando il runtime tmux. In modalità host la unit applicativa
+ordina il keepalive prima di Compose e non usa `PrivateTmp`.

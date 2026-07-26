@@ -6,6 +6,7 @@ After=default.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+UMask=0077
 ExecStartPre=/usr/bin/install -d -m 0700 /tmp/tmux-%U
 # Il prefisso "-" rende idempotente l'avvio se la sessione esiste già.
 # Nessun ExecStop: fermare l'unità non deve terminare le sessioni operative.

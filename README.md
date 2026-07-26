@@ -81,6 +81,39 @@ Open `http://127.0.0.1:8081` and log in with the content of
 into images or committed. Set `MAC_WORKSPACE_ROOT` in `.env` to the
 directory tree sessions may start in (mounted at `/workspace`).
 
+### Avvio automatico con systemd
+
+Le unit incluse sono **user unit** e usano Compose; non avviano Uvicorn
+direttamente. Configurare il path del checkout senza modificare le unit:
+
+```bash
+mkdir -p ~/.config/systemd/user ~/.config/mobile-agent-console
+cp deploy/systemd/mobile-agent-console-docker.service ~/.config/systemd/user/
+cp deploy/systemd/mobile-agent-console-host.service ~/.config/systemd/user/
+cp deploy/systemd/mobile-agent-console-tmux-host.service ~/.config/systemd/user/
+cp deploy/systemd/environment.example ~/.config/mobile-agent-console/environment
+```
+
+Modificare `MAC_INSTALL_DIR` nel file `environment`, quindi scegliere **una
+sola** unit applicativa:
+
+```bash
+# Modalità Docker tmux
+systemctl --user daemon-reload
+systemctl --user enable --now mobile-agent-console-docker.service
+
+# Oppure modalità host tmux
+systemctl --user daemon-reload
+systemctl --user enable --now mobile-agent-console-host.service
+```
+
+In modalità host la seconda unit avvia automaticamente anche il keepalive
+tmux. Nessuna unit usa `PrivateTmp`: il socket predefinito in `/tmp/tmux-$UID`
+resta raggiungibile. `stop` ferma soltanto `backend` e `web`, preservando
+`tmux-runtime` e le sessioni; `reload` ricrea solo i servizi stateless. Per
+l'avvio prima del primo login abilitare il lingering con
+`loginctl enable-linger "$USER"`.
+
 ### Host-tmux mode
 
 1. Make sure a host tmux server is running **before** `docker compose up`
@@ -93,21 +126,9 @@ directory tree sessions may start in (mounted at `/workspace`).
    If `/tmp/tmux-<uid>` did not exist, Docker would create it root-owned
    and tmux would refuse it — hence the ordering.
 
-   For automatic recovery after a reboot, install the user unit included in
-   the repository:
-
-   ```bash
-   mkdir -p ~/.config/systemd/user
-   cp deploy/systemd/mobile-agent-console-tmux-host.service ~/.config/systemd/user/
-   systemctl --user daemon-reload
-   systemctl --user enable --now mobile-agent-console-tmux-host.service
-   ```
-
-   The unit recreates `/tmp/tmux-$UID` with mode `0700` before starting the
-   keepalive. It intentionally has no `ExecStop`, so stopping or upgrading the
-   unit does not kill active tmux sessions. The user manager must start at boot;
-   enable lingering with `loginctl enable-linger "$USER"` when the deployment
-   must recover before the first interactive login.
+   Per il recupero automatico dopo un reboot usare la procedura systemd sopra.
+   La unit keepalive ricrea `/tmp/tmux-$UID` con modo `0700` e non contiene
+   `ExecStop`, quindi fermarla o aggiornarla non termina le sessioni operative.
 
 2. In `.env`, uncomment the host-tmux block (see `.env.example`):
    `COMPOSE_FILE=compose.yaml:compose.host.yaml`, `MAC_UID`/`MAC_GID`,

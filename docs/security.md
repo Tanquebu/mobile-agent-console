@@ -71,9 +71,8 @@ socket, verifica del socket e del server all'avvio (log + campo `tmux` in
 `/health`), e divieto per il backend di avviare il server tmux (altrimenti
 il server partirebbe dentro il container in modo silenzioso). I tre
 controlli di autenticazione e il bind loopback/Tailscale restano invariati
-e diventano più critici. Nota operativa: l'unit systemd in `deploy/systemd/`
-usa `PrivateTmp=true`, incompatibile con un socket in `/tmp` — non usarla
-per componenti che devono raggiungere il socket host.
+e diventano più critici. Le user unit Compose non usano `PrivateTmp`, così
+il socket host in `/tmp/tmux-$UID` resta quello reale dell'utente.
 
 Il cookie v2 include l'username nel payload firmato. Ogni richiesta
 ricontrolla nel database che l'account esista e sia attivo: disabilitare un

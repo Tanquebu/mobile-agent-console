@@ -53,7 +53,8 @@
   validato sull'istanza pubblicata.
 - [x] Audit append-only dei metadati delle operazioni sensibili con vista
   admin validato sull'istanza pubblicata.
-- [~] Unit systemd da completare e validare per entrambe le modalità tmux.
+- [x] User unit systemd Compose per modalità Docker e host installate e
+  validate sull'istanza pubblicata, preservando le sessioni tmux.
 - [ ] Backup.
 - [x] Snapshot persistenti create/list/restore/delete verificati end-to-end
   dopo riavvio VPS.

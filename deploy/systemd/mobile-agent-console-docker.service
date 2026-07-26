@@ -1,0 +1,21 @@
+[Unit]
+Description=Mobile Agent Console (container tmux mode)
+Documentation=https://github.com/Tanquebu/mobile-agent-console
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=MAC_INSTALL_DIR=%h/.local/share/mobile-agent-console
+EnvironmentFile=-%h/.config/mobile-agent-console/environment
+ExecStartPre=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml config --quiet
+ExecStart=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml up -d
+ExecReload=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml up -d --no-deps backend web
+# Preserva intenzionalmente tmux-runtime e le sessioni quando l'unità si ferma.
+ExecStop=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml stop backend web
+TimeoutStartSec=0
+TimeoutStopSec=120
+
+[Install]
+WantedBy=default.target

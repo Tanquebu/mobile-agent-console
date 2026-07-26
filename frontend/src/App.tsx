@@ -58,9 +58,9 @@ const CONNECTION_LABEL: Record<Connection, string> = {
 };
 
 const LATEST_RELEASE = {
-  title: "Audit delle operazioni",
+  title: "Dashboard desktop",
   description:
-    "Gli amministratori possono consultare attore, operazione, target, esito e data delle azioni sensibili.",
+    "La dashboard ora scorre correttamente e usa una griglia a due colonne sugli schermi larghi.",
 };
 
 function formatSize(size: number | null): string {
