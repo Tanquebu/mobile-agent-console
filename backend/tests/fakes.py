@@ -17,6 +17,7 @@ class FakeTmux:
         self.keys: list[str] = []
         self.targets: list[str | None] = []
         self.resizes: list[tuple[str, int, int]] = []
+        self.splits: list[str] = []
         self.terminated: list[str] = []
         self.renamed: list[tuple[str, str]] = []
         self.created: list[tuple[str, str, str, bool]] = []
@@ -100,10 +101,15 @@ class FakeTmux:
             raise SessionNotFound(pane_id)
         self.resizes.append((pane_id, columns, rows))
 
-    async def split_pane(self, session_id: str, pane_id: str | None = None) -> TmuxPane:
+    async def split_pane(
+        self, session_id: str, pane_id: str | None = None, direction: str = "horizontal"
+    ) -> TmuxPane:
+        if direction not in {"horizontal", "vertical"}:
+            raise ValueError("Unsupported split direction")
         panes = await self.list_panes(session_id)
         if pane_id is not None and not any(pane.id == pane_id for pane in panes):
             raise SessionNotFound(pane_id)
+        self.splits.append(direction)
         new_id = str(max((int(pane.id) for pane in panes), default=0) + 1)
         new_pane = TmuxPane(new_id, 0, len(panes), False, "bash", "demo", 40, 24)
         self.panes[session_id].append(new_pane)

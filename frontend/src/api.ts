@@ -314,10 +314,15 @@ export async function resizePane(id: string, paneId: string, columns: number, ro
   );
 }
 
-export async function splitPane(id: string, paneId?: string): Promise<Pane> {
-  const query = paneId ? `?pane_id=${encodeURIComponent(paneId)}` : "";
+export async function splitPane(
+  id: string,
+  paneId?: string,
+  direction: "horizontal" | "vertical" = "horizontal",
+): Promise<Pane> {
+  const params = new URLSearchParams({ direction });
+  if (paneId) params.set("pane_id", paneId);
   const response = await request(
-    `/api/v1/sessions/${encodeURIComponent(id)}/panes/split${query}`,
+    `/api/v1/sessions/${encodeURIComponent(id)}/panes/split?${params.toString()}`,
     { method: "POST" },
   );
   return response.json();

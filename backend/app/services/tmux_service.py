@@ -75,7 +75,9 @@ class TmuxGateway(Protocol):
     async def send_text(self, session_id: str, text: str, pane_id: str | None = None) -> None: ...
     async def send_key(self, session_id: str, key: str, pane_id: str | None = None) -> None: ...
     async def resize_pane(self, session_id: str, pane_id: str, columns: int, rows: int) -> None: ...
-    async def split_pane(self, session_id: str, pane_id: str | None = None) -> TmuxPane: ...
+    async def split_pane(
+        self, session_id: str, pane_id: str | None = None, direction: str = "horizontal"
+    ) -> TmuxPane: ...
     async def kill_pane(self, session_id: str, pane_id: str) -> None: ...
     async def terminate_session(self, session_id: str) -> None: ...
     async def check_server(self) -> str | None: ...
@@ -271,14 +273,19 @@ class TmuxService:
         target = await self._pane_target(session_id, pane_id)
         await self._run("kill-pane", "-t", target)
 
-    async def split_pane(self, session_id: str, pane_id: str | None = None) -> TmuxPane:
+    async def split_pane(
+        self, session_id: str, pane_id: str | None = None, direction: str = "horizontal"
+    ) -> TmuxPane:
+        if direction not in {"horizontal", "vertical"}:
+            raise ValueError("Unsupported split direction")
         target = await self._pane_target(session_id, pane_id)
         fmt = (
             "#{pane_id}\t#{window_index}\t#{pane_index}\t#{pane_active}"
             "\t#{pane_current_command}\t#{pane_title}\t#{pane_width}\t#{pane_height}"
         )
+        direction_flag = "-h" if direction == "horizontal" else "-v"
         raw = await self._run(
-            "split-window", "-h", "-d", "-P", "-F", fmt, "-t", target, "bash", "-l"
+            "split-window", direction_flag, "-d", "-P", "-F", fmt, "-t", target, "bash", "-l"
         )
         values = raw.decode(errors="replace").strip().split("\t", 7)
         if len(values) != 8:

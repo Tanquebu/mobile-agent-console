@@ -291,10 +291,25 @@ def test_list_target_and_resize_pane() -> None:
     )
     assert split.status_code == 201
     assert split.json()["id"] == "11"
+    assert fake.splits == ["horizontal"]
     assert client.post(
         "/api/v1/sessions/1/panes/split?pane_id=99",
         headers=headers,
     ).status_code == 404
+
+
+def test_split_pane_direction() -> None:
+    client, fake = client_and_fake()
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+    vertical = client.post(
+        "/api/v1/sessions/1/panes/split?direction=vertical", headers=headers
+    )
+    assert vertical.status_code == 201
+    assert fake.splits == ["vertical"]
+    assert client.post(
+        "/api/v1/sessions/1/panes/split?direction=diagonal", headers=headers
+    ).status_code == 422
 
 
 def test_kill_pane_requires_confirmation_and_keeps_last_pane() -> None:

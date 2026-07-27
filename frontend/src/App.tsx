@@ -1824,11 +1824,11 @@ function Console({
     }
   }
 
-  async function createPane() {
+  async function createPane(direction: "horizontal" | "vertical") {
     setSplittingPane(true);
     setControlError("");
     try {
-      const created = await splitPane(session.id, paneId || undefined);
+      const created = await splitPane(session.id, paneId || undefined, direction);
       const items = await listPanes(session.id);
       setPanes(items);
       setPaneId(created.id);
@@ -2069,9 +2069,16 @@ function Console({
             <button
               disabled={connection === "closed" || splittingPane}
               type="button"
-              onClick={() => void createPane()}
+              onClick={() => void createPane("horizontal")}
             >
-              {splittingPane ? "Divisione…" : "Dividi pane"}
+              {splittingPane ? "Divisione…" : "Dividi orizzontale"}
+            </button>
+            <button
+              disabled={connection === "closed" || splittingPane}
+              type="button"
+              onClick={() => void createPane("vertical")}
+            >
+              {splittingPane ? "Divisione…" : "Dividi verticale"}
             </button>
             {panes.length > 1 && (
               <button

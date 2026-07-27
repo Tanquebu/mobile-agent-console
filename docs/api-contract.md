@@ -164,9 +164,10 @@ valido risponde `404`. L'endpoint non cambia output o WebSocket.
 
 `POST /api/v1/sessions/{id}/panes/{pane_id}/resize` accetta
 `{"columns":100,"rows":30}` con limiti rispettivamente `20..500` e `5..300`.
-`POST /api/v1/sessions/{id}/panes/split?pane_id=N` crea un nuovo pane
-orizzontale con il profilo shell costante `bash -l`; non accetta comandi dal
-client e restituisce il pane creato.
+`POST /api/v1/sessions/{id}/panes/split?pane_id=N&direction=horizontal`
+crea un nuovo pane con il profilo shell costante `bash -l`; non accetta
+comandi dal client e restituisce il pane creato. `direction` è
+`horizontal` (default, side-by-side) o `vertical` (sopra/sotto).
 `DELETE /api/v1/sessions/{id}/panes/{pane_id}` richiede
 `{"confirmed":true}` e chiude il singolo pane (`kill-pane`), lasciando la
 sessione e gli altri pane attivi; rifiuta con `400` se è l'unico pane della

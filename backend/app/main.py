@@ -1014,9 +1014,10 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     async def split_pane(
         session_id: str,
         pane_id: Annotated[str | None, Query(pattern=r"^\d{1,10}$")] = None,
+        direction: Annotated[str, Query(pattern=r"^(horizontal|vertical)$")] = "horizontal",
     ) -> PaneView:
         try:
-            item = await gateway.split_pane(session_id, pane_id)
+            item = await gateway.split_pane(session_id, pane_id, direction)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except SessionNotFound as exc:

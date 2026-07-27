@@ -19,10 +19,10 @@
   ADR 008).
 - M4: cronologia Claude anticipata e conclusa; "Gestione allegati avanzata"
   completa (persistenza, anteprime, quote aggregate, deduplica, retention);
-  chiusura del singolo pane aggiunta al supporto multi-pane esteso, ancora
-  parziale; prossimo blocco consigliato: ricerca/tag/template, Web Push o
-  riepiloghi (oppure il resto del multi-pane: split verticale, vista con più
-  pane visibili insieme).
+  chiusura pane e split orizzontale/verticale aggiunti al supporto
+  multi-pane esteso, ancora parziale; prossimo blocco consigliato:
+  ricerca/tag/template, Web Push o riepiloghi (oppure il resto del
+  multi-pane: vista con più pane visibili insieme).
 
 Stato read-only dei task dell'orchestratore locale: resta solo in roadmap,
 intenzionalmente non implementato — dipende da un sistema esterno privato,
@@ -200,12 +200,12 @@ condiviso e mappatura pane ↔ session id.
 - [ ] Ricerca, tag e template.
 - [~] Supporto multi-pane esteso: chiusura di un singolo pane (`kill-pane`,
   con conferma esplicita), che lascia sessione e altri pane attivi — rifiuta
-  se è l'unico pane rimasto (va terminata la sessione). Selezione, split e
-  resize di base restano quelli di M1. Restano da fare: scelta tra split
-  orizzontale/verticale (oggi fisso orizzontale) e una vista con più pane
-  visibili contemporaneamente invece del selettore a tendina attuale (che
-  richiederebbe anche catturare la posizione dei pane da tmux, non fatto
-  oggi).
+  se è l'unico pane rimasto (va terminata la sessione). Scelta tra split
+  orizzontale (side-by-side) e verticale (sopra/sotto), invece del solo
+  orizzontale fisso di prima. Selezione e resize di base restano quelli di
+  M1. Resta da fare: una vista con più pane visibili contemporaneamente
+  invece del selettore a tendina attuale (richiederebbe anche catturare la
+  posizione dei pane da tmux, non fatto oggi).
 - [x] Gestione allegati avanzata: persistenza dei metadati in tabella
   `attachments` (SQLite/Alembic, come utenti/archivi/audit), con backfill dai
   vecchi sidecar JSON in migrazione. Richiede il database (stesso gate 503
