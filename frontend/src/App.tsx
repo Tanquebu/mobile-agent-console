@@ -6,6 +6,7 @@ import {
   AuditEvent,
   Attachment,
   Backup,
+  ClaudeHistory,
   archiveSession,
   backupDownloadUrl,
   createBackup,
@@ -19,6 +20,7 @@ import {
   DirectoryEntry,
   DirectoryListing,
   fetchConfig,
+  fetchClaudeHistory,
   fetchDirectory,
   fetchFile,
   fetchProviderRateLimits,
@@ -67,9 +69,9 @@ const CONNECTION_LABEL: Record<Connection, string> = {
 };
 
 const LATEST_RELEASE = {
-  title: "Chat blocks e contesto",
+  title: "Cronologia Claude",
   description:
-    "Vista a blocchi con fallback terminale e percentuale di contesto per ogni sessione agentica.",
+    "Cronologia estesa opzionale e isolata, con viste live sempre disponibili e rollback sicuro.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1325,13 +1327,62 @@ function Console({
   const [paneId, setPaneId] = useState("");
   const [splittingPane, setSplittingPane] = useState(false);
   const agentic = /codex|claude/i.test(session.current_command);
-  const [outputMode, setOutputMode] = useState<"terminal" | "blocks">(
+  const claude = /claude/i.test(session.current_command);
+  const [historyEnabled, setHistoryEnabled] = useState(false);
+  const [history, setHistory] = useState<ClaudeHistory | null>(null);
+  const [historyError, setHistoryError] = useState("");
+  const [outputMode, setOutputMode] = useState<"terminal" | "blocks" | "history">(
     agentic ? "blocks" : "terminal",
   );
   const outputRef = useRef<HTMLPreElement | HTMLDivElement>(null);
   const outputLinesRef = useRef<string[]>([]);
   const outputSequenceRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!claude) return;
+    fetchConfig()
+      .then((config) => {
+        if (!cancelled) setHistoryEnabled(config.claude_history_enabled);
+      })
+      .catch(() => {
+        if (!cancelled) setHistoryEnabled(false);
+      });
+    return () => { cancelled = true; };
+  }, [claude]);
+
+  useEffect(() => {
+    if (outputMode !== "history" || !historyEnabled) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    const refresh = () => {
+      fetchClaudeHistory(session.id)
+        .then((result) => {
+          if (cancelled) return;
+          setHistory(result);
+          setHistoryError("");
+        })
+        .catch((value) => {
+          if (cancelled) return;
+          if (value instanceof ApiError && value.status === 404) {
+            setHistoryEnabled(false);
+            setOutputMode("blocks");
+            setControlError("Cronologia Claude non disponibile: ripristinata la vista live.");
+            return;
+          }
+          setHistoryError(errorMessage(value));
+        })
+        .finally(() => {
+          if (!cancelled) timer = window.setTimeout(refresh, 5000);
+        });
+    };
+    refresh();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [historyEnabled, outputMode, session.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1400,6 +1451,7 @@ function Console({
   }, [session.id, paneId]);
 
   useEffect(() => {
+    if (outputMode === "history") return;
     const output = outputRef.current;
     if (!output || !paneId || typeof ResizeObserver === "undefined") return;
     let timer: number | undefined;
@@ -1423,13 +1475,13 @@ function Console({
       observer.disconnect();
       if (timer) clearTimeout(timer);
     };
-  }, [session.id, paneId, panes]);
+  }, [session.id, paneId, panes, outputMode]);
 
   useEffect(() => {
     if (followingOutput && outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
-  }, [content, followingOutput]);
+  }, [content, history, followingOutput]);
 
   function updateScrollMode() {
     const output = outputRef.current;
@@ -1573,6 +1625,15 @@ function Console({
                 >
                   Terminale
                 </button>
+                {claude && historyEnabled && (
+                  <button
+                    type="button"
+                    aria-pressed={outputMode === "history"}
+                    onClick={() => setOutputMode("history")}
+                  >
+                    Cronologia
+                  </button>
+                )}
               </span>
             )}
             {panes.length > 1 ? (
@@ -1598,7 +1659,38 @@ function Console({
             La sessione tmux è stata chiusa. Torna alla dashboard.
           </div>
         )}
-        {outputMode === "blocks" && agentic ? (
+        {outputMode === "history" && claude ? (
+          <div
+            ref={(element) => { outputRef.current = element; }}
+            className="output chat-blocks history-blocks"
+            onScroll={updateScrollMode}
+          >
+            {historyError && <p className="error">{historyError}</p>}
+            {history?.truncated && (
+              <p className="history-notice">
+                Cronologia parziale: sono mostrati i messaggi più recenti.
+              </p>
+            )}
+            {history?.messages.map((message) => (
+              <article
+                className={`chat-block ${message.role === "user" ? "user" : "agent"}`}
+                key={message.id}
+              >
+                <small>
+                  {message.role === "user" ? "Tu" : session.current_command}
+                  {" · "}{new Date(message.timestamp).toLocaleString("it-IT")}
+                </small>
+                <pre>{message.content}</pre>
+              </article>
+            ))}
+            {!history && !historyError && (
+              <p className="output-waiting">Caricamento cronologia…</p>
+            )}
+            {history && history.messages.length === 0 && (
+              <p className="output-waiting">Nessun messaggio testuale disponibile.</p>
+            )}
+          </div>
+        ) : outputMode === "blocks" && agentic ? (
           <div
             ref={(element) => { outputRef.current = element; }}
             className="output chat-blocks"

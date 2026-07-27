@@ -1,4 +1,6 @@
+import json
 import os
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,6 +20,10 @@ def client_and_fake(
     provider_session_states_path: str = (
         "/workspace/.mobile-agent-console/provider-session-states.json"
     ),
+    claude_history_enabled: bool = False,
+    claude_history_path: str = (
+        "/workspace/.mobile-agent-console/claude-history.json"
+    ),
 ) -> tuple[TestClient, FakeTmux]:
     fake = FakeTmux()
     settings = Settings(
@@ -27,6 +33,8 @@ def client_and_fake(
         cors_origins=["http://testserver"],
         provider_rate_limits_path=provider_rate_limits_path,
         provider_session_states_path=provider_session_states_path,
+        claude_history_enabled=claude_history_enabled,
+        claude_history_path=claude_history_path,
     )
     return TestClient(create_app(settings, fake)), fake
 
@@ -82,6 +90,73 @@ def test_list_and_capture() -> None:
     assert listed["id"] == "1"
     assert listed["name"] == "demo"
     assert client.get("/api/v1/sessions/1/output").json()["content"] == "$ "
+
+
+def test_claude_history_is_isolated_and_can_be_rolled_back(tmp_path) -> None:
+    path = tmp_path / "history.json"
+    now = datetime.now(UTC).isoformat()
+    path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "collected_at": now,
+                "sessions": [
+                    {
+                        "session_id": "1",
+                        "provider": "claude",
+                        "source_updated_at": now,
+                        "truncated": False,
+                        "messages": [
+                            {
+                                "id": "u1",
+                                "role": "user",
+                                "content": "Domanda",
+                                "timestamp": now,
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    disabled, _ = client_and_fake(
+        claude_history_enabled=False,
+        claude_history_path=str(path),
+    )
+    assert disabled.get("/api/v1/sessions/1/claude-history").status_code == 401
+    login(disabled)
+    assert disabled.get("/api/v1/config").json()["claude_history_enabled"] is False
+    assert disabled.get("/api/v1/sessions/1/claude-history").status_code == 404
+    assert disabled.get("/api/v1/sessions/1/output").json()["content"] == "$ "
+
+    enabled, fake = client_and_fake(
+        claude_history_enabled=True,
+        claude_history_path=str(path),
+    )
+    current = fake.sessions["1"]
+    fake.sessions["1"] = type(current)(
+        current.id,
+        current.name,
+        current.attached,
+        current.windows,
+        "claude",
+        current.activity_at,
+    )
+    login(enabled)
+    response = enabled.get("/api/v1/sessions/1/claude-history")
+    assert response.status_code == 200
+    assert response.json()["messages"][0]["content"] == "Domanda"
+    assert enabled.get("/api/v1/sessions/not-an-id/claude-history").status_code == 404
+
+
+def test_claude_history_rejects_non_claude_and_missing_data(tmp_path) -> None:
+    client, _ = client_and_fake(
+        claude_history_enabled=True,
+        claude_history_path=str(tmp_path / "missing.json"),
+    )
+    login(client)
+    assert client.get("/api/v1/sessions/1/claude-history").status_code == 404
 
 
 def test_agent_statuses_include_only_agentic_sessions() -> None:

@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh Mobile Agent Console Claude history
+
+[Timer]
+OnBootSec=15s
+OnUnitActiveSec=5s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

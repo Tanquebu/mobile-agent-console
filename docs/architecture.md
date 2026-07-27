@@ -137,3 +137,11 @@ La vista Chat blocks è una trasformazione esclusivamente client-side dello
 snapshot tmux autorevole. Riconosce marker di prompt, risposta e attività per
 Codex/Claude, non persiste contenuti e permette sempre il ritorno immediato
 alla resa terminale integrale.
+
+La cronologia Claude è invece un adapter opzionale e separato (ADR 007). Un
+collector host-side associa pane e sessione Claude tramite la cache context,
+normalizza il transcript e scrive atomicamente un file derivato privato. Il
+backend lo espone con un endpoint read-only solo quando il feature flag è
+attivo. WebSocket, capture tmux e Chat blocks live non dipendono dal collector:
+assenza, ritardo, errore o rollback della cronologia lasciano invariato il
+flusso terminale.

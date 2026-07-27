@@ -100,6 +100,9 @@ cp deploy/systemd/mobile-agent-console-host.service ~/.config/systemd/user/
 cp deploy/systemd/mobile-agent-console-tmux-host.service ~/.config/systemd/user/
 cp deploy/systemd/mobile-agent-console-provider-session-states.service ~/.config/systemd/user/
 cp deploy/systemd/mobile-agent-console-provider-session-states.timer ~/.config/systemd/user/
+# Opzionali: installare solo se si abilita la cronologia Claude.
+cp deploy/systemd/mobile-agent-console-claude-history.service ~/.config/systemd/user/
+cp deploy/systemd/mobile-agent-console-claude-history.timer ~/.config/systemd/user/
 cp deploy/systemd/environment.example ~/.config/mobile-agent-console/environment
 ```
 
@@ -230,6 +233,38 @@ command, or its small cache-writing section can be merged into an existing
 custom status line. It writes one `0600` JSON file per session under
 `~/.claude/context-window-cache`, containing only percentage, window size,
 timestamp and tmux pane id.
+
+## Cronologia Claude opzionale
+
+Claude usa lo schermo alternativo, quindi tmux non può fornire la cronologia
+che resta visibile con `tmux attach`. In modalità host il collector opzionale
+legge il transcript sull'host, conserva soltanto messaggi testuali
+utente/assistente e pubblica un file derivato `0600` sotto
+`.mobile-agent-console`. Thinking, tool input/output, allegati, sidechain e
+metadati sono esclusi.
+
+L'opt-in richiede entrambe le azioni:
+
+```bash
+# in .env
+MAC_CLAUDE_HISTORY_ENABLED=true
+
+systemctl --user daemon-reload
+systemctl --user enable --now mobile-agent-console-claude-history.timer
+docker compose up -d --build --no-deps backend web
+```
+
+La vista `Cronologia` è separata da `Blocchi` e `Terminale`; lo stream tmux
+continua a essere autorevole e non viene modificato. Rollback:
+
+```bash
+# impostare MAC_CLAUDE_HISTORY_ENABLED=false in .env
+systemctl --user disable --now mobile-agent-console-claude-history.timer
+docker compose up -d --no-deps backend web
+```
+
+Il file derivato può poi essere eliminato manualmente. Disabilitare la feature
+non termina né ricrea sessioni tmux. Limiti e motivazioni sono in ADR 007.
 
 ## Secure exposure
 

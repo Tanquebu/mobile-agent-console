@@ -138,6 +138,30 @@ Il backend verifica sempre l'appartenenza alla sessione.
 `null`) accanto allo stato operativo e alla modalità permessi. Il valore deriva
 da metadati provider sanitizzati e non espone conteggi, modelli o transcript.
 
+`GET /api/v1/sessions/{id}/claude-history` è disponibile soltanto con
+`MAC_CLAUDE_HISTORY_ENABLED=true`, per una sessione tmux viva il cui comando
+corrente è Claude e con un file collector recente. Restituisce:
+
+```json
+{
+  "session_id": "43",
+  "collected_at": "2026-07-27T10:00:00Z",
+  "source_updated_at": "2026-07-27T09:59:59Z",
+  "truncated": false,
+  "messages": [
+    {
+      "id": "uuid",
+      "role": "user",
+      "content": "testo",
+      "timestamp": "2026-07-27T09:59:00Z"
+    }
+  ]
+}
+```
+
+Con flag spento, file assente/stale/malformato, sessione non-Claude o id non
+valido risponde `404`. L'endpoint non cambia output o WebSocket.
+
 `POST /api/v1/sessions/{id}/panes/{pane_id}/resize` accetta
 `{"columns":100,"rows":30}` con limiti rispettivamente `20..500` e `5..300`.
 `POST /api/v1/sessions/{id}/panes/split?pane_id=N` crea un nuovo pane

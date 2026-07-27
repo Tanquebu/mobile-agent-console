@@ -37,6 +37,8 @@ from .schemas import (
     AuditList,
     BackupList,
     BackupView,
+    ClaudeHistoryMessageView,
+    ClaudeHistoryView,
     ConfigView,
     ConfirmedAction,
     CreateSessionInput,
@@ -71,6 +73,7 @@ from .services.archive_service import ArchiveService
 from .services.attachment_service import AttachmentError, AttachmentService
 from .services.audit_service import AuditService
 from .services.backup_service import BackupError, BackupService
+from .services.claude_history_service import ClaudeHistoryService
 from .services.output_delta import line_delta
 from .services.provider_session_state_service import ProviderSessionStateService
 from .services.rate_limit import FixedWindowRateLimiter
@@ -197,6 +200,10 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     provider_rate_limits = RateLimitStatusService(settings.provider_rate_limits_path)
     provider_session_states = ProviderSessionStateService(
         settings.provider_session_states_path
+    )
+    claude_history = ClaudeHistoryService(
+        settings.claude_history_path,
+        settings.claude_history_max_age_seconds,
     )
     agent_statuses = AgentStatusService(settings.agent_active_window_seconds)
     database = Database(settings.database_path) if settings.database_auth_enabled else None
@@ -578,6 +585,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         return ConfigView(
             allowed_roots=settings.allowed_roots,
             workspace_presets=settings.workspace_presets,
+            claude_history_enabled=settings.claude_history_enabled,
         )
 
     @app.get(
@@ -617,6 +625,39 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         except TmuxError as exc:
             raise HTTPException(503, "tmux unavailable") from exc
         return SessionList(sessions=[SessionView(**item.__dict__) for item in items])
+
+    @app.get(
+        "/api/v1/sessions/{session_id}/claude-history",
+        response_model=ClaudeHistoryView,
+        dependencies=[Depends(require_active_session)],
+    )
+    async def get_claude_history(session_id: str) -> ClaudeHistoryView:
+        if not settings.claude_history_enabled:
+            raise HTTPException(404, "Claude history is disabled")
+        if not session_id.isdigit() or len(session_id) > 10:
+            raise HTTPException(404, "Claude history not available")
+        try:
+            live = next(
+                (item for item in await gateway.list_sessions() if item.id == session_id),
+                None,
+            )
+        except TmuxError as exc:
+            raise HTTPException(503, "tmux unavailable") from exc
+        if live is None or "claude" not in live.current_command.lower():
+            raise HTTPException(404, "Claude history not available")
+        history = await asyncio.to_thread(claude_history.read, session_id)
+        if history is None:
+            raise HTTPException(404, "Claude history not available")
+        return ClaudeHistoryView(
+            session_id=session_id,
+            collected_at=history.collected_at,
+            source_updated_at=history.source_updated_at,
+            truncated=history.truncated,
+            messages=[
+                ClaudeHistoryMessageView(**message.__dict__)
+                for message in history.messages
+            ],
+        )
 
     @app.get(
         "/api/v1/agent-statuses",

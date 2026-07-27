@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     provider_session_states_path: str = (
         "/workspace/.mobile-agent-console/provider-session-states.json"
     )
+    claude_history_enabled: bool = False
+    claude_history_path: str = (
+        "/workspace/.mobile-agent-console/claude-history.json"
+    )
+    claude_history_max_age_seconds: int = Field(default=30, ge=5, le=3600)
     database_path: str = "/workspace/.mobile-agent-console/app.db"
     database_auth_enabled: bool = False
     bootstrap_username: str = Field(default="admin", pattern=r"^[A-Za-z0-9_-]{1,64}$")

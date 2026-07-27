@@ -196,6 +196,7 @@ export async function listAgentStatuses(): Promise<AgentStatus[]> {
 export type AppConfig = {
   allowed_roots: string[];
   workspace_presets: Record<string, string>;
+  claude_history_enabled: boolean;
 };
 
 export type ProviderRateLimitWindow = {
@@ -225,6 +226,28 @@ export async function fetchProviderRateLimits(): Promise<ProviderRateLimits | nu
 
 export async function fetchConfig(): Promise<AppConfig> {
   const response = await request("/api/v1/config");
+  return response.json();
+}
+
+export type ClaudeHistoryMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+};
+
+export type ClaudeHistory = {
+  session_id: string;
+  collected_at: string;
+  source_updated_at: string;
+  truncated: boolean;
+  messages: ClaudeHistoryMessage[];
+};
+
+export async function fetchClaudeHistory(id: string): Promise<ClaudeHistory> {
+  const response = await request(
+    `/api/v1/sessions/${encodeURIComponent(id)}/claude-history`,
+  );
   return response.json();
 }
 

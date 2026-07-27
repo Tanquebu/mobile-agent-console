@@ -1,0 +1,9 @@
+[Unit]
+Description=Collect Mobile Agent Console Claude history
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/mobile-agent-console/environment
+ExecStart=/usr/bin/python3 ${MAC_INSTALL_DIR}/deploy/claude-history-collector.py --output ${MAC_WORKSPACE_ROOT}/.mobile-agent-console/claude-history.json --tmux-socket-file /tmp/tmux-%U/default --claude-projects-root %h/.claude/projects --claude-context-cache %h/.claude/context-window-cache
+UMask=0077
+NoNewPrivileges=yes

@@ -139,7 +139,8 @@ condiviso e mappatura pane ↔ session id.
 ## M4 — Operatività
 
 - [ ] Web Push.
-- [ ] Cronologia opzionale.
+- [x] Cronologia Claude opzionale con collector minimizzato, feature flag,
+  fallback live e rollback isolato, validata sull'istanza pubblicata.
 - [ ] Ricerca, tag e template.
 - [ ] Supporto multi-pane.
 - [ ] Gestione allegati avanzata: persistenza dei metadati, anteprime,

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 class ConfigView(BaseModel):
     allowed_roots: list[str]
     workspace_presets: dict[str, str]
+    claude_history_enabled: bool = False
 
 
 class SessionView(BaseModel):
@@ -52,6 +53,21 @@ class AgentStatusView(BaseModel):
 
 class AgentStatusList(BaseModel):
     statuses: list[AgentStatusView]
+
+
+class ClaudeHistoryMessageView(BaseModel):
+    id: str
+    role: Literal["user", "assistant"]
+    content: str
+    timestamp: datetime
+
+
+class ClaudeHistoryView(BaseModel):
+    session_id: str
+    collected_at: datetime
+    source_updated_at: datetime
+    truncated: bool
+    messages: list[ClaudeHistoryMessageView]
 
 
 class PaneView(BaseModel):

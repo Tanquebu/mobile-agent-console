@@ -29,6 +29,8 @@ services:
       MAC_BACKUPS_ROOT: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.mobile-agent-console/backups
       MAC_PROVIDER_RATE_LIMITS_PATH: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.mobile-agent-console/provider-rate-limits.json
       MAC_PROVIDER_SESSION_STATES_PATH: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.mobile-agent-console/provider-session-states.json
+      MAC_CLAUDE_HISTORY_ENABLED: ${MAC_CLAUDE_HISTORY_ENABLED:-false}
+      MAC_CLAUDE_HISTORY_PATH: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.mobile-agent-console/claude-history.json
       MAC_DATABASE_PATH: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.mobile-agent-console/app.db
     volumes:
       # Montare la DIRECTORY del socket, non il file: se il server tmux

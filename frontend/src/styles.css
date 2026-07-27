@@ -104,6 +104,7 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .chat-block.activity { border-style: dashed; background: #0d130f; color: #a9bcaf; }
 .chat-block > small { display: block; margin-bottom: 5px; color: #7ea58c; font: 700 .62rem/1.2 Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase; }
 .chat-block > pre { margin: 0; color: inherit; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.history-notice { margin: 0; border: 1px solid #665b32; border-radius: 10px; padding: 8px 10px; background: #2a2514; color: #e8cf77; font-size: .75rem; }
 .output-waiting { margin: auto; color: #91a397; }
 .session-closed-banner { position: absolute; z-index: 2; top: 38px; left: 20px; right: 20px; border: 1px solid #704039; border-radius: 12px; padding: 10px 12px; background: #321c19ee; color: #ffb4ab; font-size: .82rem; text-align: center; }
 .follow-output { position: absolute; right: 24px; bottom: 14px; min-height: 40px; border: 1px solid #4f7a5c; border-radius: 999px; padding: 0 14px; background: #1b2820; color: #9be5b3; font-weight: 700; box-shadow: 0 4px 16px #0008; }

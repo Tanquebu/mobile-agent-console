@@ -28,6 +28,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Database locale | path privato nel workspace, nessun prompt/output/segreto, migrazioni versionate |
 | Backup manipolati | checksum archivio e file, manifest con path chiusi, restore offline e riservato all'operatore host |
 | Quote provider sensibili | collector host-side, output JSON sanitizzato; credenziali e transcript non montati nel backend |
+| Cronologia Claude | opt-in esplicito, derivato `0600`, soli messaggi testuali, limiti/staleness e endpoint autenticato |
 | Classificazione agenti | sole ultime righe in memoria, risposta con stato tipizzato; nessun output persistito, restituito o inserito nell'audit |
 | Password account | solo hash Argon2id nel database; secret usato esclusivamente per bootstrap iniziale |
 
@@ -104,6 +105,20 @@ dall'API; il backend non riceve accesso a `/proc`, `~/.codex` o `~/.claude`.
 La cache context Claude contiene soltanto session UUID, percentuale, capienza,
 timestamp e pane tmux; i file sono `0600`. Il collector pubblica al backend
 soltanto la percentuale normalizzata `0..100`.
+
+La cronologia Claude è una deliberata estensione del dato esposto: quando
+abilitata, il collector host legge il transcript e copia nel workspace
+persistente soltanto testo `user`/`assistant`, UUID e timestamp. Esclude
+thinking, tool use/result, allegati, record meta e sidechain; limita la sorgente
+a 16 MiB, ogni messaggio a 32 KiB, ogni sessione a 500 messaggi e il file
+complessivo a 1,5 MiB. Il backend rifiuta file oltre 2 MiB, record non conformi
+e raccolte più vecchie di 30 secondi. Il file e la scrittura temporanea sono
+`0600`; prompt e risposte restano esclusi da log, audit e database.
+
+Il default è `MAC_CLAUDE_HISTORY_ENABLED=false`. Spegnere il flag rimuove
+l'endpoint e la UI ripiega sul live senza modificare WebSocket o tmux; fermare
+il timer elimina inoltre nuove copie persistenti. Il file derivato esistente
+va rimosso manualmente se si vuole cancellarne i contenuti.
 
 L'endpoint degli stati agentici è autenticato e restituisce soltanto session id,
 provider, stato e descrizione fissa. I frammenti di terminale usati dalle
