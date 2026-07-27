@@ -29,7 +29,9 @@ generic terminal, with no dependency on any specific vendor or tool.
 - heuristic Codex/Claude badges for active, idle, feedback and authorization
   states, without persisting terminal content;
 - opt-in chat blocks over the authoritative tmux snapshot, with an immediate
-  switch back to the raw terminal view;
+  switch back to the terminal view, rendered read-only by xterm.js with real
+  ANSI colors (input stays the existing compose-then-send flow — no live
+  keystroke capture);
 - per-session context-window usage beside Codex/Claude in the dashboard;
 - provider rate-limit usage and normalized permission state in the dashboard;
 - an optional, isolated Claude transcript history view that never replaces

@@ -1243,7 +1243,12 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         return Accepted()
 
     @app.websocket("/api/v1/ws/sessions/{session_id}")
-    async def stream(websocket: WebSocket, session_id: str, pane_id: str | None = None) -> None:
+    async def stream(
+        websocket: WebSocket,
+        session_id: str,
+        pane_id: str | None = None,
+        ansi: bool = False,
+    ) -> None:
         cookie = websocket.cookies.get(COOKIE_NAME)
         try:
             security.validate_session(cookie)
@@ -1264,7 +1269,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         try:
             while True:
                 try:
-                    content = await gateway.capture_output(session_id, 500, pane_id)
+                    content = await gateway.capture_output(session_id, 500, pane_id, ansi=ansi)
                 except (SessionNotFound, ValueError):
                     sequence += 1
                     await websocket.send_json(

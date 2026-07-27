@@ -87,6 +87,20 @@ preserva Unicode e sequenze escape senza condividere indici di carattere tra
 Python e JavaScript. Se il client rileva una base inattesa, riconnette e riceve
 un nuovo snapshot autorevole; non serve riprodurre eventi persi.
 
+`capture-pane` guadagna un flag `-e` opt-in (sequenze ANSI incluse), richiesto
+dal client solo per la vista Terminale (`?ansi=true` sul WebSocket) e mai dagli
+altri consumatori di `capture_output` (euristiche di attenzione, fetch
+iniziale, check di stato) — cambia solo il contenuto catturato, non il
+protocollo: stesso modello snapshot/delta, stessa semantica di riconnessione.
+La vista Terminale renderizza lo snapshot con xterm.js in sola visualizzazione
+(`disableStdin`): a ogni aggiornamento il buffer viene azzerato e riscritto da
+zero, coerente con "riconnessione/aggiornamento = stato autorevole", non un
+byte-stream incrementale. Questo significa che lo scroll dell'utente nel
+buffer xterm viene "azzerato" a ogni nuovo contenuto esattamente come nella
+vecchia vista testuale (stesso limite noto, non introdotto da xterm.js — vedi
+`docs/backlog.md`). Il modello di input non cambia: il testo libero passa
+sempre da `load-buffer`/`paste-buffer`, mai da input diretto verso il widget.
+
 ## Evoluzione
 
 Interfacce `TmuxService`/fake consentono test e futuri adapter. Profili,

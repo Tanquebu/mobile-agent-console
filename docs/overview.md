@@ -8,10 +8,11 @@ agent-agnostic: shell, REPL e CLI generiche usano lo stesso flusso terminale;
 Codex e Claude aggiungono adapter opzionali per stato, permessi, quote,
 contesto e cronologia.
 
-M0 e M2 sono conclusi. Il runtime M1 è stabile per l'uso corrente, con la resa
-ANSI/fullscreen completa demandata al futuro terminal mode. M3 è in gran parte
-rilasciato; una parte di M4 è stata anticipata per risolvere la cronologia
-Claude.
+M0 e M2 sono conclusi. Il runtime M1 include ora resa ANSI reale tramite
+terminal mode xterm.js; lo scrollback delle app a schermo alternato resta un
+limite noto di `tmux capture-pane`, non risolvibile lato rendering. M3 è in
+gran parte rilasciato; una parte di M4 è stata anticipata per risolvere la
+cronologia Claude.
 
 ## Capacità disponibili
 
@@ -24,7 +25,8 @@ Claude.
 - browser delle directory consentite, anteprima UTF-8, download e allegati ai
   prompt;
 - dashboard agentica con stato, permessi, consumo contesto e quote provider;
-- viste Terminale e Blocchi, più Cronologia Claude opzionale e isolata;
+- viste Terminale (xterm.js, resa ANSI reale, sola visualizzazione) e Blocchi,
+  più Cronologia Claude opzionale e isolata;
 - service worker per shell offline best-effort, banner di connessione assente
   e notifiche locali opzionali quando una sessione attende feedback o
   autorizzazione ad app in background (richiede un contesto sicuro, vedi
@@ -48,9 +50,7 @@ Claude.
 
 ## Prossimo percorso consigliato
 
-1. terminal mode xterm.js per resa ANSI/fullscreen e controlli terminali
-   completi;
-2. operatività M4: Web Push, ricerca/tag/template, supporto multi-pane esteso e
+1. operatività M4: Web Push, ricerca/tag/template, supporto multi-pane esteso e
    gestione allegati avanzata.
 
 Stato read-only dei task dell'orchestratore locale resta solo in roadmap:

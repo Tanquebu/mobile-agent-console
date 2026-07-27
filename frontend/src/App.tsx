@@ -1,4 +1,6 @@
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
 import {
   ApiError,
   AgentStatus,
@@ -1498,6 +1500,10 @@ function Console({
   const outputLinesRef = useRef<string[]>([]);
   const outputSequenceRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const terminalRef = useRef<Terminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
+  const terminalContainerRef = useRef<HTMLDivElement | null>(null);
+  const previousFitRef = useRef("");
 
   useEffect(() => {
     let cancelled = false;
@@ -1569,7 +1575,7 @@ function Console({
     const connect = () => {
       if (stopped) return;
       setConnection("connecting");
-      socket = new WebSocket(streamUrl(session.id, paneId));
+      socket = new WebSocket(streamUrl(session.id, paneId, outputMode === "terminal"));
       socket.onopen = () => { attempts = 0; setConnection("online"); };
       socket.onmessage = (event) => {
         const message = JSON.parse(event.data);
@@ -1608,10 +1614,10 @@ function Console({
       if (timer) clearTimeout(timer);
       socket?.close();
     };
-  }, [session.id, paneId]);
+  }, [session.id, paneId, outputMode === "terminal"]);
 
   useEffect(() => {
-    if (outputMode === "history") return;
+    if (outputMode !== "blocks") return;
     const output = outputRef.current;
     if (!output || !paneId || typeof ResizeObserver === "undefined") return;
     let timer: number | undefined;
@@ -1637,11 +1643,82 @@ function Console({
     };
   }, [session.id, paneId, panes, outputMode]);
 
+  // Vista Terminale: xterm.js in sola visualizzazione (disableStdin — l'input
+  // resta il compose-poi-invia esistente). Ogni snapshot è autorevole (vedi
+  // docs/architecture.md, sezione Streaming): si ridisegna da zero invece di
+  // tentare un aggiornamento incrementale del buffer.
   useEffect(() => {
+    if (outputMode !== "terminal") return;
+    const container = terminalContainerRef.current;
+    if (!container) return;
+    const terminal = new Terminal({
+      disableStdin: true,
+      convertEol: true,
+      fontSize: 13,
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+      theme: {
+        background: "#101713",
+        foreground: "#e9f2ec",
+        cursor: "#9be5b3",
+        selectionBackground: "#41664d88",
+      },
+    });
+    const fitAddon = new FitAddon();
+    terminal.loadAddon(fitAddon);
+    terminal.open(container);
+    terminalRef.current = terminal;
+    fitAddonRef.current = fitAddon;
+
+    let resizeTimer: number | undefined;
+    const applyFit = () => {
+      fitAddon.fit();
+      if (!paneId) return;
+      // ResizePaneInput impone 20-500 colonne e 5-300 righe (schemas.py);
+      // durante un resize in corso FitAddon può calcolare valori transitori
+      // fuori range prima che il layout si stabilizzi.
+      const columns = Math.max(20, Math.min(500, terminal.cols));
+      const rows = Math.max(5, Math.min(300, terminal.rows));
+      const dimensions = `${columns}x${rows}`;
+      if (dimensions === previousFitRef.current) return;
+      previousFitRef.current = dimensions;
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        resizePane(session.id, paneId, columns, rows).catch((value) => {
+          setControlError(errorMessage(value));
+        });
+      }, 750);
+    };
+    applyFit();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(applyFit);
+    observer?.observe(container);
+
+    const scrollDisposable = terminal.onScroll(() => {
+      const buffer = terminal.buffer.active;
+      setFollowingOutput(buffer.viewportY >= buffer.baseY);
+    });
+
+    return () => {
+      observer?.disconnect();
+      scrollDisposable.dispose();
+      if (resizeTimer) clearTimeout(resizeTimer);
+      terminal.dispose();
+      terminalRef.current = null;
+      fitAddonRef.current = null;
+    };
+  }, [outputMode, session.id, paneId]);
+
+  useEffect(() => {
+    if (outputMode !== "terminal" || !terminalRef.current) return;
+    terminalRef.current.reset();
+    terminalRef.current.write(content);
+  }, [content, outputMode]);
+
+  useEffect(() => {
+    if (outputMode === "terminal") return;
     if (followingOutput && outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
-  }, [content, history, followingOutput]);
+  }, [content, history, followingOutput, outputMode]);
 
   function updateScrollMode() {
     const output = outputRef.current;
@@ -1652,7 +1729,8 @@ function Console({
 
   function resumeFollowingOutput() {
     setFollowingOutput(true);
-    if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    if (terminalRef.current) terminalRef.current.scrollToBottom();
+    else if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
   }
 
   async function submit(event: FormEvent) {
@@ -1872,13 +1950,7 @@ function Console({
             )}
           </div>
         ) : (
-          <pre
-            ref={(element) => { outputRef.current = element; }}
-            className="output"
-            onScroll={updateScrollMode}
-          >
-            {content || "In attesa dell'output…"}
-          </pre>
+          <div className="output terminal-xterm" ref={terminalContainerRef} />
         )}
         {!followingOutput && (
           <button className="follow-output" type="button" onClick={resumeFollowingOutput}>

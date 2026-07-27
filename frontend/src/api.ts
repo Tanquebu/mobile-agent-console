@@ -504,10 +504,11 @@ export function fileDownloadUrl(id: string, path: string): string {
   return `/api/v1/sessions/${encodeURIComponent(id)}/file/download?path=${encodeURIComponent(path)}`;
 }
 
-export function streamUrl(id: string, paneId?: string): string {
+export function streamUrl(id: string, paneId?: string, ansi?: boolean): string {
   const url = new URL(window.location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = `/api/v1/ws/sessions/${encodeURIComponent(id)}`;
   if (paneId) url.searchParams.set("pane_id", paneId);
+  if (ansi) url.searchParams.set("ansi", "true");
   return url.toString();
 }

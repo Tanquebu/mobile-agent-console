@@ -9,11 +9,14 @@
 ## Stato sintetico e ordine di avanzamento
 
 - M0: concluso.
-- M1: operativo; resta il terminal mode per la resa ANSI/fullscreen completa.
+- M1: terminal mode xterm.js con resa ANSI reale deployato, in attesa di
+  conferma visiva sull'istanza pubblicata; resta comunque il limite noto di
+  scrollback per le app a schermo alternato (limite tmux, non risolvibile
+  da qui).
 - M2 e M2A: conclusi.
 - M3: gran parte rilasciata; service worker, offline, notifiche locali e
   preferenze (vista predefinita) validati sull'istanza pubblicata (TLS via
-  ADR 008); prossimo blocco consigliato: terminal mode xterm.js.
+  ADR 008); prossimo blocco consigliato: operatività M4.
 - M4: cronologia Claude anticipata e conclusa; il resto segue il completamento
   di M3.
 
@@ -27,8 +30,8 @@ verrà preso in carico.
 Euristica "Attende feedback" troppo stretta (richiede `?` letterale): non
 prioritaria, da riprendere — vedi `docs/backlog.md`.
 
-Ordine corrente: terminal mode xterm.js → operatività M4 restante → (se
-ripreso) stato orchestratore locale / euristica attenzione.
+Ordine corrente: operatività M4 restante → (se ripreso) stato orchestratore
+locale / euristica attenzione.
 
 ## M0 — Fondazioni e vertical slice
 
@@ -43,8 +46,10 @@ ripreso) stato orchestratore locale / euristica attenzione.
 
 ## M1 — Hardening del runtime
 
-- [~] Delta robusti per righe con riconnessione su base sequence inattesa;
-  resa ANSI/fullscreen rinviata al terminal mode.
+- [x] Delta robusti per righe con riconnessione su base sequence inattesa;
+  resa ANSI reale via terminal mode xterm.js (M3), fullscreen/scrollback
+  delle app a schermo alternato resta un limite noto di `tmux capture-pane`
+  (`docs/backlog.md`).
 - [x] Selezione, creazione e resize dei pane, con targeting coerente di
   output, input e tasti.
 - [x] Stati espliciti per sessione chiusa, disconnessione, backend/tmux non
@@ -145,7 +150,17 @@ API specifiche di Codex, Claude o altri agenti.
   persistita in `localStorage`. Scope volutamente minimo per la prima
   versione; altre preferenze (es. consolidare qui il toggle Notifiche) restano
   da valutare in seguito.
-- [ ] Terminal mode xterm.js e tasti speciali.
+- [x] Terminal mode xterm.js: la vista Terminale usa xterm.js in sola
+  visualizzazione (`disableStdin`) con resa ANSI reale (`capture-pane -e`
+  opt-in, solo per questa vista — euristiche di attenzione e altri
+  consumatori restano su testo semplice), resize preciso via `FitAddon`.
+  Protocollo e modello di input invariati per scelta esplicita: snapshot/
+  delta e riconnessione autorevole restano gli stessi (niente byte-stream
+  incrementale), input sempre compose-poi-invia via `load-buffer`/
+  `paste-buffer` (niente digitazione live nel widget). "Tasti speciali"
+  restano gli attuali bottoni dedicati verso `/keys`, invariati. Non risolve
+  lo scrollback delle app a schermo alternato (limite `tmux capture-pane`,
+  vedi `docs/backlog.md`).
 - [x] Rinominare il pulsante "Tasti speciali" in "Funzioni speciali".
 - [x] Browser "Contenuto directory": navigazione tra cartelle entro
   `MAC_ALLOWED_ROOTS`, ritorno al parent/root, metadati e copy rapido delle

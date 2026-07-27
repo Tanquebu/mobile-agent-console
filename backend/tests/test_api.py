@@ -187,6 +187,8 @@ def test_agent_statuses_include_only_agentic_sessions() -> None:
             }
         ]
     }
+    # L'euristica lavora su testo semplice: mai richiedere l'ANSI opt-in.
+    assert fake.capture_ansi_calls == [False]
 
 
 def test_agent_statuses_prefer_structured_provider_permissions(tmp_path) -> None:
@@ -566,6 +568,20 @@ def test_websocket_auth_and_snapshot() -> None:
         message = ws.receive_json()
         assert message["type"] == "snapshot"
         assert message["content"] == "$ "
+
+
+def test_websocket_ansi_opt_in_defaults_to_plain_capture() -> None:
+    client, fake = client_and_fake()
+    login(client)
+    with client.websocket_connect("/api/v1/ws/sessions/1", headers={"origin": "http://testserver"}):
+        pass
+    assert fake.capture_ansi_calls == [False]
+
+    with client.websocket_connect(
+        "/api/v1/ws/sessions/1?ansi=true", headers={"origin": "http://testserver"}
+    ):
+        pass
+    assert fake.capture_ansi_calls == [False, True]
 
 
 def test_create_session_requires_allowed_directory() -> None:

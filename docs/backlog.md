@@ -53,7 +53,14 @@ terminal mode previsto in M3.
 
 **Stato:** parzialmente risolta. La cronologia Claude è disponibile tramite
 adapter opzionale validato; il limite resta per altre TUI fullscreen e il
-drift dello scroll live è differito.
+drift dello scroll live è differito. Il terminal mode xterm.js (vista
+Terminale) non risolve né peggiora questo punto: renderizza meglio i colori
+ANSI, ma eredita lo stesso comportamento "reset del buffer a ogni snapshot"
+perché il protocollo resta a snapshot autorevole, non byte-stream
+incrementale (scelta deliberata, vedi `docs/architecture.md` sezione
+Streaming). Lo scrollback delle app a schermo alternato resta comunque un
+limite di `tmux capture-pane`, non risolvibile da nessuna libreria di
+rendering frontend.
 
 Bug osservato: con "autoscroll intelligente" in pausa (utente risalito
 nell'output), il contenuto del pane continua comunque a essere sostituito
@@ -100,8 +107,10 @@ Possibili direzioni future, nessuna banale:
 
 Per Claude non tentare nuovamente di ricavare la cronologia da
 `capture-pane`: ADR 007 definisce il collector normalizzato, il feature flag e
-il fallback live. La soluzione generica resta il terminal mode o un adapter
-separato con le stesse proprietà di isolamento.
+il fallback live. Il terminal mode xterm.js è stato implementato ma, come
+previsto, non risolve lo scrollback delle app a schermo alternato (limite
+tmux); la soluzione generica resta un adapter separato con le stesse
+proprietà di isolamento, sul modello di ADR 007.
 
 ## Notifiche locali attive solo con la lista sessioni montata
 

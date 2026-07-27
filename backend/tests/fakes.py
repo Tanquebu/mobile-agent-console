@@ -12,6 +12,7 @@ from app.services.tmux_service import (
 class FakeTmux:
     def __init__(self) -> None:
         self.content = "$ "
+        self.capture_ansi_calls: list[bool] = []
         self.texts: list[str] = []
         self.keys: list[str] = []
         self.targets: list[str | None] = []
@@ -63,13 +64,14 @@ class FakeTmux:
         return [TmuxPane("10", 0, 0, True, "bash", "demo", 80, 24)]
 
     async def capture_output(
-        self, session_id: str, lines: int = 500, pane_id: str | None = None
+        self, session_id: str, lines: int = 500, pane_id: str | None = None, ansi: bool = False
     ) -> str:
         TmuxService.validate_target(session_id)
         if session_id not in self.sessions:
             raise SessionNotFound(session_id)
         if pane_id is not None and pane_id != "10":
             raise SessionNotFound(pane_id)
+        self.capture_ansi_calls.append(ansi)
         return self.content
 
     async def send_text(self, session_id: str, text: str, pane_id: str | None = None) -> None:

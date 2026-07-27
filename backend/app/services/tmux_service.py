@@ -70,7 +70,7 @@ class TmuxGateway(Protocol):
     async def list_sessions(self) -> list[TmuxSession]: ...
     async def list_panes(self, session_id: str) -> list[TmuxPane]: ...
     async def capture_output(
-        self, session_id: str, lines: int = 500, pane_id: str | None = None
+        self, session_id: str, lines: int = 500, pane_id: str | None = None, ansi: bool = False
     ) -> str: ...
     async def send_text(self, session_id: str, text: str, pane_id: str | None = None) -> None: ...
     async def send_key(self, session_id: str, key: str, pane_id: str | None = None) -> None: ...
@@ -215,10 +215,14 @@ class TmuxService:
         return pane_target
 
     async def capture_output(
-        self, session_id: str, lines: int = 500, pane_id: str | None = None
+        self, session_id: str, lines: int = 500, pane_id: str | None = None, ansi: bool = False
     ) -> str:
         target = await self._pane_target(session_id, pane_id)
-        raw = await self._run("capture-pane", "-p", "-J", "-S", f"-{lines}", "-t", target)
+        argv = ["capture-pane", "-p", "-J"]
+        if ansi:
+            argv.append("-e")
+        argv += ["-S", f"-{lines}", "-t", target]
+        raw = await self._run(*argv)
         return raw.decode(errors="replace")
 
     async def create_session(
