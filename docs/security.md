@@ -16,8 +16,8 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Command injection | argv, `shell=False`, operazioni tipizzate, regex sessioni/pane |
 | Input interpretato da tmux | `load-buffer -` + `paste-buffer`; tasti su endpoint separato |
 | Path traversal | nessun path dal client nello slice; poi resolve + `is_relative_to` allowlist |
-| Upload malevoli | nomi fisici UUID, tipi e signature allowlist, limite dimensione, nessuna estrazione archivi |
-| Abuso risorse | limiti payload; rate limit in memoria separati per login e mutazioni |
+| Upload malevoli | nomi fisici UUID, tipi e signature allowlist, limite dimensione, nessuna estrazione archivi; anteprime immagine generate da Pillow in modo best-effort (eccezioni di decodifica non bloccano l'upload, semplicemente non producono thumbnail) |
+| Abuso risorse | limiti payload; rate limit in memoria separati per login e mutazioni; quota aggregata di byte allegati per sessione oltre al limite per singolo file |
 | WebSocket hijacking | cookie autenticato e Origin allowlist; nessun token nell'URL |
 | Leakage | niente output/prompt nell'audit; notifiche senza contenuto di default |
 | Audit sensibile o eccessivo | solo metadati tipizzati; esclusi body, query, IP, prompt, output, filename e operazioni terminali ad alta frequenza |

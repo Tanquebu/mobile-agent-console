@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     bootstrap_username: str = Field(default="admin", pattern=r"^[A-Za-z0-9_-]{1,64}$")
     attachments_prompt_root: str | None = None
     max_attachment_bytes: int = Field(default=10 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
+    max_attachment_bytes_per_session: int = Field(
+        default=100 * 1024 * 1024, ge=1, le=1000 * 1024 * 1024
+    )
     attachment_ttl_seconds: int = Field(default=86400, ge=300, le=30 * 86400)
     login_rate_limit: int = Field(default=5, ge=1, le=1000)
     login_rate_window_seconds: int = Field(default=60, ge=1, le=3600)

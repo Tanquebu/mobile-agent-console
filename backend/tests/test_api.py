@@ -2,9 +2,12 @@ import json
 import os
 import time
 from datetime import UTC, datetime
+from io import BytesIO
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from starlette.websockets import WebSocketDisconnect
 
 from app.config import Settings
@@ -973,6 +976,167 @@ def test_upload_attachment_and_reference_it_in_prompt(tmp_path) -> None:
     assert deleted_reference.status_code == 400
 
 
+def test_attachment_preview_only_for_images(tmp_path) -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        attachments_root=str(tmp_path),
+        database_path=migrated_database_with_admin(tmp_path),
+        database_auth_enabled=True,
+    )
+    client = TestClient(create_app(settings, FakeTmux()))
+    csrf = login_admin(client)
+    headers = {"X-CSRF-Token": csrf}
+
+    buffer = BytesIO()
+    Image.new("RGB", (300, 300), color="red").save(buffer, format="PNG")
+    image = client.post(
+        "/api/v1/sessions/1/attachments?filename=photo.png",
+        content=buffer.getvalue(),
+        headers={**headers, "Content-Type": "image/png"},
+    ).json()
+    preview = client.get(f"/api/v1/sessions/1/attachments/{image['id']}/preview")
+    assert preview.status_code == 200
+    assert preview.headers["content-type"] == "image/jpeg"
+    with Image.open(BytesIO(preview.content)) as thumbnail:
+        assert thumbnail.size <= (256, 256)
+
+    text = client.post(
+        "/api/v1/sessions/1/attachments?filename=notes.txt",
+        content=b"hello",
+        headers={**headers, "Content-Type": "text/plain"},
+    ).json()
+    assert client.get(
+        f"/api/v1/sessions/1/attachments/{text['id']}/preview"
+    ).status_code == 404
+
+    client.delete(f"/api/v1/sessions/1/attachments/{image['id']}", headers=headers)
+    assert client.get(
+        f"/api/v1/sessions/1/attachments/{image['id']}/preview"
+    ).status_code == 404
+
+
+def test_attachment_deduplicates_identical_content_within_session(tmp_path) -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        attachments_root=str(tmp_path),
+        database_path=migrated_database_with_admin(tmp_path),
+        database_auth_enabled=True,
+    )
+    fake = FakeTmux()
+    fake.sessions["2"] = type(fake.sessions["1"])(
+        "2", "demo-2", False, 1, "bash", datetime.now(UTC)
+    )
+    client = TestClient(create_app(settings, fake))
+    csrf = login_admin(client)
+    headers = {"X-CSRF-Token": csrf, "Content-Type": "text/plain"}
+    content = b"identical content"
+
+    first = client.post(
+        "/api/v1/sessions/1/attachments?filename=a.txt", content=content, headers=headers
+    ).json()
+    second = client.post(
+        "/api/v1/sessions/1/attachments?filename=b.txt", content=content, headers=headers
+    ).json()
+    assert first["path"] == second["path"]
+    stored_files = list((tmp_path / "1").glob("*.txt"))
+    assert len(stored_files) == 1
+
+    other_session = client.post(
+        "/api/v1/sessions/2/attachments?filename=c.txt", content=content, headers=headers
+    ).json()
+    assert other_session["path"] != first["path"]
+
+    client.delete(f"/api/v1/sessions/1/attachments/{first['id']}", headers=headers)
+    assert list((tmp_path / "1").glob("*.txt")) == [Path(stored_files[0])]
+    client.delete(f"/api/v1/sessions/1/attachments/{second['id']}", headers=headers)
+    assert list((tmp_path / "1").glob("*.txt")) == []
+
+
+def test_terminating_session_cleans_up_its_attachments(tmp_path) -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        attachments_root=str(tmp_path),
+        database_path=migrated_database_with_admin(tmp_path),
+        database_auth_enabled=True,
+    )
+    client = TestClient(create_app(settings, FakeTmux()))
+    csrf = login_admin(client)
+    headers = {"X-CSRF-Token": csrf}
+    uploaded = client.post(
+        "/api/v1/sessions/1/attachments?filename=notes.txt",
+        content=b"hello",
+        headers={**headers, "Content-Type": "text/plain"},
+    ).json()
+    assert (tmp_path / "1").exists()
+
+    terminated = client.request(
+        "DELETE", "/api/v1/sessions/1", headers=headers, json={"confirmed": True}
+    )
+    assert terminated.status_code == 204
+    # la sessione terminata libera l'id numerico, che tmux può riassegnare a
+    # una sessione futura scollegata: gli allegati non devono sopravvivere.
+    assert not (tmp_path / "1").exists()
+    assert client.get(
+        f"/api/v1/sessions/1/attachments/{uploaded['id']}/preview"
+    ).status_code == 404
+
+
+def test_attachment_session_quota_is_enforced(tmp_path) -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        attachments_root=str(tmp_path),
+        max_attachment_bytes=1024,
+        max_attachment_bytes_per_session=20,
+        database_path=migrated_database_with_admin(tmp_path),
+        database_auth_enabled=True,
+    )
+    fake = FakeTmux()
+    fake.sessions["2"] = type(fake.sessions["1"])(
+        "2", "demo-2", False, 1, "bash", datetime.now(UTC)
+    )
+    client = TestClient(create_app(settings, fake))
+    csrf = login_admin(client)
+    headers = {"X-CSRF-Token": csrf, "Content-Type": "text/plain"}
+
+    first = client.post(
+        "/api/v1/sessions/1/attachments?filename=a.txt",
+        content=b"0123456789",
+        headers=headers,
+    )
+    assert first.status_code == 201
+    second = client.post(
+        "/api/v1/sessions/1/attachments?filename=b.txt",
+        content=b"0123456789",
+        headers=headers,
+    )
+    assert second.status_code == 201
+    over_quota = client.post(
+        "/api/v1/sessions/1/attachments?filename=c.txt",
+        content=b"0123456789",
+        headers=headers,
+    )
+    assert over_quota.status_code == 400
+    # un'altra sessione ha la propria quota indipendente.
+    other_session = client.post(
+        "/api/v1/sessions/2/attachments?filename=d.txt",
+        content=b"0123456789",
+        headers=headers,
+    )
+    assert other_session.status_code == 201
+
+
 def test_attachment_validation_rejects_unsafe_names_types_and_sizes(tmp_path) -> None:
     settings = Settings(
         login_password=PASSWORD,
@@ -1017,7 +1181,9 @@ def test_attachment_validation_rejects_unsafe_names_types_and_sizes(tmp_path) ->
 def test_expired_attachments_are_cleaned_up(tmp_path) -> None:
     database = Database(str(tmp_path / "db" / "meta.db"))
     database.migrate("/app/alembic.ini")
-    service = AttachmentService(database.engine, str(tmp_path), str(tmp_path), max_bytes=1024)
+    service = AttachmentService(
+        database.engine, str(tmp_path), str(tmp_path), max_bytes=1024, max_session_bytes=1024
+    )
     attachment = service.create("1", "notes.txt", "text/plain", b"temporary")
     session_dir = tmp_path / "1"
     stored_path = session_dir / os.path.basename(attachment.path)

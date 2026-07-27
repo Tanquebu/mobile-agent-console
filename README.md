@@ -17,8 +17,10 @@ generic terminal, with no dependency on any specific vendor or tool.
   `Enter` as a deliberate, separate action (nothing runs by accident);
 - controlled prompt attachments (images, PDF and UTF-8 text files), stored
   in a session-scoped workspace area, referenced by path in the prompt,
-  metadata persisted in the same database as users/archives/audit, and
-  automatically removed after a configurable TTL;
+  metadata persisted in the same database as users/archives/audit, with an
+  image thumbnail preview in the composer, a per-session aggregate storage
+  quota on top of the per-file limit, and automatic removal after a
+  configurable TTL;
 - respond to agent permission prompts by typing the option number, then
   Enter if needed;
 - special-key controls for permission prompts, plus explicitly confirmed

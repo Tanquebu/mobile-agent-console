@@ -504,6 +504,10 @@ export function fileDownloadUrl(id: string, path: string): string {
   return `/api/v1/sessions/${encodeURIComponent(id)}/file/download?path=${encodeURIComponent(path)}`;
 }
 
+export function attachmentPreviewUrl(sessionId: string, attachmentId: string): string {
+  return `/api/v1/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}/preview`;
+}
+
 export function streamUrl(id: string, paneId?: string, ansi?: boolean): string {
   const url = new URL(window.location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";

@@ -211,6 +211,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             settings.attachments_root,
             settings.resolved_attachments_prompt_root,
             settings.max_attachment_bytes,
+            settings.max_attachment_bytes_per_session,
         )
         if database
         else None
@@ -321,6 +322,16 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         if not attachments:
             raise HTTPException(503, "Attachments require the metadata database")
         return attachments
+
+    async def _cleanup_session_attachments(session_id: str) -> None:
+        # Best-effort: terminare/archiviare la sessione non deve fallire per un
+        # problema di pulizia degli allegati, che restano comunque soggetti al TTL.
+        if attachments is None:
+            return
+        try:
+            await asyncio.to_thread(attachments.delete_all_for_session, session_id)
+        except Exception:
+            logger.exception("Unable to clean up attachments for session %s", session_id)
 
     def archive_service() -> ArchiveService:
         if not archives:
@@ -809,6 +820,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         except (ValueError, SessionNotFound, TmuxError) as exc:
             await asyncio.to_thread(service.delete, item.id)
             raise HTTPException(409, "Unable to archive session") from exc
+        await _cleanup_session_attachments(session_id)
         return ArchivedSessionView.model_validate(item, from_attributes=True)
 
     @app.post(
@@ -1198,6 +1210,19 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             raise HTTPException(404, "Session not found") from exc
         return Accepted()
 
+    @app.get(
+        "/api/v1/sessions/{session_id}/attachments/{attachment_id}/preview",
+        dependencies=[Depends(require_active_session)],
+    )
+    async def attachment_preview(session_id: str, attachment_id: str) -> FileResponse:
+        try:
+            thumb_path = await asyncio.to_thread(
+                attachment_service().preview_path, session_id, attachment_id
+            )
+        except AttachmentError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return FileResponse(thumb_path, media_type="image/jpeg")
+
     @app.delete(
         "/api/v1/sessions/{session_id}/attachments/{attachment_id}",
         status_code=204,
@@ -1241,6 +1266,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             raise HTTPException(400, str(exc)) from exc
         except SessionNotFound as exc:
             raise HTTPException(404, "Session not found") from exc
+        await _cleanup_session_attachments(session_id)
         return Response(status_code=204)
 
     @app.post(

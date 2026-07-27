@@ -58,6 +58,7 @@ class Attachment(Base):
     media_type: Mapped[str] = mapped_column(String(100))
     size: Mapped[int] = mapped_column(Integer)
     path: Mapped[str] = mapped_column(String(4096))
+    content_hash: Mapped[str | None] = mapped_column(String(64), index=True, default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True
     )

@@ -1,12 +1,15 @@
+import hashlib
 import json
 import re
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
-from sqlalchemy import select
+from PIL import Image, UnidentifiedImageError
+from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
 from ..models import Attachment as AttachmentRow
@@ -25,6 +28,8 @@ SIGNATURE_MEDIA_TYPES = {
     "image/jpeg": (b"\xff\xd8\xff", ".jpg"),
     "image/png": (b"\x89PNG\r\n\x1a\n", ".png"),
 }
+IMAGE_MEDIA_TYPES = {"image/png", "image/jpeg", "image/webp"}
+THUMBNAIL_MAX_SIZE = (256, 256)
 
 
 class AttachmentError(ValueError):
@@ -42,11 +47,27 @@ class Attachment:
 
 
 class AttachmentService:
-    def __init__(self, engine, storage_root: str, prompt_root: str, max_bytes: int) -> None:
+    def __init__(
+        self,
+        engine,
+        storage_root: str,
+        prompt_root: str,
+        max_bytes: int,
+        max_session_bytes: int,
+    ) -> None:
         self._sessions = sessionmaker(engine, expire_on_commit=False)
         self.storage_root = Path(storage_root).resolve()
         self.prompt_root = Path(prompt_root)
         self.max_bytes = max_bytes
+        self.max_session_bytes = max_session_bytes
+
+    def session_total_bytes(self, session_id: str) -> int:
+        with self._sessions() as session:
+            return session.scalar(
+                select(func.coalesce(func.sum(AttachmentRow.size), 0)).where(
+                    AttachmentRow.session_id == session_id
+                )
+            )
 
     @staticmethod
     def validate_name(name: str) -> str:
@@ -77,6 +98,36 @@ class AttachmentService:
             raise AttachmentError("Attachment content does not match its media type")
         return extension
 
+    def _thumbnail_path(self, session_id: str, attachment_id: str) -> Path:
+        return self.storage_root / session_id / f"{attachment_id}.thumb.jpg"
+
+    def _write_thumbnail(
+        self, session_dir: Path, attachment_id: str, media_type: str, content: bytes
+    ) -> None:
+        if media_type not in IMAGE_MEDIA_TYPES:
+            return
+        try:
+            with Image.open(BytesIO(content)) as image:
+                image.thumbnail(THUMBNAIL_MAX_SIZE)
+                buffer = BytesIO()
+                image.convert("RGB").save(buffer, format="JPEG", quality=80)
+        except (OSError, UnidentifiedImageError):
+            # anteprima best-effort: un'immagine non decodificabile da Pillow
+            # non deve bloccare l'upload, solo lasciare il file senza thumbnail.
+            return
+        thumb_path = session_dir / f"{attachment_id}.thumb.jpg"
+        temporary_path = session_dir / f".{attachment_id}.thumb.part"
+        temporary_path.write_bytes(buffer.getvalue())
+        temporary_path.chmod(0o600)
+        temporary_path.replace(thumb_path)
+
+    def preview_path(self, session_id: str, attachment_id: str) -> Path:
+        self.get(session_id, attachment_id)
+        thumb_path = self._thumbnail_path(session_id, attachment_id)
+        if not thumb_path.is_file():
+            raise AttachmentError("Preview not available")
+        return thumb_path
+
     def create(
         self,
         session_id: str,
@@ -89,17 +140,38 @@ class AttachmentService:
             raise AttachmentError("Attachment is empty")
         if len(content) > self.max_bytes:
             raise AttachmentError("Attachment is too large")
+        if self.session_total_bytes(session_id) + len(content) > self.max_session_bytes:
+            raise AttachmentError("Attachment storage quota exceeded for this session")
         normalized_media_type = media_type.split(";", 1)[0].strip().lower()
         extension = self.extension_for(normalized_media_type, content)
+        content_hash = hashlib.sha256(content).hexdigest()
         attachment_id = uuid4().hex
         session_dir = self.storage_root / session_id
         session_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        stored_path = session_dir / f"{attachment_id}{extension}"
-        temporary_path = session_dir / f".{attachment_id}.part"
-        temporary_path.write_bytes(content)
-        temporary_path.chmod(0o600)
-        temporary_path.replace(stored_path)
-        prompt_path = self.prompt_root / session_id / stored_path.name
+
+        with self._sessions() as session:
+            duplicate = session.scalar(
+                select(AttachmentRow)
+                .where(
+                    AttachmentRow.session_id == session_id,
+                    AttachmentRow.content_hash == content_hash,
+                )
+                .limit(1)
+            )
+        if duplicate is not None:
+            # Stesso contenuto già presente in questa sessione: riusa il file
+            # fisico esistente invece di riscriverlo, una nuova riga di
+            # metadati referenzia lo stesso path.
+            stored_name = Path(duplicate.path).name
+        else:
+            stored_path = session_dir / f"{attachment_id}{extension}"
+            temporary_path = session_dir / f".{attachment_id}.part"
+            temporary_path.write_bytes(content)
+            temporary_path.chmod(0o600)
+            temporary_path.replace(stored_path)
+            stored_name = stored_path.name
+        self._write_thumbnail(session_dir, attachment_id, normalized_media_type, content)
+        prompt_path = self.prompt_root / session_id / stored_name
         row = AttachmentRow(
             id=attachment_id,
             session_id=session_id,
@@ -107,6 +179,7 @@ class AttachmentService:
             media_type=normalized_media_type,
             size=len(content),
             path=str(prompt_path),
+            content_hash=content_hash,
             created_at=datetime.now(UTC),
         )
         with self._sessions.begin() as session:
@@ -151,19 +224,63 @@ class AttachmentService:
             lines.append(f"- {display_name}: {attachment.path}")
         return "\n".join(lines)
 
+    @staticmethod
+    def _other_references(session, row: AttachmentRow) -> int:
+        if not row.content_hash:
+            return 0
+        return session.scalar(
+            select(func.count())
+            .select_from(AttachmentRow)
+            .where(
+                AttachmentRow.session_id == row.session_id,
+                AttachmentRow.content_hash == row.content_hash,
+                AttachmentRow.id != row.id,
+            )
+        )
+
     def delete(self, session_id: str, attachment_id: str) -> None:
         attachment = self.get(session_id, attachment_id)
         session_dir = self.storage_root / session_id
-        stored_path = session_dir / Path(attachment.path).name
-        stored_path.unlink(missing_ok=True)
         with self._sessions.begin() as session:
             row = session.get(AttachmentRow, attachment_id)
             if row is not None:
+                other_refs = self._other_references(session, row)
                 session.delete(row)
+            else:
+                other_refs = 0
+        if not other_refs:
+            stored_path = session_dir / Path(attachment.path).name
+            stored_path.unlink(missing_ok=True)
+        self._thumbnail_path(session_id, attachment_id).unlink(missing_ok=True)
         try:
             session_dir.rmdir()
         except OSError:
             pass
+
+    def delete_all_for_session(self, session_id: str) -> int:
+        # Retention legata al ciclo di vita: terminare/archiviare una sessione
+        # libera l'id tmux numerico, che tmux può riassegnare a una sessione
+        # futura scollegata — lasciare allegati sotto il vecchio path
+        # rischierebbe di associarli implicitamente alla nuova sessione.
+        session_dir = self.storage_root / session_id
+        with self._sessions.begin() as session:
+            rows = list(
+                session.scalars(select(AttachmentRow).where(AttachmentRow.session_id == session_id))
+            )
+            for row in rows:
+                session.delete(row)
+        seen_files: set[str] = set()
+        for row in rows:
+            stored_name = Path(row.path).name
+            if stored_name not in seen_files:
+                (session_dir / stored_name).unlink(missing_ok=True)
+                seen_files.add(stored_name)
+            self._thumbnail_path(session_id, row.id).unlink(missing_ok=True)
+        try:
+            session_dir.rmdir()
+        except OSError:
+            pass
+        return len(rows)
 
     def cleanup_expired(self, ttl_seconds: int, now: float | None = None) -> int:
         cutoff = datetime.fromtimestamp((now if now is not None else time.time()) - ttl_seconds, UTC)
@@ -173,8 +290,11 @@ class AttachmentService:
                 session.scalars(select(AttachmentRow).where(AttachmentRow.created_at < cutoff))
             )
             for row in expired:
-                stored_path = self.storage_root / row.session_id / Path(row.path).name
-                stored_path.unlink(missing_ok=True)
+                other_refs = self._other_references(session, row)
+                if not other_refs:
+                    stored_path = self.storage_root / row.session_id / Path(row.path).name
+                    stored_path.unlink(missing_ok=True)
+                self._thumbnail_path(row.session_id, row.id).unlink(missing_ok=True)
                 session.delete(row)
                 removed += 1
         if not self.storage_root.exists():

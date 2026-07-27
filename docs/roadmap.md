@@ -17,11 +17,10 @@
 - M3: gran parte rilasciata; service worker, offline, notifiche locali e
   preferenze (vista predefinita) validati sull'istanza pubblicata (TLS via
   ADR 008).
-- M4: cronologia Claude anticipata e conclusa; allegati con persistenza
-  metadati in DB appena aggiunta; prossimo blocco consigliato: le restanti
-  sotto-parti di "Gestione allegati avanzata" (anteprime, deduplica, quote,
-  retention) oppure un'altra voce M4 (ricerca/tag/template, multi-pane
-  esteso, Web Push, riepiloghi).
+- M4: cronologia Claude anticipata e conclusa; "Gestione allegati avanzata"
+  completa (persistenza, anteprime, quote aggregate, deduplica, retention);
+  prossimo blocco consigliato: ricerca/tag/template, multi-pane esteso, Web
+  Push o riepiloghi.
 
 Stato read-only dei task dell'orchestratore locale: resta solo in roadmap,
 intenzionalmente non implementato — dipende da un sistema esterno privato,
@@ -199,12 +198,23 @@ condiviso e mappatura pane ↔ session id.
 - [ ] Ricerca, tag e template.
 - [ ] Supporto multi-pane esteso: layout, navigazione e gestione completa;
   selezione, split e resize di base sono già disponibili in M1.
-- [~] Gestione allegati avanzata: persistenza dei metadati in tabella
+- [x] Gestione allegati avanzata: persistenza dei metadati in tabella
   `attachments` (SQLite/Alembic, come utenti/archivi/audit), con backfill dai
   vecchi sidecar JSON in migrazione. Richiede il database (stesso gate 503
-  già usato da archivi/audit se `MAC_DATABASE_AUTH_ENABLED` è spento). Restano
-  da fare: anteprime, deduplicazione, quote aggregate e policy di
-  conservazione oltre il TTL singolo attuale.
+  già usato da archivi/audit se `MAC_DATABASE_AUTH_ENABLED` è spento).
+  Anteprime: thumbnail JPEG best-effort (max 256×256, via Pillow) generata
+  all'upload per le immagini, servita da un endpoint autenticato dedicato e
+  rimossa insieme all'allegato (esplicita, per TTL o per fine sessione);
+  mostrata nel composer al posto del solo nome file. Quote aggregate: limite
+  di byte totali per sessione (`MAC_MAX_ATTACHMENT_BYTES_PER_SESSION`, oltre
+  al limite per singolo file), verificato prima della scrittura su disco.
+  Deduplica per sessione: upload con contenuto identico (stesso hash SHA-256)
+  nella stessa sessione riusa il file fisico già presente invece di
+  riscriverlo, con conteggio dei riferimenti al delete/TTL. Retention legata
+  al ciclo di vita: terminare o archiviare una sessione rimuove subito i suoi
+  allegati (non solo al TTL), perché tmux può riassegnare l'id numerico
+  liberato a una sessione futura scollegata. Validato sull'istanza
+  pubblicata, incluse le anteprime nel composer.
 - [ ] Riepiloghi opzionali.
 
 ## M5 — Espansioni

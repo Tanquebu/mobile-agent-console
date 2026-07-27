@@ -220,10 +220,16 @@ non invia Enter. Risposta `202 {"accepted":true}`.
 
 ## `POST /api/v1/sessions/{id}/attachments?filename=...`
 
-Richiede autenticazione e CSRF. Il body è il contenuto binario del singolo
-file e `Content-Type` deve essere uno dei tipi consentiti: PNG, JPEG, WebP,
-PDF, testo UTF-8, Markdown, CSV, JSON o XML. La dimensione massima predefinita
-è 10 MiB (`MAC_MAX_ATTACHMENT_BYTES`).
+Richiede autenticazione, CSRF e il database dei metadati (`503` se
+`MAC_DATABASE_AUTH_ENABLED` è spento, come per archivi/audit). Il body è il
+contenuto binario del singolo file e `Content-Type` deve essere uno dei tipi
+consentiti: PNG, JPEG, WebP, PDF, testo UTF-8, Markdown, CSV, JSON o XML. La
+dimensione massima predefinita è 10 MiB (`MAC_MAX_ATTACHMENT_BYTES`); la
+somma degli allegati della sessione non può superare
+`MAC_MAX_ATTACHMENT_BYTES_PER_SESSION` (100 MiB per default). Se il contenuto
+(hash SHA-256) coincide con un allegato già presente nella stessa sessione,
+il file fisico viene riusato invece di riscritto (righe di metadati distinte,
+stesso file su disco).
 
 Risposta:
 
@@ -239,12 +245,22 @@ Risposta:
 
 L'id può essere usato soltanto nella sessione per cui è stato caricato.
 
+## `GET /api/v1/sessions/{id}/attachments/{attachment_id}/preview`
+
+Richiede autenticazione (qualsiasi ruolo). Restituisce una thumbnail JPEG
+best-effort (max 256×256) generata al momento dell'upload per gli allegati
+immagine; `404` per allegati non immagine o se la generazione è fallita.
+
 ## `DELETE /api/v1/sessions/{id}/attachments/{attachment_id}`
 
-Richiede autenticazione e CSRF. Elimina immediatamente contenuto e metadati
-dell'allegato, purché appartenga alla sessione indicata. Risposta `204`.
-Gli allegati non eliminati esplicitamente scadono automaticamente dopo
-`MAC_ATTACHMENT_TTL_SECONDS` (24 ore per default).
+Richiede autenticazione e CSRF. Elimina immediatamente metadati e, se nessun
+altro allegato della sessione referenzia lo stesso contenuto (deduplica),
+anche il file fisico. Risposta `204`. Gli allegati non eliminati
+esplicitamente scadono automaticamente dopo `MAC_ATTACHMENT_TTL_SECONDS` (24
+ore per default), oppure prima se la sessione viene terminata o archiviata:
+l'id numerico liberato può essere riassegnato da tmux a una sessione futura
+scollegata, quindi gli allegati non sopravvivono alla sessione che li ha
+caricati.
 
 ## `POST /api/v1/sessions/{id}/keys`
 

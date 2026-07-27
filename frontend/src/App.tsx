@@ -10,6 +10,7 @@ import {
   Backup,
   ClaudeHistory,
   archiveSession,
+  attachmentPreviewUrl,
   backupDownloadUrl,
   createBackup,
   createUser,
@@ -1963,6 +1964,15 @@ function Console({
           <div className="attachments" aria-label="Allegati al prompt">
             {attachments.map((attachment) => (
               <span className="attachment-chip" key={attachment.id}>
+                {attachment.media_type.startsWith("image/") && (
+                  <img
+                    className="attachment-thumb"
+                    src={attachmentPreviewUrl(session.id, attachment.id)}
+                    alt=""
+                    aria-hidden="true"
+                    onError={(event) => { event.currentTarget.style.display = "none"; }}
+                  />
+                )}
                 <span title={attachment.path}>{attachment.name}</span>
                 <button
                   type="button"
