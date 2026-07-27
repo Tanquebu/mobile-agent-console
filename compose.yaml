@@ -79,6 +79,7 @@ services:
     read_only: true
     tmpfs: ["/var/cache/nginx", "/var/run"]
     security_opt: ["no-new-privileges:true"]
+    secrets: [mac_tls_cert, mac_tls_key]
     depends_on: [backend]
     restart: unless-stopped
 
@@ -106,3 +107,7 @@ secrets:
     file: ./.secrets/login_password
   mac_session_secret:
     file: ./.secrets/session_secret
+  mac_tls_cert:
+    file: ${MAC_TLS_CERT_FILE:-./.secrets/tls/tailscale.crt}
+  mac_tls_key:
+    file: ${MAC_TLS_KEY_FILE:-./.secrets/tls/tailscale.key}

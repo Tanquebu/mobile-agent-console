@@ -35,10 +35,11 @@ interazione con client tmux già collegati e semantica di ripristino. La
 soluzione dovrebbe confluire nel lavoro M1 su pane selection/resize o nel
 terminal mode previsto in M3.
 
-## Drift dello scroll in pausa e storico assente per app a schermo alternato
+## Drift dello scroll in pausa e storico delle app a schermo alternato
 
-**Stato:** differita; il fix tentato è stato revertito perché il side effect
-era peggiore del bug originale.
+**Stato:** parzialmente risolta. La cronologia Claude è disponibile tramite
+adapter opzionale validato; il limite resta per altre TUI fullscreen e il
+drift dello scroll live è differito.
 
 Bug osservato: con "autoscroll intelligente" in pausa (utente risalito
 nell'output), il contenuto del pane continua comunque a essere sostituito
@@ -82,3 +83,21 @@ Possibili direzioni future, nessuna banale:
   fullscreen);
 - accettare il drift residuo come limite noto e minore, documentandolo in
   UI (es. tooltip sul pulsante "Segui output").
+
+Per Claude non tentare nuovamente di ricavare la cronologia da
+`capture-pane`: ADR 007 definisce il collector normalizzato, il feature flag e
+il fallback live. La soluzione generica resta il terminal mode o un adapter
+separato con le stesse proprietà di isolamento.
+
+## Notifiche locali attive solo con la lista sessioni montata
+
+**Stato:** limite noto, accettato per ora.
+
+Le notifiche locali si basano sul polling di `/api/v1/agent-statuses` già
+presente in `SessionList`; il rilevamento delle transizioni verso "attende
+feedback"/"attende autorizzazione" gira quindi solo mentre quella vista è
+montata (app in background o schermo bloccato mentre si è sulla lista), non
+mentre si è dentro la console di un'altra sessione. Spostare il polling a
+livello di `App` risolverebbe il limite ma richiede sollevare anche lo stato
+`sessions`, usato pervasivamente in `SessionList`: rimandato finché non
+emerge un bisogno concreto.

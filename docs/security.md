@@ -51,6 +51,12 @@ La policy Tailscale deve limitare utenti/dispositivi; l'applicazione mantiene
 comunque autenticazione propria. Verificare con `ss -ltnp` che la porta ascolti
 solo su loopback o sull'IP Tailscale.
 
+Con il bind diretto sull'IP Tailscale (alternativa sopra), nginx può
+comunque terminare TLS con un certificato reale (`tailscale cert`) invece di
+restare in `http://`: le API `Notification`/`ServiceWorker` del browser
+richiedono un contesto sicuro indipendentemente dalla cifratura di trasporto
+già fornita da Tailscale. Vedi ADR 008 e `deploy/tailscale/README.md`.
+
 Per un repository pubblico: `.secrets/`, `.env`, immagini e log non devono mai
 contenere credenziali. Usare secret scanning in CI e ruotare immediatamente
 qualsiasi valore accidentalmente pubblicato; rimuoverlo dalla cronologia non è

@@ -1,0 +1,9 @@
+[Unit]
+Description=Renew Mobile Agent Console TLS certificate (tailscale cert)
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/mobile-agent-console/environment
+ExecStart=/bin/sh ${MAC_INSTALL_DIR}/deploy/tls-renew.sh
+UMask=0077
+NoNewPrivileges=yes

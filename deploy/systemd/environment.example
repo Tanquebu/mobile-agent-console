@@ -3,3 +3,6 @@
 MAC_INSTALL_DIR=/home/example/.local/share/mobile-agent-console
 # Root persistente condivisa con il backend.
 MAC_WORKSPACE_ROOT=/home/example/projects
+# Nome MagicDNS del nodo Tailscale (tailscale status --self), usato da
+# mobile-agent-console-tls-renew per rinnovare il certificato nginx.
+MAC_TAILNET_HOSTNAME=example-host.example-tailnet.ts.net

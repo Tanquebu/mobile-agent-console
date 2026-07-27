@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import {
   ApiError,
   AgentStatus,
@@ -59,6 +59,21 @@ import {
   UserAccount,
 } from "./api";
 
+function useOnlineStatus(): boolean {
+  const [online, setOnline] = useState(() => navigator.onLine);
+  useEffect(() => {
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+  return online;
+}
+
 type Connection = "connecting" | "online" | "offline" | "closed";
 
 const CONNECTION_LABEL: Record<Connection, string> = {
@@ -69,9 +84,9 @@ const CONNECTION_LABEL: Record<Connection, string> = {
 };
 
 const LATEST_RELEASE = {
-  title: "Cronologia Claude",
+  title: "Notifiche locali e shell offline",
   description:
-    "Cronologia estesa opzionale e isolata, con viste live sempre disponibili e rollback sicuro.",
+    "Avviso locale opzionale quando una sessione attende feedback o autorizzazione ad app in background, più caricamento offline best-effort dell'app.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -81,6 +96,41 @@ const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
   waiting_authorization: "🔒",
   unknown: "?",
 };
+
+const NOTIFY_STATES = new Set<AgentStatus["state"]>([
+  "waiting_input",
+  "waiting_authorization",
+]);
+
+const NOTIFY_PREFERENCE_KEY = "mac-notify-attention";
+
+function notifySessionAttention(sessionName: string, status: AgentStatus) {
+  const title = "Mobile Agent Console";
+  // Nessun contenuto di output/prompt nel corpo, per coerenza con
+  // l'invariante di sicurezza "notifiche senza contenuto di default".
+  const body = status.state === "waiting_authorization"
+    ? `“${sessionName}” attende un'autorizzazione`
+    : `“${sessionName}” attende un feedback`;
+  const options: NotificationOptions = {
+    body,
+    tag: `session-${status.session_id}`,
+  };
+  const fallback = () => {
+    try {
+      new Notification(title, options);
+    } catch {
+      /* notifiche non disponibili su questo browser/contesto */
+    }
+  };
+  if (navigator.serviceWorker) {
+    navigator.serviceWorker.ready.then(
+      (registration) => registration.showNotification(title, options),
+      fallback,
+    );
+  } else {
+    fallback();
+  }
+}
 
 const PERMISSION_STATE_ICON: Record<AgentStatus["permission_state"], string> = {
   restricted: "▣",
@@ -934,6 +984,16 @@ function SessionList({
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
   const [providerLimits, setProviderLimits] = useState<ProviderRateLimits | null>(null);
   const [agentStatusBySession, setAgentStatusBySession] = useState<Record<string, AgentStatus>>({});
+  const [notifyEnabled, setNotifyEnabled] = useState(
+    () => window.localStorage.getItem(NOTIFY_PREFERENCE_KEY) === "1",
+  );
+  const notifySupported = typeof Notification !== "undefined";
+  const sessionsRef = useRef<Session[]>([]);
+  const previousAgentStatesRef = useRef<Record<string, AgentStatus["state"]>>({});
+
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
 
   useEffect(() => {
     listSessions().then(setSessions).catch((value) => {
@@ -954,11 +1014,27 @@ function SessionList({
     const refresh = () => {
       listAgentStatuses()
         .then((statuses) => {
-          if (active) {
-            setAgentStatusBySession(
-              Object.fromEntries(statuses.map((status) => [status.session_id, status])),
-            );
+          if (!active) return;
+          setAgentStatusBySession(
+            Object.fromEntries(statuses.map((status) => [status.session_id, status])),
+          );
+          const previousStates = previousAgentStatesRef.current;
+          if (notifyEnabled && document.hidden && Notification.permission === "granted") {
+            for (const status of statuses) {
+              const previousState = previousStates[status.session_id];
+              if (
+                previousState !== undefined &&
+                previousState !== status.state &&
+                NOTIFY_STATES.has(status.state)
+              ) {
+                const session = sessionsRef.current.find((item) => item.id === status.session_id);
+                notifySessionAttention(session?.name ?? `#${status.session_id}`, status);
+              }
+            }
           }
+          previousAgentStatesRef.current = Object.fromEntries(
+            statuses.map((status) => [status.session_id, status.state]),
+          );
         })
         .catch(() => { /* lo stato euristico non blocca la dashboard */ });
     };
@@ -968,7 +1044,7 @@ function SessionList({
       active = false;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [notifyEnabled]);
 
   useEffect(() => {
     let active = true;
@@ -1045,6 +1121,19 @@ function SessionList({
     }
   }
 
+  async function toggleNotifications() {
+    if (notifyEnabled) {
+      setNotifyEnabled(false);
+      window.localStorage.setItem(NOTIFY_PREFERENCE_KEY, "0");
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+      setNotifyEnabled(true);
+      window.localStorage.setItem(NOTIFY_PREFERENCE_KEY, "1");
+    }
+  }
+
   return (
     <main className="shell">
       <header className="topbar">
@@ -1059,6 +1148,20 @@ function SessionList({
       <div className="dashboard-actions">
         {identity.role !== "viewer" && (
           <button className="new-session" onClick={() => setCreating((value) => !value)}>+ Nuova sessione</button>
+        )}
+        {notifySupported && (
+          <button
+            className="snapshot-button"
+            onClick={toggleNotifications}
+            disabled={!notifyEnabled && Notification.permission === "denied"}
+            title={
+              Notification.permission === "denied"
+                ? "Notifiche bloccate dal browser per questo sito"
+                : "Avvisa quando una sessione attende feedback o autorizzazione, ad app in background"
+            }
+          >
+            {notifyEnabled ? "Notifiche: on" : "Notifiche: off"}
+          </button>
         )}
         {identity.role !== "viewer" && (
           <button className="snapshot-button" onClick={() => setShowSnapshots(true)}>Snapshot</button>
@@ -1855,6 +1958,7 @@ function Console({
 }
 
 export default function App() {
+  const online = useOnlineStatus();
   const [active, setActive] = useState<Session | null>(null);
   const [identity, setIdentity] = useState<Identity | null | undefined>(undefined);
   const [username, setUsername] = useState("admin");
@@ -1863,11 +1967,11 @@ export default function App() {
   useEffect(() => {
     restoreSession().then(setIdentity).catch(() => setIdentity(null));
   }, []);
+  let content: ReactNode;
   if (identity === undefined) {
-    return <main className="login"><p>Verifica sessione…</p></main>;
-  }
-  if (identity === null) {
-    return (
+    content = <main className="login"><p>Verifica sessione…</p></main>;
+  } else if (identity === null) {
+    content = (
       <main className="login">
         <form onSubmit={async (event) => {
           event.preventDefault();
@@ -1895,8 +1999,19 @@ export default function App() {
         </form>
       </main>
     );
+  } else {
+    content = active
+      ? <Console session={active} identity={identity} onBack={() => setActive(null)} />
+      : <SessionList identity={identity} onOpen={setActive} onUnauthorized={() => setIdentity(null)} />;
   }
-  return active
-    ? <Console session={active} identity={identity} onBack={() => setActive(null)} />
-    : <SessionList identity={identity} onOpen={setActive} onUnauthorized={() => setIdentity(null)} />;
+  return (
+    <>
+      {!online && (
+        <p className="offline-banner" role="status">
+          Connessione assente: in attesa di rete, alcune funzioni sono sospese.
+        </p>
+      )}
+      {content}
+    </>
+  );
 }

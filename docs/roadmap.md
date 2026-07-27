@@ -2,9 +2,30 @@
 
 ## Legenda
 
-- [x] disponibile nel repository;
+- [x] disponibile, deployato e validato quando la voce è funzionale;
 - [ ] da realizzare;
 - [~] parzialmente disponibile o da completare.
+
+## Stato sintetico e ordine di avanzamento
+
+- M0: concluso.
+- M1: operativo; resta il terminal mode per la resa ANSI/fullscreen completa.
+- M2 e M2A: conclusi.
+- M3: gran parte rilasciata; service worker, offline e notifiche locali
+  validati sull'istanza pubblicata (TLS via ADR 008); prossimo blocco
+  consigliato: preferenze utente.
+- M4: cronologia Claude anticipata e conclusa; il resto segue il completamento
+  di M3.
+
+Stato read-only dei task dell'orchestratore locale: resta solo in roadmap,
+intenzionalmente non implementato — dipende da un sistema esterno privato,
+non presente in questo repository pubblico e agent-agnostic per scelta; il
+contratto (file JSON sanitizzato o collector su API locale, senza
+credenziali/prompt/output/comandi di controllo) sarà formalizzato quando
+verrà preso in carico.
+
+Ordine corrente: preferenze → terminal mode xterm.js → operatività M4
+restante → (se ripreso) stato orchestratore locale.
 
 ## M0 — Fondazioni e vertical slice
 
@@ -104,9 +125,18 @@ API specifiche di Codex, Claude o altri agenti.
   validato sull'istanza pubblicata.
 - [x] Percentuale della finestra di contesto per sessione Codex/Claude tramite
   metadati strutturati sanitizzati, validata sull'istanza pubblicata.
-- [ ] Notifiche PWA locali.
-- [~] Manifest PWA presente; service worker e comportamento offline da
-  completare.
+- [x] Notifiche PWA locali: avviso quando una sessione passa a "attende
+  feedback"/"attende autorizzazione" mentre l'app è in background, gated da
+  permesso e preferenza utente, senza contenuto di output/prompt nel corpo
+  della notifica (coerente con l'invariante di sicurezza), validate
+  sull'istanza pubblicata con TLS (ADR 008). Limite noto: il rilevamento
+  gira solo mentre la lista sessioni è montata (non mentre si è dentro la
+  console di un'altra sessione), perché lo stato euristico è interrogato
+  lì — vedi `docs/backlog.md`.
+- [x] Service worker con cache dell'app shell "network-first" per un
+  caricamento offline best-effort (mai per le chiamate `/api/`, sempre
+  autoritative) e banner "connessione assente" globale; manifest PWA
+  presente. Validato sull'istanza pubblicata con TLS (ADR 008).
 - [ ] Preferenze.
 - [ ] Terminal mode xterm.js e tasti speciali.
 - [x] Rinominare il pulsante "Tasti speciali" in "Funzioni speciali".
@@ -142,7 +172,8 @@ condiviso e mappatura pane ↔ session id.
 - [x] Cronologia Claude opzionale con collector minimizzato, feature flag,
   fallback live e rollback isolato, validata sull'istanza pubblicata.
 - [ ] Ricerca, tag e template.
-- [ ] Supporto multi-pane.
+- [ ] Supporto multi-pane esteso: layout, navigazione e gestione completa;
+  selezione, split e resize di base sono già disponibili in M1.
 - [ ] Gestione allegati avanzata: persistenza dei metadati, anteprime,
   deduplicazione, quote aggregate e policy di conservazione.
 - [ ] Riepiloghi opzionali.

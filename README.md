@@ -31,6 +31,16 @@ generic terminal, with no dependency on any specific vendor or tool.
 - opt-in chat blocks over the authoritative tmux snapshot, with an immediate
   switch back to the raw terminal view;
 - per-session context-window usage beside Codex/Claude in the dashboard;
+- provider rate-limit usage and normalized permission state in the dashboard;
+- an optional, isolated Claude transcript history view that never replaces
+  the authoritative live tmux stream;
+- allowed-directory navigation with UTF-8 preview and authenticated downloads;
+- persistent users and roles, audit, archives, verified backups and offline
+  restore;
+- offline-tolerant PWA shell via a service worker (API calls always stay
+  live), a connection-lost banner, and opt-in local notifications when a
+  session starts waiting for feedback or authorization while the app is in
+  the background;
 - an in-app quick guide whose “What's new” section shows only the latest
   shipped roadmap item;
 - directory suggestions in the new-session form, prefilled from the
@@ -280,6 +290,22 @@ or set `MAC_BIND_IP` to your `tailscale ip -4` address and adjust
 on public interfaces. See [docs/security.md](docs/security.md) and
 `deploy/tailscale/`.
 
+With the direct-IP bind, nginx still serves plain `http://`, which browsers
+treat as a non-secure context — the Notification and ServiceWorker APIs
+silently refuse to work there even though Tailscale already encrypts the
+traffic. `deploy/tailscale/README.md` documents terminating TLS in nginx
+with a real certificate from `tailscale cert` for your tailnet's MagicDNS
+name, so the app stays reachable only over Tailscale but as `https://`. An
+optional user timer keeps the certificate renewed:
+
+```bash
+cp deploy/systemd/mobile-agent-console-tls-renew.service ~/.config/systemd/user/
+cp deploy/systemd/mobile-agent-console-tls-renew.timer ~/.config/systemd/user/
+# set MAC_TAILNET_HOSTNAME in ~/.config/mobile-agent-console/environment
+systemctl --user daemon-reload
+systemctl --user enable --now mobile-agent-console-tls-renew.timer
+```
+
 ## Tests
 
 ```bash
@@ -294,6 +320,9 @@ Project documentation lives in [`docs/`](docs/) — architecture, threat
 model, API and WebSocket contracts, requirements, roadmap, feature backlog,
 and ADRs. It is currently written in Italian (as are the UI labels); the API
 surface, configuration, and code are in English.
+
+Start from the current [project overview](docs/overview.md) and
+[technical roadmap](docs/roadmap.md).
 
 ## License
 

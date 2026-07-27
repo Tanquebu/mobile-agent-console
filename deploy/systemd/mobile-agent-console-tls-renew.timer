@@ -1,0 +1,11 @@
+[Unit]
+Description=Renew Mobile Agent Console TLS certificate periodically
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=1d
+AccuracySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

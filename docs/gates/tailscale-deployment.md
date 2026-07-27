@@ -18,6 +18,9 @@ pubblichi la propria porta sull'interfaccia Internet dell'host.
    Serve/Funnel di altri servizi non puntino alla porta di Mobile Agent
    Console.
 6. Confermare `/health` e il normale accesso autenticato dalla tailnet.
+7. Se nginx termina TLS (ADR 008), verificare `curl https://<nome-magicdns>:<porta>/health`
+   senza `-k` (certificato pubblico attendibile) e che l'accesso diretto in
+   `http://` sull'IP nudo non risponda più (nginx ora fa solo `listen ssl`).
 
 ## Esito
 

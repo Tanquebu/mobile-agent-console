@@ -17,28 +17,28 @@ multilinea, tasti separati, interrupt/terminazione, PWA, allowlist, audit,
 systemd e accesso Tailscale. Non comprende multi-tenancy, multi-host,
 orchestrazione agentica o API vendor.
 
-## Vertical slice attuale
+## Prodotto attuale
 
-Il primo incremento restringe intenzionalmente l'MVP:
+L'applicazione pubblicata comprende:
 
-- elenca sessioni sul socket configurato;
-- crea una nuova sessione shell dall’app;
-- elenca e apre una sessione;
-- cattura e aggiorna l'output;
-- invia testo senza implicitamente premere Enter;
-- invia Enter come comando distinto;
-- usa login runtime, cookie HttpOnly e CSRF same-origin;
-- sopravvive a refresh e disconnessioni.
+- elenco, creazione, rinomina, archivio, ripristino e terminazione delle
+  sessioni;
+- selezione, split e resize dei pane;
+- output WebSocket, input multilinea, Enter e tasti come operazioni separate;
+- browser delle directory consentite, preview, download e allegati;
+- account persistenti con ruoli, audit, snapshot e backup;
+- dashboard Codex/Claude con stato, permessi, quote e consumo del contesto;
+- viste Terminale e Blocchi, con Cronologia Claude opzionale;
+- modalità tmux Docker o host e avvio/deploy tramite user unit systemd.
 
-Rinomina e termina sessioni tramite azioni dedicate. Creazione e rinomina
-accettano nomi ASCII con lettere, numeri, `_`, `-` e spazi singoli tra le
-parole; la directory resta dentro l’allowlist e il profilo server-side è
-selezionato tra `shell`, `codex` e `claude`.
+Creazione e rinomina accettano nomi ASCII con lettere, numeri, `_`, `-` e
+spazi singoli tra le parole. Directory e file restano entro l'allowlist; i
+profili eseguibili sono risolti server-side.
 
-Gli snapshot di riavvio persistono nome, directory e modalità sicura di
-rilancio per un insieme selezionato di sessioni. Non sono checkpoint dei
-processi: dopo un reboot ricreano shell e, opzionalmente, aprono il selettore
-di resume nativo di Codex o Claude.
+Gli snapshot non sono checkpoint dei processi: dopo un reboot ricreano shell
+e possono aprire il selettore di resume nativo di Codex o Claude. La
+cronologia Claude è un adapter read-only separato e non sostituisce lo stream
+tmux.
 
 ## Requisiti non funzionali
 
@@ -47,23 +47,23 @@ di resume nativo di Codex o Claude.
 - `subprocess` con argv e `shell=False`;
 - nomi sessione lunghi al massimo 64 caratteri, con parole ASCII separate da
   spazi singoli (`_` e `-` consentiti);
-- limite input 64 KiB e output iniziale 500 righe;
+- limite input 64 KiB e snapshot WebSocket autorevoli;
 - WebSocket autenticato e riconnessione con snapshot idempotente;
 - interfaccia usabile a 360 px, input multilinea e target touch >= 44 px;
 - test senza dipendere da agenti reali.
 
 ## Assunzioni e compromessi
 
-Un solo utente Linux possiede backend e sessioni tmux. Il socket dedicato
-isola l'app dalle sessioni tmux personali, ma significa che sessioni sul socket
-predefinito non sono visibili. `capture-pane` non ricostruisce perfettamente
-applicazioni fullscreen o riscritture ANSI: terminal mode affronterà questi
-casi. Il token inserito nella build Vite è accettabile soltanto per sviluppo e
-sarà sostituito dal login con cookie HttpOnly prima del deployment.
+Un solo utente Linux possiede backend e sessioni tmux. La modalità Docker usa
+un runtime isolato; la modalità host collega deliberatamente il backend al
+socket tmux predefinito dell'utente e amplia quindi il suo confine di fiducia.
+`capture-pane` non ricostruisce perfettamente applicazioni fullscreen o
+riscritture ANSI: il futuro terminal mode affronterà questi casi. Gli adapter
+provider-specifici sono opt-in e devono lasciare intatto il fallback tmux.
 
 ## Runtime tmux MVP
 
-Il MVP supporterà due modalità configurabili: `docker`, con socket nel runtime
-isolato, e `host`, con un socket tmux dedicato dell’host montato nel backend.
-La seconda serve a usare direttamente Codex, Claude, Gemini e sessioni create
-fuori da Docker; la scelta definitiva è rinviata all’ADR 004.
+Il prodotto supporta due modalità configurabili: `docker`, con socket nel
+runtime isolato, e `host`, con il socket tmux predefinito dell'utente montato
+nel backend. La modalità host usa direttamente CLI, alias e sessioni esistenti;
+la decisione corrente è formalizzata in ADR 005, che supera ADR 004.
