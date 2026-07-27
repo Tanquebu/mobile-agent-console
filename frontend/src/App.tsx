@@ -32,6 +32,7 @@ import {
   errorMessage,
   login,
   Identity,
+  killPane,
   listSessions,
   listArchives,
   listAgentStatuses,
@@ -1489,6 +1490,7 @@ function Console({
   const [panes, setPanes] = useState<Pane[]>([]);
   const [paneId, setPaneId] = useState("");
   const [splittingPane, setSplittingPane] = useState(false);
+  const [closingPane, setClosingPane] = useState(false);
   const agentic = /codex|claude/i.test(session.current_command);
   const claude = /claude/i.test(session.current_command);
   const [historyEnabled, setHistoryEnabled] = useState(false);
@@ -1837,6 +1839,23 @@ function Console({
     }
   }
 
+  async function closePane() {
+    if (!paneId) return;
+    if (!window.confirm("Chiudere questo pane? Il processo al suo interno verrà terminato.")) return;
+    setClosingPane(true);
+    setControlError("");
+    try {
+      await killPane(session.id, paneId);
+      const items = await listPanes(session.id);
+      setPanes(items);
+      setPaneId(items[0]?.id ?? "");
+    } catch (value) {
+      setControlError(errorMessage(value));
+    } finally {
+      setClosingPane(false);
+    }
+  }
+
   return (
     <main className="console">
       <header className="console-header">
@@ -2054,6 +2073,16 @@ function Console({
             >
               {splittingPane ? "Divisione…" : "Dividi pane"}
             </button>
+            {panes.length > 1 && (
+              <button
+                disabled={connection === "closed" || closingPane || !paneId}
+                type="button"
+                className="danger"
+                onClick={() => void closePane()}
+              >
+                {closingPane ? "Chiusura…" : "Chiudi pane"}
+              </button>
+            )}
           </div>
         )}
         {showDirectory && (

@@ -19,8 +19,10 @@
   ADR 008).
 - M4: cronologia Claude anticipata e conclusa; "Gestione allegati avanzata"
   completa (persistenza, anteprime, quote aggregate, deduplica, retention);
-  prossimo blocco consigliato: ricerca/tag/template, multi-pane esteso, Web
-  Push o riepiloghi.
+  chiusura del singolo pane aggiunta al supporto multi-pane esteso, ancora
+  parziale; prossimo blocco consigliato: ricerca/tag/template, Web Push o
+  riepiloghi (oppure il resto del multi-pane: split verticale, vista con più
+  pane visibili insieme).
 
 Stato read-only dei task dell'orchestratore locale: resta solo in roadmap,
 intenzionalmente non implementato — dipende da un sistema esterno privato,
@@ -196,8 +198,14 @@ condiviso e mappatura pane ↔ session id.
 - [x] Cronologia Claude opzionale con collector minimizzato, feature flag,
   fallback live e rollback isolato, validata sull'istanza pubblicata.
 - [ ] Ricerca, tag e template.
-- [ ] Supporto multi-pane esteso: layout, navigazione e gestione completa;
-  selezione, split e resize di base sono già disponibili in M1.
+- [~] Supporto multi-pane esteso: chiusura di un singolo pane (`kill-pane`,
+  con conferma esplicita), che lascia sessione e altri pane attivi — rifiuta
+  se è l'unico pane rimasto (va terminata la sessione). Selezione, split e
+  resize di base restano quelli di M1. Restano da fare: scelta tra split
+  orizzontale/verticale (oggi fisso orizzontale) e una vista con più pane
+  visibili contemporaneamente invece del selettore a tendina attuale (che
+  richiederebbe anche catturare la posizione dei pane da tmux, non fatto
+  oggi).
 - [x] Gestione allegati avanzata: persistenza dei metadati in tabella
   `attachments` (SQLite/Alembic, come utenti/archivi/audit), con backfill dai
   vecchi sidecar JSON in migrazione. Richiede il database (stesso gate 503

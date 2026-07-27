@@ -297,6 +297,35 @@ def test_list_target_and_resize_pane() -> None:
     ).status_code == 404
 
 
+def test_kill_pane_requires_confirmation_and_keeps_last_pane() -> None:
+    client, fake = client_and_fake()
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+    assert client.request(
+        "DELETE", "/api/v1/sessions/1/panes/10", headers=headers, json={"confirmed": False}
+    ).status_code == 400
+    # non si può chiudere l'unico pane rimasto: va terminata la sessione.
+    last_pane = client.request(
+        "DELETE", "/api/v1/sessions/1/panes/10", headers=headers, json={"confirmed": True}
+    )
+    assert last_pane.status_code == 400
+    assert len(fake.panes["1"]) == 1
+
+    split = client.post("/api/v1/sessions/1/panes/split?pane_id=10", headers=headers).json()
+    missing = client.request(
+        "DELETE", "/api/v1/sessions/1/panes/99", headers=headers, json={"confirmed": True}
+    )
+    assert missing.status_code == 404
+    closed = client.request(
+        "DELETE",
+        f"/api/v1/sessions/1/panes/{split['id']}",
+        headers=headers,
+        json={"confirmed": True},
+    )
+    assert closed.status_code == 204
+    assert [pane.id for pane in fake.panes["1"]] == ["10"]
+
+
 def test_text_and_enter_are_separate_and_csrf_protected() -> None:
     client, fake = client_and_fake()
     csrf = login(client)

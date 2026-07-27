@@ -1041,6 +1041,34 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             raise HTTPException(404, "Pane not found in session") from exc
         return Accepted()
 
+    @app.delete(
+        "/api/v1/sessions/{session_id}/panes/{pane_id}",
+        status_code=204,
+        dependencies=[Depends(require_operator)],
+    )
+    async def kill_pane(
+        session_id: str, pane_id: str, payload: ConfirmedAction
+    ) -> Response:
+        if not payload.confirmed:
+            raise HTTPException(400, "Closing a pane requires explicit confirmation")
+        try:
+            panes = await gateway.list_panes(session_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except SessionNotFound as exc:
+            raise HTTPException(404, "Session not found") from exc
+        if not any(pane.id == pane_id for pane in panes):
+            raise HTTPException(404, "Pane not found in session")
+        if len(panes) < 2:
+            raise HTTPException(400, "Terminate the session instead of closing its last pane")
+        try:
+            await gateway.kill_pane(session_id, pane_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except SessionNotFound as exc:
+            raise HTTPException(404, "Pane not found in session") from exc
+        return Response(status_code=204)
+
     @app.get(
         "/api/v1/sessions/{session_id}/output",
         response_model=OutputView,

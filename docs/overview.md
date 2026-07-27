@@ -17,7 +17,8 @@ cronologia Claude.
 ## Capacità disponibili
 
 - gestione mobile e desktop di sessioni e pane tmux, con output live, input,
-  tasti, resize, split, rinomina e terminazione confermata;
+  tasti, resize, split, chiusura del singolo pane, rinomina e terminazione
+  confermata;
 - modalità tmux Docker isolata oppure host sul socket predefinito;
 - account persistenti, ruoli, CSRF, cookie sicuri, audit e rate limiting;
 - snapshot di riavvio, archivio con resume, backup verificabili e restore

@@ -323,6 +323,13 @@ export async function splitPane(id: string, paneId?: string): Promise<Pane> {
   return response.json();
 }
 
+export async function killPane(id: string, paneId: string) {
+  await request(
+    `/api/v1/sessions/${encodeURIComponent(id)}/panes/${encodeURIComponent(paneId)}`,
+    { method: "DELETE", body: JSON.stringify({ confirmed: true }) },
+  );
+}
+
 export async function sendText(
   id: string,
   text: string,

@@ -167,6 +167,11 @@ valido risponde `404`. L'endpoint non cambia output o WebSocket.
 `POST /api/v1/sessions/{id}/panes/split?pane_id=N` crea un nuovo pane
 orizzontale con il profilo shell costante `bash -l`; non accetta comandi dal
 client e restituisce il pane creato.
+`DELETE /api/v1/sessions/{id}/panes/{pane_id}` richiede
+`{"confirmed":true}` e chiude il singolo pane (`kill-pane`), lasciando la
+sessione e gli altri pane attivi; rifiuta con `400` se è l'unico pane della
+sessione (va terminata la sessione stessa) e con `404` se il pane non
+appartiene alla sessione. Risposta `204`.
 
 ## `WS /api/v1/ws/sessions/{id}`
 

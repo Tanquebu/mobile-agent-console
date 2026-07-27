@@ -26,6 +26,9 @@ class FakeTmux:
         self.sessions = {
             "1": TmuxSession("1", "demo", False, 1, "bash", datetime.now(UTC))
         }
+        self.panes: dict[str, list[TmuxPane]] = {
+            "1": [TmuxPane("10", 0, 0, True, "bash", "demo", 80, 24)]
+        }
 
     async def check_server(self) -> str | None:
         return "no server running" if self.server_down else None
@@ -56,12 +59,13 @@ class FakeTmux:
             {"shell": "bash", "codex": "codex", "claude": "claude"}[profile],
             datetime.now(UTC),
         )
+        self.panes[new_id] = [TmuxPane("10", 0, 0, True, "bash", session_id, 80, 24)]
 
     async def list_panes(self, session_id: str) -> list[TmuxPane]:
         TmuxService.validate_target(session_id)
         if session_id not in self.sessions:
             raise SessionNotFound(session_id)
-        return [TmuxPane("10", 0, 0, True, "bash", "demo", 80, 24)]
+        return list(self.panes.get(session_id, []))
 
     async def capture_output(
         self, session_id: str, lines: int = 500, pane_id: str | None = None, ansi: bool = False
@@ -91,15 +95,25 @@ class FakeTmux:
         self.targets.append(pane_id)
 
     async def resize_pane(self, session_id: str, pane_id: str, columns: int, rows: int) -> None:
-        if not await self.list_panes(session_id) or pane_id != "10":
+        panes = await self.list_panes(session_id)
+        if not any(pane.id == pane_id for pane in panes):
             raise SessionNotFound(pane_id)
         self.resizes.append((pane_id, columns, rows))
 
     async def split_pane(self, session_id: str, pane_id: str | None = None) -> TmuxPane:
-        await self.list_panes(session_id)
-        if pane_id not in {None, "10"}:
+        panes = await self.list_panes(session_id)
+        if pane_id is not None and not any(pane.id == pane_id for pane in panes):
             raise SessionNotFound(pane_id)
-        return TmuxPane("11", 0, 1, False, "bash", "demo", 40, 24)
+        new_id = str(max((int(pane.id) for pane in panes), default=0) + 1)
+        new_pane = TmuxPane(new_id, 0, len(panes), False, "bash", "demo", 40, 24)
+        self.panes[session_id].append(new_pane)
+        return new_pane
+
+    async def kill_pane(self, session_id: str, pane_id: str) -> None:
+        panes = await self.list_panes(session_id)
+        if not any(pane.id == pane_id for pane in panes):
+            raise SessionNotFound(pane_id)
+        self.panes[session_id] = [pane for pane in panes if pane.id != pane_id]
 
     async def terminate_session(self, session_id: str) -> None:
         TmuxService.validate_target(session_id)
