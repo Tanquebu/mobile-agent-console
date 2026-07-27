@@ -1,9 +1,15 @@
 import json
 import re
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
+
+from sqlalchemy import select
+from sqlalchemy.orm import sessionmaker
+
+from ..models import Attachment as AttachmentRow
 
 ATTACHMENT_ID = re.compile(r"^[a-f0-9]{32}$")
 TEXT_MEDIA_TYPES = {
@@ -36,7 +42,8 @@ class Attachment:
 
 
 class AttachmentService:
-    def __init__(self, storage_root: str, prompt_root: str, max_bytes: int) -> None:
+    def __init__(self, engine, storage_root: str, prompt_root: str, max_bytes: int) -> None:
+        self._sessions = sessionmaker(engine, expire_on_commit=False)
         self.storage_root = Path(storage_root).resolve()
         self.prompt_root = Path(prompt_root)
         self.max_bytes = max_bytes
@@ -93,34 +100,44 @@ class AttachmentService:
         temporary_path.chmod(0o600)
         temporary_path.replace(stored_path)
         prompt_path = self.prompt_root / session_id / stored_path.name
-        attachment = Attachment(
+        row = AttachmentRow(
             id=attachment_id,
             session_id=session_id,
             name=name,
             media_type=normalized_media_type,
             size=len(content),
             path=str(prompt_path),
+            created_at=datetime.now(UTC),
         )
-        metadata_path = session_dir / f"{attachment_id}.json"
-        metadata_path.write_text(json.dumps(asdict(attachment)), encoding="utf-8")
-        metadata_path.chmod(0o600)
-        return attachment
+        with self._sessions.begin() as session:
+            session.add(row)
+        return Attachment(
+            id=row.id,
+            session_id=row.session_id,
+            name=row.name,
+            media_type=row.media_type,
+            size=row.size,
+            path=row.path,
+        )
 
     def get(self, session_id: str, attachment_id: str) -> Attachment:
         if not ATTACHMENT_ID.fullmatch(attachment_id):
             raise AttachmentError("Invalid attachment id")
-        metadata_path = self.storage_root / session_id / f"{attachment_id}.json"
-        try:
-            data = json.loads(metadata_path.read_text(encoding="utf-8"))
-            attachment = Attachment(**data)
-        except (FileNotFoundError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise AttachmentError("Attachment not found") from exc
-        if attachment.session_id != session_id or attachment.id != attachment_id:
-            raise AttachmentError("Attachment does not belong to this session")
-        stored_path = self.storage_root / session_id / Path(attachment.path).name
+        with self._sessions() as session:
+            row = session.get(AttachmentRow, attachment_id)
+        if row is None or row.session_id != session_id:
+            raise AttachmentError("Attachment not found")
+        stored_path = self.storage_root / session_id / Path(row.path).name
         if not stored_path.is_file():
             raise AttachmentError("Attachment not found")
-        return attachment
+        return Attachment(
+            id=row.id,
+            session_id=row.session_id,
+            name=row.name,
+            media_type=row.media_type,
+            size=row.size,
+            path=row.path,
+        )
 
     def prompt_suffix(self, session_id: str, attachment_ids: list[str]) -> str:
         if len(set(attachment_ids)) != len(attachment_ids):
@@ -138,29 +155,31 @@ class AttachmentService:
         attachment = self.get(session_id, attachment_id)
         session_dir = self.storage_root / session_id
         stored_path = session_dir / Path(attachment.path).name
-        metadata_path = session_dir / f"{attachment_id}.json"
         stored_path.unlink(missing_ok=True)
-        metadata_path.unlink(missing_ok=True)
+        with self._sessions.begin() as session:
+            row = session.get(AttachmentRow, attachment_id)
+            if row is not None:
+                session.delete(row)
         try:
             session_dir.rmdir()
         except OSError:
             pass
 
     def cleanup_expired(self, ttl_seconds: int, now: float | None = None) -> int:
-        cutoff = (now if now is not None else time.time()) - ttl_seconds
+        cutoff = datetime.fromtimestamp((now if now is not None else time.time()) - ttl_seconds, UTC)
         removed = 0
+        with self._sessions.begin() as session:
+            expired = list(
+                session.scalars(select(AttachmentRow).where(AttachmentRow.created_at < cutoff))
+            )
+            for row in expired:
+                stored_path = self.storage_root / row.session_id / Path(row.path).name
+                stored_path.unlink(missing_ok=True)
+                session.delete(row)
+                removed += 1
         if not self.storage_root.exists():
             return removed
         for session_dir in self.storage_root.iterdir():
-            if not session_dir.is_dir():
-                continue
-            for path in session_dir.iterdir():
-                try:
-                    if path.is_file() and path.stat().st_mtime < cutoff:
-                        path.unlink()
-                        removed += 1
-                except FileNotFoundError:
-                    continue
             try:
                 session_dir.rmdir()
             except OSError:

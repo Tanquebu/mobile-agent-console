@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from datetime import UTC, datetime
 
 import pytest
@@ -7,12 +8,35 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from app.config import Settings
+from app.database import Database
 from app.main import create_app
 from app.services.attachment_service import AttachmentService
+from app.services.user_service import UserService
 from tests.fakes import FakeTmux
 
 PASSWORD = "a-secure-test-password"
 SECRET = "a-secure-session-secret-value"
+ADMIN_PASSWORD = "a-secure-admin-password-value"
+
+
+def migrated_database_with_admin(tmp_path) -> str:
+    # database_auth_enabled sostituisce interamente il login legacy con gli
+    # account persistenti (main.py: `if users: ... else: ...`), quindi un
+    # database migrato da solo non basta per autenticarsi nei test.
+    database_path = tmp_path / "db" / "meta.db"
+    database = Database(str(database_path))
+    database.migrate("/app/alembic.ini")
+    UserService(database.engine).bootstrap_admin("admin", ADMIN_PASSWORD)
+    database.dispose()
+    return str(database_path)
+
+
+def login_admin(client: TestClient) -> str:
+    response = client.post(
+        "/api/v1/auth/login", json={"username": "admin", "password": ADMIN_PASSWORD}
+    )
+    assert response.status_code == 200
+    return response.json()["csrf_token"]
 
 
 def client_and_fake(
@@ -868,6 +892,24 @@ def test_session_file_download_rejects_unsupported_and_outside_paths(tmp_path) -
     assert missing.status_code == 404
 
 
+def test_attachment_upload_requires_database() -> None:
+    client, _ = client_and_fake()
+    csrf = login(client)
+    response = client.post(
+        "/api/v1/sessions/1/attachments?filename=note.txt",
+        content=b"hello",
+        headers={"X-CSRF-Token": csrf, "Content-Type": "text/plain"},
+    )
+    assert response.status_code == 503
+    # Un invio senza allegati referenziati non deve richiedere il database.
+    plain = client.post(
+        "/api/v1/sessions/1/input",
+        headers={"X-CSRF-Token": csrf},
+        json={"text": "ciao", "attachment_ids": []},
+    )
+    assert plain.status_code == 202
+
+
 def test_upload_attachment_and_reference_it_in_prompt(tmp_path) -> None:
     fake = FakeTmux()
     settings = Settings(
@@ -878,9 +920,11 @@ def test_upload_attachment_and_reference_it_in_prompt(tmp_path) -> None:
         attachments_root=str(tmp_path),
         attachments_prompt_root="/workspace/.agent-attachments",
         max_attachment_bytes=1024,
+        database_path=migrated_database_with_admin(tmp_path),
+        database_auth_enabled=True,
     )
     client = TestClient(create_app(settings, fake))
-    csrf = login(client)
+    csrf = login_admin(client)
     headers = {"X-CSRF-Token": csrf, "Content-Type": "image/png"}
     content = b"\x89PNG\r\n\x1a\nminimal"
 
@@ -937,9 +981,11 @@ def test_attachment_validation_rejects_unsafe_names_types_and_sizes(tmp_path) ->
         cors_origins=["http://testserver"],
         attachments_root=str(tmp_path),
         max_attachment_bytes=12,
+        database_path=migrated_database_with_admin(tmp_path),
+        database_auth_enabled=True,
     )
     client = TestClient(create_app(settings, FakeTmux()))
-    csrf = login(client)
+    csrf = login_admin(client)
     csrf_header = {"X-CSRF-Token": csrf}
 
     traversal = client.post(
@@ -969,13 +1015,16 @@ def test_attachment_validation_rejects_unsafe_names_types_and_sizes(tmp_path) ->
 
 
 def test_expired_attachments_are_cleaned_up(tmp_path) -> None:
-    service = AttachmentService(str(tmp_path), str(tmp_path), max_bytes=1024)
+    database = Database(str(tmp_path / "db" / "meta.db"))
+    database.migrate("/app/alembic.ini")
+    service = AttachmentService(database.engine, str(tmp_path), str(tmp_path), max_bytes=1024)
     attachment = service.create("1", "notes.txt", "text/plain", b"temporary")
     session_dir = tmp_path / "1"
     stored_path = session_dir / os.path.basename(attachment.path)
-    metadata_path = session_dir / f"{attachment.id}.json"
-    os.utime(stored_path, (100, 100))
-    os.utime(metadata_path, (100, 100))
+    assert stored_path.exists()
 
-    assert service.cleanup_expired(ttl_seconds=10, now=111) == 2
+    # created_at è preso al momento della create(): per simulare la scadenza
+    # si sposta "now" avanti nel tempo invece di retrodatare un file.
+    assert service.cleanup_expired(ttl_seconds=10, now=time.time() + 1000) == 1
     assert not session_dir.exists()
+    database.dispose()

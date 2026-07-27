@@ -16,7 +16,8 @@ generic terminal, with no dependency on any specific vendor or tool.
 - reliable text input — including multiline paste — via tmux buffers, with
   `Enter` as a deliberate, separate action (nothing runs by accident);
 - controlled prompt attachments (images, PDF and UTF-8 text files), stored
-  in a session-scoped workspace area, referenced by path in the prompt and
+  in a session-scoped workspace area, referenced by path in the prompt,
+  metadata persisted in the same database as users/archives/audit, and
   automatically removed after a configurable TTL;
 - respond to agent permission prompts by typing the option number, then
   Enter if needed;

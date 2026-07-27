@@ -184,11 +184,6 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         external_server=settings.tmux_mode == "host",
     )
     security = SessionSecurity(settings)
-    attachments = AttachmentService(
-        settings.attachments_root,
-        settings.resolved_attachments_prompt_root,
-        settings.max_attachment_bytes,
-    )
     snapshots = SnapshotService(settings.snapshots_root)
     backups = BackupService(
         settings.backups_root,
@@ -210,6 +205,16 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     users = UserService(database.engine) if database else None
     archives = ArchiveService(database.engine) if database else None
     audit = AuditService(database.engine) if database else None
+    attachments = (
+        AttachmentService(
+            database.engine,
+            settings.attachments_root,
+            settings.resolved_attachments_prompt_root,
+            settings.max_attachment_bytes,
+        )
+        if database
+        else None
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -223,6 +228,8 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         cleanup_interval = min(3600, max(60, settings.attachment_ttl_seconds // 4))
 
         async def cleanup_attachments() -> None:
+            if attachments is None:
+                return
             while True:
                 try:
                     removed = await asyncio.to_thread(
@@ -309,6 +316,11 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         if cookie:
             return "session:" + hashlib.sha256(cookie.encode()).hexdigest()
         return "ip:" + (request.client.host if request.client else "unknown")
+
+    def attachment_service() -> AttachmentService:
+        if not attachments:
+            raise HTTPException(503, "Attachments require the metadata database")
+        return attachments
 
     def archive_service() -> ArchiveService:
         if not archives:
@@ -1144,7 +1156,8 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
                 content.extend(chunk)
                 if len(content) > settings.max_attachment_bytes:
                     raise AttachmentError("Attachment is too large")
-            attachment = attachments.create(
+            attachment = await asyncio.to_thread(
+                attachment_service().create,
                 session_id,
                 filename,
                 request.headers.get("content-type", "application/octet-stream"),
@@ -1170,7 +1183,12 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     )
     async def send_input(session_id: str, payload: TextInput) -> Accepted:
         try:
-            text = payload.text + attachments.prompt_suffix(session_id, payload.attachment_ids)
+            suffix = ""
+            if payload.attachment_ids:
+                suffix = await asyncio.to_thread(
+                    attachment_service().prompt_suffix, session_id, payload.attachment_ids
+                )
+            text = payload.text + suffix
             if len(text) > 65536:
                 raise AttachmentError("Prompt with attachment references is too large")
             await gateway.send_text(session_id, text, payload.pane_id)
@@ -1187,7 +1205,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     )
     async def delete_attachment(session_id: str, attachment_id: str) -> Response:
         try:
-            attachments.delete(session_id, attachment_id)
+            await asyncio.to_thread(attachment_service().delete, session_id, attachment_id)
         except AttachmentError as exc:
             raise HTTPException(404, str(exc)) from exc
         return Response(status_code=204)

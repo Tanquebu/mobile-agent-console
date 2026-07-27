@@ -23,7 +23,7 @@ cronologia Claude.
 - snapshot di riavvio, archivio con resume, backup verificabili e restore
   offline;
 - browser delle directory consentite, anteprima UTF-8, download e allegati ai
-  prompt;
+  prompt, con metadati persistiti in database (come utenti/archivi/audit);
 - dashboard agentica con stato, permessi, consumo contesto e quote provider;
 - viste Terminale (xterm.js, resa ANSI reale, sola visualizzazione) e Blocchi,
   più Cronologia Claude opzionale e isolata;
@@ -50,8 +50,9 @@ cronologia Claude.
 
 ## Prossimo percorso consigliato
 
-1. operatività M4: Web Push, ricerca/tag/template, supporto multi-pane esteso e
-   gestione allegati avanzata.
+1. operatività M4: le restanti sotto-parti di "Gestione allegati avanzata"
+   (anteprime, deduplica, quote aggregate, retention oltre il TTL singolo),
+   Web Push, ricerca/tag/template, supporto multi-pane esteso.
 
 Stato read-only dei task dell'orchestratore locale resta solo in roadmap:
 dipende da un sistema esterno privato, intenzionalmente non referenziato in

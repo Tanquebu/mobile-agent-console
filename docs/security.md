@@ -94,9 +94,11 @@ disabilitato.
 Creazione, elenco, download ed eliminazione dei backup sono riservati agli
 amministratori e le mutazioni entrano nell'audit. I backup contengono hash
 password e metadati applicativi: devono quindi restare con permessi `0600` e,
-se copiati fuori dalla VPS, su storage cifrato. Gli allegati temporanei con TTL
-non sono inclusi. Il restore non è esposto via HTTP e deve essere eseguito con
-backend fermo.
+se copiati fuori dalla VPS, su storage cifrato. Il contenuto dei file allegati
+(con TTL) non è incluso; i loro metadati (nome, tipo, dimensione, path) vivono
+nel database insieme a utenti/archivi/audit e rientrano quindi nel backup del
+database, con lo stesso TTL di scadenza dei file corrispondenti. Il restore
+non è esposto via HTTP e deve essere eseguito con backend fermo.
 
 Il collector quote invoca soltanto i due path di script fissati nella user unit,
 con argv e timeout, senza `shell=True` e senza `--fresh`. Nel file condiviso

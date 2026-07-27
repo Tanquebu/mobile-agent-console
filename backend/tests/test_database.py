@@ -25,6 +25,7 @@ def test_database_migrates_to_head_and_is_reentrant(tmp_path: Path) -> None:
         "alembic_version",
         "app_metadata",
         "archived_sessions",
+        "attachments",
         "audit_events",
         "users",
     }

@@ -9,16 +9,19 @@
 ## Stato sintetico e ordine di avanzamento
 
 - M0: concluso.
-- M1: terminal mode xterm.js con resa ANSI reale deployato, in attesa di
-  conferma visiva sull'istanza pubblicata; resta comunque il limite noto di
+- M1: terminal mode xterm.js con resa ANSI reale validata sull'istanza
+  pubblicata (colori e resize confermati); resta comunque il limite noto di
   scrollback per le app a schermo alternato (limite tmux, non risolvibile
   da qui).
 - M2 e M2A: conclusi.
 - M3: gran parte rilasciata; service worker, offline, notifiche locali e
   preferenze (vista predefinita) validati sull'istanza pubblicata (TLS via
-  ADR 008); prossimo blocco consigliato: operatività M4.
-- M4: cronologia Claude anticipata e conclusa; il resto segue il completamento
-  di M3.
+  ADR 008).
+- M4: cronologia Claude anticipata e conclusa; allegati con persistenza
+  metadati in DB appena aggiunta; prossimo blocco consigliato: le restanti
+  sotto-parti di "Gestione allegati avanzata" (anteprime, deduplica, quote,
+  retention) oppure un'altra voce M4 (ricerca/tag/template, multi-pane
+  esteso, Web Push, riepiloghi).
 
 Stato read-only dei task dell'orchestratore locale: resta solo in roadmap,
 intenzionalmente non implementato — dipende da un sistema esterno privato,
@@ -196,8 +199,12 @@ condiviso e mappatura pane ↔ session id.
 - [ ] Ricerca, tag e template.
 - [ ] Supporto multi-pane esteso: layout, navigazione e gestione completa;
   selezione, split e resize di base sono già disponibili in M1.
-- [ ] Gestione allegati avanzata: persistenza dei metadati, anteprime,
-  deduplicazione, quote aggregate e policy di conservazione.
+- [~] Gestione allegati avanzata: persistenza dei metadati in tabella
+  `attachments` (SQLite/Alembic, come utenti/archivi/audit), con backfill dai
+  vecchi sidecar JSON in migrazione. Richiede il database (stesso gate 503
+  già usato da archivi/audit se `MAC_DATABASE_AUTH_ENABLED` è spento). Restano
+  da fare: anteprime, deduplicazione, quote aggregate e policy di
+  conservazione oltre il TTL singolo attuale.
 - [ ] Riepiloghi opzionali.
 
 ## M5 — Espansioni
