@@ -8,6 +8,15 @@ MAX_SOURCE_BYTES = 16 * 1024 * 1024
 MAX_MESSAGES = 500
 MAX_MESSAGE_CHARS = 32 * 1024
 
+# AskUserQuestion is a structured Q&A menu: its tool_use input (question,
+# options) and matching tool_result (the answer) are already plain
+# conversational text, unlike generic tool I/O (Bash/Edit/Read/...), which
+# ADR 007 deliberately keeps out of the history to avoid leaking file or
+# command content. Without this carve-out, both the question and the answer
+# vanish from the history (no "text" content block on either side), leaving
+# a confusing gap right where the reader most needs continuity.
+ASK_USER_QUESTION_TOOL = "AskUserQuestion"
+
 
 def utc_timestamp(value: float | None = None) -> str:
     instant = datetime.fromtimestamp(value, UTC) if value is not None else datetime.now(UTC)
@@ -26,7 +35,52 @@ def read_tail(path: Path) -> tuple[list[str], bool]:
     return raw.decode("utf-8", errors="ignore").splitlines(), start > 0
 
 
-def text_content(record: dict[str, object]) -> tuple[str, str] | None:
+def _ask_user_question_ids(records: list[dict[str, object]]) -> frozenset[str]:
+    ids: set[str] = set()
+    for record in records:
+        if record.get("type") != "assistant":
+            continue
+        message = record.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if (
+                isinstance(item, dict)
+                and item.get("type") == "tool_use"
+                and item.get("name") == ASK_USER_QUESTION_TOOL
+                and isinstance(item.get("id"), str)
+            ):
+                ids.add(item["id"])
+    return frozenset(ids)
+
+
+def _ask_user_question_text(item: dict[str, object]) -> str | None:
+    tool_input = item.get("input")
+    questions = tool_input.get("questions") if isinstance(tool_input, dict) else None
+    if not isinstance(questions, list):
+        return None
+    blocks = []
+    for question in questions:
+        if not isinstance(question, dict):
+            continue
+        text = question.get("question")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        header = question.get("header")
+        lines = [f"{header}: {text}" if isinstance(header, str) and header else text]
+        options = question.get("options")
+        if isinstance(options, list):
+            lines.extend(
+                f"- {option['label']}"
+                for option in options
+                if isinstance(option, dict) and isinstance(option.get("label"), str)
+            )
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks) if blocks else None
+
+
+def text_content(record: dict[str, object], ask_ids: frozenset[str] = frozenset()) -> tuple[str, str] | None:
     record_type = record.get("type")
     if (
         record_type not in {"user", "assistant"}
@@ -51,6 +105,25 @@ def text_content(record: dict[str, object]) -> tuple[str, str] | None:
             and item.get("type") == "text"
             and isinstance(item.get("text"), str)
         ]
+        if not parts and role == "assistant":
+            for item in content:
+                if (
+                    isinstance(item, dict)
+                    and item.get("type") == "tool_use"
+                    and item.get("name") == ASK_USER_QUESTION_TOOL
+                ):
+                    synthesized = _ask_user_question_text(item)
+                    if synthesized:
+                        parts.append(synthesized)
+        elif not parts and role == "user":
+            for item in content:
+                if (
+                    isinstance(item, dict)
+                    and item.get("type") == "tool_result"
+                    and item.get("tool_use_id") in ask_ids
+                    and isinstance(item.get("content"), str)
+                ):
+                    parts.append(item["content"])
     else:
         return None
     text = "\n".join(part for part in parts if part.strip()).strip()
@@ -59,15 +132,18 @@ def text_content(record: dict[str, object]) -> tuple[str, str] | None:
 
 def normalize_transcript(path: Path) -> dict[str, object]:
     lines, truncated = read_tail(path)
-    messages = []
+    records = []
     for line in lines:
         try:
             record = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if not isinstance(record, dict):
-            continue
-        normalized = text_content(record)
+        if isinstance(record, dict):
+            records.append(record)
+    ask_ids = _ask_user_question_ids(records)
+    messages = []
+    for record in records:
+        normalized = text_content(record, ask_ids)
         identifier = record.get("uuid")
         timestamp = record.get("timestamp")
         if (

@@ -57,3 +57,22 @@ La cronologia diventa finalmente leggibile oltre lo schermo TUI, ma quando
 abilitata esiste una copia derivata persistente delle conversazioni nel
 workspace. L'opt-in, la minimizzazione e i limiti riducono il rischio senza
 eliminarlo; per questo la feature resta separata dal core agent-agnostic.
+
+## Addendum: eccezione mirata per `AskUserQuestion`
+
+Su sessioni reali, la maggior parte dei turni assistant/user non ha alcun
+blocco `text` (solo `tool_use`/`tool_result`: Edit, Bash, Read, ...) e quindi
+sparisce dalla cronologia per punto 3 sopra. Per `AskUserQuestion` — un menu
+di domande/opzioni verso l'utente — questo produce un buco proprio dove la
+continuità serve di più: sia la domanda (tool_use, nessun testo) sia la
+risposta (tool_result, nessun testo) svaniscono.
+
+A differenza di Bash/Edit/Read, l'input di `AskUserQuestion`
+(domanda/opzioni) e il suo `tool_result` (la risposta) sono già testo
+conversazionale semplice, non contenuto di file o comandi. Il normalizzatore
+(`claude_transcript_normalizer.py`) tratta quindi come testo solo questo
+tool, specificamente: la domanda/opzioni lato assistant e il `tool_result`
+il cui `tool_use_id` corrisponde a un `AskUserQuestion` visto in precedenza
+nello stesso transcript. Tutti gli altri tool restano esclusi esattamente
+come al punto 3 — l'eccezione non riapre il confine generico su tool
+input/output.
