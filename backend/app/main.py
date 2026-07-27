@@ -28,6 +28,8 @@ from .config import Settings, get_settings
 from .database import Database
 from .schemas import (
     Accepted,
+    AgentStatusList,
+    AgentStatusView,
     ArchivedSessionView,
     ArchiveList,
     AttachmentView,
@@ -64,11 +66,13 @@ from .schemas import (
     UserView,
 )
 from .security import COOKIE_NAME, SessionSecurity
+from .services.agent_status_service import AgentStatusService
 from .services.archive_service import ArchiveService
 from .services.attachment_service import AttachmentError, AttachmentService
 from .services.audit_service import AuditService
 from .services.backup_service import BackupError, BackupService
 from .services.output_delta import line_delta
+from .services.provider_session_state_service import ProviderSessionStateService
 from .services.rate_limit import FixedWindowRateLimiter
 from .services.rate_limit_status_service import RateLimitStatus, RateLimitStatusService
 from .services.snapshot_service import (
@@ -191,6 +195,10 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     )
     rate_limiter = FixedWindowRateLimiter()
     provider_rate_limits = RateLimitStatusService(settings.provider_rate_limits_path)
+    provider_session_states = ProviderSessionStateService(
+        settings.provider_session_states_path
+    )
+    agent_statuses = AgentStatusService(settings.agent_active_window_seconds)
     database = Database(settings.database_path) if settings.database_auth_enabled else None
     users = UserService(database.engine) if database else None
     archives = ArchiveService(database.engine) if database else None
@@ -609,6 +617,66 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         except TmuxError as exc:
             raise HTTPException(503, "tmux unavailable") from exc
         return SessionList(sessions=[SessionView(**item.__dict__) for item in items])
+
+    @app.get(
+        "/api/v1/agent-statuses",
+        response_model=AgentStatusList,
+        dependencies=[Depends(require_active_session)],
+    )
+    async def list_agent_statuses() -> AgentStatusList:
+        try:
+            sessions = await gateway.list_sessions()
+        except TmuxError as exc:
+            raise HTTPException(503, "tmux unavailable") from exc
+        agent_sessions = [
+            item
+            for item in sessions
+            if agent_statuses.provider_for(item.current_command) is not None
+        ]
+        contents = await asyncio.gather(
+            *(gateway.capture_output(item.id, 80) for item in agent_sessions),
+            return_exceptions=True,
+        )
+        structured_permissions = await asyncio.to_thread(provider_session_states.read)
+        views = []
+        for item, content in zip(agent_sessions, contents, strict=True):
+            if isinstance(content, BaseException):
+                provider = agent_statuses.provider_for(item.current_command)
+                if provider is not None:
+                    views.append(
+                        AgentStatusView(
+                            session_id=item.id,
+                            provider=provider,
+                            state="unknown",
+                            detail="Output non disponibile",
+                            permission_state="unknown",
+                            permission_detail="Livello permessi non rilevato",
+                        )
+                    )
+                continue
+            status = agent_statuses.classify(item.id, item.current_command, content)
+            if status is not None:
+                permission = structured_permissions.get(item.id)
+                views.append(
+                    AgentStatusView(
+                        session_id=item.id,
+                        provider=status.provider,
+                        state=status.state,
+                        detail=status.detail,
+                        permission_state=(
+                            permission.permission_state
+                            if permission is not None
+                            else status.permission_state
+                        ),
+                        permission_detail=(
+                            permission.permission_detail
+                            if permission is not None
+                            else status.permission_detail
+                        ),
+                    )
+                )
+        agent_statuses.forget_missing({item.id for item in sessions})
+        return AgentStatusList(statuses=views)
 
     @app.get(
         "/api/v1/snapshots",

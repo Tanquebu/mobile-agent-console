@@ -160,6 +160,38 @@ export async function listSessions(): Promise<Session[]> {
   return (await response.json()).sessions;
 }
 
+export type AgentState =
+  | "active"
+  | "idle"
+  | "waiting_input"
+  | "waiting_authorization"
+  | "unknown";
+
+export type AgentStatus = {
+  session_id: string;
+  provider: "codex" | "claude";
+  state: AgentState;
+  detail: string;
+  permission_state:
+    | "restricted"
+    | "standard"
+    | "elevated"
+    | "bypass"
+    | "plan"
+    | "ask"
+    | "auto"
+    | "manual"
+    | "accept_edits"
+    | "dont_ask"
+    | "unknown";
+  permission_detail: string;
+};
+
+export async function listAgentStatuses(): Promise<AgentStatus[]> {
+  const response = await request("/api/v1/agent-statuses");
+  return (await response.json()).statuses;
+}
+
 export type AppConfig = {
   allowed_roots: string[];
   workspace_presets: Record<string, string>;
@@ -285,7 +317,7 @@ export async function sendEnter(id: string, paneId?: string) {
 
 export async function sendKey(
   id: string,
-  key: "Enter" | "Up" | "Down" | "Escape" | "C-c",
+  key: "Enter" | "Up" | "Down" | "Escape" | "C-c" | "Shift-Tab",
   confirmed = false,
   paneId?: string,
 ) {

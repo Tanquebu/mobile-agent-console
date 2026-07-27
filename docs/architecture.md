@@ -113,3 +113,19 @@ quote Codex e Claude senza modalità `--fresh`. Il collector scrive soltanto un
 JSON sanitizzato in `.mobile-agent-console/provider-rate-limits.json`; il
 backend legge quel file e non riceve accesso a credenziali Claude o transcript
 Codex. L'assenza o l'errore di un provider non influenza il runtime tmux.
+
+Un secondo collector host-side correla i PID dei pane con i transcript JSONL
+aperti da Codex o aggiornati da Claude. Ogni cinque secondi pubblica soltanto
+session id, provider e livello permessi normalizzato in
+`.mobile-agent-console/provider-session-states.json`. Il backend non monta
+`/proc`, `~/.codex` o `~/.claude`.
+
+La dashboard interroga ogni tre secondi uno stato agentico aggregato. Il
+backend considera soltanto pane con comando corrente `codex` o `claude`,
+acquisisce le ultime 80 righe e applica classificatori separati con precedenza
+ad autorizzazione, richiesta di feedback, marker attivi, variazione recente
+dell'output e prompt inattivo. Gli stati sono euristici e includono sempre un
+fallback `unknown`; l'output osservato resta esclusivamente in memoria.
+Il livello permessi strutturato del collector viene normalizzato in
+`restricted`, `standard`, `elevated`, `bypass`, `plan` o `unknown`; il testo
+del TUI resta un fallback quando il collector non dispone di un'associazione.

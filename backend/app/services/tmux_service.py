@@ -8,7 +8,14 @@ SOCKET_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 SESSION_NAME = re.compile(r"^[A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+)*$")
 TARGET_ID = re.compile(r"^\d{1,10}$")
 RUNTIME_KEEPALIVE = "__runtime__"
-ALLOWED_KEYS = {"Enter", "Up", "Down", "Escape", "C-c"}
+ALLOWED_KEYS = {
+    "Enter": "Enter",
+    "Up": "Up",
+    "Down": "Down",
+    "Escape": "Escape",
+    "C-c": "C-c",
+    "Shift-Tab": "BTab",
+}
 PROFILE_ARGV = {
     "shell": ("bash", "-l"),
     "codex": ("bash", "-l", "-c", "exec codex"),
@@ -245,10 +252,11 @@ class TmuxService:
             raise
 
     async def send_key(self, session_id: str, key: str, pane_id: str | None = None) -> None:
-        if key not in ALLOWED_KEYS:
+        tmux_key = ALLOWED_KEYS.get(key)
+        if tmux_key is None:
             raise ValueError("Unsupported key")
         target = await self._pane_target(session_id, pane_id)
-        await self._run("send-keys", "-t", target, key)
+        await self._run("send-keys", "-t", target, tmux_key)
 
     async def resize_pane(self, session_id: str, pane_id: str, columns: int, rows: int) -> None:
         target = await self._pane_target(session_id, pane_id)

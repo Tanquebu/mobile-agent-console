@@ -28,6 +28,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Database locale | path privato nel workspace, nessun prompt/output/segreto, migrazioni versionate |
 | Backup manipolati | checksum archivio e file, manifest con path chiusi, restore offline e riservato all'operatore host |
 | Quote provider sensibili | collector host-side, output JSON sanitizzato; credenziali e transcript non montati nel backend |
+| Classificazione agenti | sole ultime righe in memoria, risposta con stato tipizzato; nessun output persistito, restituito o inserito nell'audit |
 | Password account | solo hash Argon2id nel database; secret usato esclusivamente per bootstrap iniziale |
 
 ## Rischi residui del vertical slice
@@ -94,6 +95,17 @@ Il collector quote invoca soltanto i due path di script fissati nella user unit,
 con argv e timeout, senza `shell=True` e senza `--fresh`. Nel file condiviso
 finiscono provider, percentuali, reset, timestamp ed eventuali errori troncati:
 mai token, header HTTP o contenuti dei transcript. Il file usa permessi `0600`.
+
+Il collector dello stato sessioni legge processi e transcript esclusivamente
+sull'host. Il file atomico risultante contiene solo identificatore numerico
+tmux, provider e modalità permessi normalizzata. Percorsi dei transcript,
+prompt, risposte e argomenti dei processi non sono serializzati né esposti
+dall'API; il backend non riceve accesso a `/proc`, `~/.codex` o `~/.claude`.
+
+L'endpoint degli stati agentici è autenticato e restituisce soltanto session id,
+provider, stato e descrizione fissa. I frammenti di terminale usati dalle
+euristiche non lasciano il backend e vengono sostituiti a ogni polling. I
+pattern non devono mai essere inclusi nei log insieme alle righe corrispondenti.
 
 Quando il client specifica un pane, il backend accetta soltanto un id numerico
 e verifica tramite tmux che appartenga alla sessione indicata prima di usarlo

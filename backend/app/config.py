@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     provider_rate_limits_path: str = (
         "/workspace/.mobile-agent-console/provider-rate-limits.json"
     )
+    provider_session_states_path: str = (
+        "/workspace/.mobile-agent-console/provider-session-states.json"
+    )
     database_path: str = "/workspace/.mobile-agent-console/app.db"
     database_auth_enabled: bool = False
     bootstrap_username: str = Field(default="admin", pattern=r"^[A-Za-z0-9_-]{1,64}$")
@@ -43,6 +46,7 @@ class Settings(BaseSettings):
     login_rate_window_seconds: int = Field(default=60, ge=1, le=3600)
     mutation_rate_limit: int = Field(default=120, ge=1, le=10000)
     mutation_rate_window_seconds: int = Field(default=60, ge=1, le=3600)
+    agent_active_window_seconds: int = Field(default=8, ge=2, le=120)
 
     @model_validator(mode="after")
     def require_explicit_host_socket(self) -> "Settings":

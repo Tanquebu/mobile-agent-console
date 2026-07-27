@@ -22,8 +22,12 @@ generic terminal, with no dependency on any specific vendor or tool.
   Enter if needed;
 - special-key controls for permission prompts, plus explicitly confirmed
   interrupt and session termination actions;
+- contextual permission controls: `/permissions` for Codex and `Shift+Tab`
+  for Claude;
 - persistent session snapshots that recreate shells after a host reboot and
   can open the native Codex or Claude resume picker;
+- heuristic Codex/Claude badges for active, idle, feedback and authorization
+  states, without persisting terminal content;
 - an in-app quick guide whose “What's new” section shows only the latest
   shipped roadmap item;
 - directory suggestions in the new-session form, prefilled from the
@@ -91,6 +95,8 @@ mkdir -p ~/.config/systemd/user ~/.config/mobile-agent-console
 cp deploy/systemd/mobile-agent-console-docker.service ~/.config/systemd/user/
 cp deploy/systemd/mobile-agent-console-host.service ~/.config/systemd/user/
 cp deploy/systemd/mobile-agent-console-tmux-host.service ~/.config/systemd/user/
+cp deploy/systemd/mobile-agent-console-provider-session-states.service ~/.config/systemd/user/
+cp deploy/systemd/mobile-agent-console-provider-session-states.timer ~/.config/systemd/user/
 cp deploy/systemd/environment.example ~/.config/mobile-agent-console/environment
 ```
 
@@ -202,6 +208,17 @@ systemctl --user enable --now mobile-agent-console-rate-limits.timer
 
 The dashboard refreshes these values once per minute. Provider credentials and
 Codex transcripts are never mounted into the backend container.
+
+In host-tmux mode the optional
+`mobile-agent-console-provider-session-states.timer` correlates panes with
+Codex and Claude transcripts every five seconds and writes only the normalized
+permission level to `.mobile-agent-console/provider-session-states.json`.
+Prompts and responses are never copied. Enable it with:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now mobile-agent-console-provider-session-states.timer
+```
 
 ## Secure exposure
 

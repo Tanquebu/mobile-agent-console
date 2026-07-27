@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   ApiError,
+  AgentStatus,
   ArchivedSession,
   AuditEvent,
   Attachment,
@@ -28,6 +29,7 @@ import {
   Identity,
   listSessions,
   listArchives,
+  listAgentStatuses,
   listAudit,
   listBackups,
   listPanes,
@@ -65,10 +67,54 @@ const CONNECTION_LABEL: Record<Connection, string> = {
 };
 
 const LATEST_RELEASE = {
-  title: "Quote provider",
+  title: "Stato agenti",
   description:
-    "La dashboard mostra le quote Codex e Claude con un gradiente verde-rosso basato sull’utilizzo.",
+    "Badge separati per attività e permessi, rilevamento strutturato e legenda completa in dashboard.",
 };
+
+const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
+  active: "◌",
+  idle: "✓",
+  waiting_input: "!",
+  waiting_authorization: "🔒",
+  unknown: "?",
+};
+
+const PERMISSION_STATE_ICON: Record<AgentStatus["permission_state"], string> = {
+  restricted: "▣",
+  standard: "◈",
+  elevated: "⚡",
+  bypass: "🔓",
+  plan: "▤",
+  ask: "🔐",
+  auto: "A",
+  manual: "M",
+  accept_edits: "✎",
+  dont_ask: "!",
+  unknown: "◇",
+};
+
+const AGENT_STATE_LEGEND: Array<[AgentStatus["state"], string]> = [
+  ["active", "In elaborazione"],
+  ["idle", "Completato o inattivo"],
+  ["waiting_input", "Attende feedback"],
+  ["waiting_authorization", "Attende autorizzazione"],
+  ["unknown", "Stato non rilevato"],
+];
+
+const PERMISSION_STATE_LEGEND: Array<
+  [AgentStatus["permission_state"], string]
+> = [
+  ["restricted", "Sola lettura"],
+  ["ask", "Chiede approvazione"],
+  ["auto", "Auto"],
+  ["manual", "Manuale"],
+  ["accept_edits", "Accetta modifiche"],
+  ["dont_ask", "Non chiedere"],
+  ["plan", "Plan mode"],
+  ["bypass", "Accesso completo"],
+  ["unknown", "Non rilevato"],
+];
 
 function formatSize(size: number | null): string {
   if (size === null) return "—";
@@ -819,6 +865,7 @@ function SessionList({
   const [showUsers, setShowUsers] = useState(false);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
   const [providerLimits, setProviderLimits] = useState<ProviderRateLimits | null>(null);
+  const [agentStatusBySession, setAgentStatusBySession] = useState<Record<string, AgentStatus>>({});
 
   useEffect(() => {
     listSessions().then(setSessions).catch((value) => {
@@ -832,6 +879,27 @@ function SessionList({
         setDirectory((value) => value || entries[0]?.[1] || config.allowed_roots[0] || "");
       })
       .catch(() => { /* il campo resta vuoto, l'utente può digitare */ });
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      listAgentStatuses()
+        .then((statuses) => {
+          if (active) {
+            setAgentStatusBySession(
+              Object.fromEntries(statuses.map((status) => [status.session_id, status])),
+            );
+          }
+        })
+        .catch(() => { /* lo stato euristico non blocca la dashboard */ });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 3_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -1016,7 +1084,27 @@ function SessionList({
               <button className="session-card" onClick={() => onOpen(session)}>
                 <span className="session-icon">&gt;_</span>
                 <span className="session-copy">
-                  <strong>{session.name}</strong>
+                  <strong>
+                    {session.name}
+                    {agentStatusBySession[session.id] && (
+                      <>
+                        <span
+                          className={`agent-state ${agentStatusBySession[session.id].state}`}
+                          aria-label={`${agentStatusBySession[session.id].provider}: ${agentStatusBySession[session.id].detail}`}
+                          title={`${agentStatusBySession[session.id].provider}: ${agentStatusBySession[session.id].detail}`}
+                        >
+                          {AGENT_STATE_ICON[agentStatusBySession[session.id].state]}
+                        </span>
+                        <span
+                          className={`permission-state ${agentStatusBySession[session.id].permission_state}`}
+                          aria-label={`Permessi: ${agentStatusBySession[session.id].permission_detail}`}
+                          title={`Permessi: ${agentStatusBySession[session.id].permission_detail}`}
+                        >
+                          {PERMISSION_STATE_ICON[agentStatusBySession[session.id].permission_state]}
+                        </span>
+                      </>
+                    )}
+                  </strong>
                   <small>{session.current_command} · {session.windows} window</small>
                 </span>
                 <span className="chevron">›</span>
@@ -1048,6 +1136,34 @@ function SessionList({
         ))}
         {!error && sessions.length === 0 && <p className="empty">Nessuna sessione sul socket configurato.</p>}
       </section>
+      <footer className="agent-legend" aria-label="Legenda stati agentici">
+        <section>
+          <strong>Stato agente</strong>
+          <div>
+            {AGENT_STATE_LEGEND.map(([state, label]) => (
+              <span key={state}>
+                <i className={`agent-state ${state}`} aria-hidden="true">
+                  {AGENT_STATE_ICON[state]}
+                </i>
+                {label}
+              </span>
+            ))}
+          </div>
+        </section>
+        <section>
+          <strong>Permessi</strong>
+          <div>
+            {PERMISSION_STATE_LEGEND.map(([state, label]) => (
+              <span key={state}>
+                <i className={`permission-state ${state}`} aria-hidden="true">
+                  {PERMISSION_STATE_ICON[state]}
+                </i>
+                {label}
+              </span>
+            ))}
+          </div>
+        </section>
+      </footer>
       {showHelp && (
         <div
           className="modal-backdrop"
@@ -1297,7 +1413,7 @@ function Console({
     }
   }
 
-  async function pressSpecialKey(key: "Up" | "Down" | "Escape" | "C-c") {
+  async function pressSpecialKey(key: "Up" | "Down" | "Escape" | "C-c" | "Shift-Tab") {
     const confirmed = key !== "C-c" || window.confirm(
       "Inviare Ctrl-C? Il processo attivo potrebbe essere interrotto.",
     );
@@ -1305,6 +1421,16 @@ function Console({
     setControlError("");
     try {
       await sendKey(session.id, key, key === "C-c", paneId || undefined);
+    } catch (value) {
+      setControlError(errorMessage(value));
+    }
+  }
+
+  async function openCodexPermissions() {
+    setControlError("");
+    try {
+      await sendText(session.id, "/permissions", [], paneId || undefined);
+      await sendEnter(session.id, paneId || undefined);
     } catch (value) {
       setControlError(errorMessage(value));
     }
@@ -1436,6 +1562,24 @@ function Console({
             <button disabled={connection === "closed"} type="button" className="danger" onClick={() => void pressSpecialKey("C-c")}>
               Ctrl-C
             </button>
+            {session.current_command.toLowerCase().includes("claude") && (
+              <button
+                disabled={connection === "closed"}
+                type="button"
+                onClick={() => void pressSpecialKey("Shift-Tab")}
+              >
+                Claude · cambia permessi
+              </button>
+            )}
+            {session.current_command.toLowerCase().includes("codex") && (
+              <button
+                disabled={connection === "closed"}
+                type="button"
+                onClick={() => void openCodexPermissions()}
+              >
+                Codex · permessi
+              </button>
+            )}
             <button
               disabled={connection === "closed" || splittingPane}
               type="button"

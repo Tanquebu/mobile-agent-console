@@ -22,6 +22,37 @@ class SessionList(BaseModel):
     sessions: list[SessionView]
 
 
+class AgentStatusView(BaseModel):
+    session_id: str
+    provider: Literal["codex", "claude"]
+    state: Literal[
+        "active",
+        "idle",
+        "waiting_input",
+        "waiting_authorization",
+        "unknown",
+    ]
+    detail: str
+    permission_state: Literal[
+        "restricted",
+        "standard",
+        "elevated",
+        "bypass",
+        "plan",
+        "ask",
+        "auto",
+        "manual",
+        "accept_edits",
+        "dont_ask",
+        "unknown",
+    ]
+    permission_detail: str
+
+
+class AgentStatusList(BaseModel):
+    statuses: list[AgentStatusView]
+
+
 class PaneView(BaseModel):
     id: str
     window_index: int

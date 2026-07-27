@@ -1,0 +1,9 @@
+[Unit]
+Description=Collect Mobile Agent Console provider session states
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/mobile-agent-console/environment
+ExecStart=/usr/bin/python3 ${MAC_INSTALL_DIR}/deploy/provider-session-state-collector.py --output ${MAC_WORKSPACE_ROOT}/.mobile-agent-console/provider-session-states.json --tmux-socket-file /tmp/tmux-%U/default --codex-sessions-root %h/.codex/sessions --claude-projects-root %h/.claude/projects
+UMask=0077
+NoNewPrivileges=yes

@@ -15,6 +15,9 @@ SECRET = "a-secure-session-secret-value"
 
 def client_and_fake(
     provider_rate_limits_path: str = "/workspace/.mobile-agent-console/provider-rate-limits.json",
+    provider_session_states_path: str = (
+        "/workspace/.mobile-agent-console/provider-session-states.json"
+    ),
 ) -> tuple[TestClient, FakeTmux]:
     fake = FakeTmux()
     settings = Settings(
@@ -23,6 +26,7 @@ def client_and_fake(
         cookie_secure=False,
         cors_origins=["http://testserver"],
         provider_rate_limits_path=provider_rate_limits_path,
+        provider_session_states_path=provider_session_states_path,
     )
     return TestClient(create_app(settings, fake)), fake
 
@@ -78,6 +82,59 @@ def test_list_and_capture() -> None:
     assert listed["id"] == "1"
     assert listed["name"] == "demo"
     assert client.get("/api/v1/sessions/1/output").json()["content"] == "$ "
+
+
+def test_agent_statuses_include_only_agentic_sessions() -> None:
+    client, fake = client_and_fake()
+    login(client)
+    current = fake.sessions["1"]
+    fake.sessions["1"] = type(current)(
+        current.id,
+        "Codex demo",
+        current.attached,
+        current.windows,
+        "codex",
+        current.activity_at,
+    )
+    fake.content = "Would you like to run this command?\n1. Yes, proceed\npermissions: Auto\n› "
+    response = client.get("/api/v1/agent-statuses")
+    assert response.status_code == 200
+    assert response.json() == {
+        "statuses": [
+            {
+                "session_id": "1",
+                "provider": "codex",
+                "state": "waiting_authorization",
+                "detail": "Attende autorizzazione",
+                "permission_state": "auto",
+                "permission_detail": "Auto",
+            }
+        ]
+    }
+
+
+def test_agent_statuses_prefer_structured_provider_permissions(tmp_path) -> None:
+    path = tmp_path / "provider-session-states.json"
+    path.write_text(
+        '{"sessions":[{"session_id":"1","provider":"codex",'
+        '"permission_state":"bypass","permission_detail":"Accesso completo"}]}',
+        encoding="utf-8",
+    )
+    client, fake = client_and_fake(provider_session_states_path=str(path))
+    login(client)
+    current = fake.sessions["1"]
+    fake.sessions["1"] = type(current)(
+        current.id,
+        current.name,
+        current.attached,
+        current.windows,
+        "codex",
+        current.activity_at,
+    )
+    fake.content = "permissions: Read Only\n› "
+    status = client.get("/api/v1/agent-statuses").json()["statuses"][0]
+    assert status["permission_state"] == "bypass"
+    assert status["permission_detail"] == "Accesso completo"
 
 
 def test_provider_rate_limits_are_authenticated_and_sanitized(tmp_path) -> None:
@@ -170,7 +227,13 @@ def test_special_keys_interrupt_and_termination_require_confirmation() -> None:
         json={"key": "C-c", "confirmed": True},
     )
     assert interrupt.status_code == 202
-    assert fake.keys == ["Up", "Down", "Escape", "C-c"]
+    shifted = client.post(
+        "/api/v1/sessions/1/keys",
+        headers=headers,
+        json={"key": "Shift-Tab"},
+    )
+    assert shifted.status_code == 202
+    assert fake.keys == ["Up", "Down", "Escape", "C-c", "Shift-Tab"]
 
     assert client.request(
         "DELETE",

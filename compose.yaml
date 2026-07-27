@@ -49,11 +49,13 @@ services:
       MAC_BACKUPS_ROOT: /workspace/.mobile-agent-console/backups
       MAC_BACKUP_RETENTION: ${MAC_BACKUP_RETENTION:-10}
       MAC_PROVIDER_RATE_LIMITS_PATH: /workspace/.mobile-agent-console/provider-rate-limits.json
+      MAC_PROVIDER_SESSION_STATES_PATH: /workspace/.mobile-agent-console/provider-session-states.json
       MAC_DATABASE_PATH: /workspace/.mobile-agent-console/app.db
       MAC_DATABASE_AUTH_ENABLED: "true"
       MAC_BOOTSTRAP_USERNAME: ${MAC_BOOTSTRAP_USERNAME:-admin}
       MAC_MAX_ATTACHMENT_BYTES: ${MAC_MAX_ATTACHMENT_BYTES:-10485760}
       MAC_ATTACHMENT_TTL_SECONDS: ${MAC_ATTACHMENT_TTL_SECONDS:-86400}
+      MAC_AGENT_ACTIVE_WINDOW_SECONDS: ${MAC_AGENT_ACTIVE_WINDOW_SECONDS:-8}
     secrets: [mac_login_password, mac_session_secret]
     volumes:
       - tmux-socket:/tmux
