@@ -11,9 +11,9 @@
 - M0: concluso.
 - M1: operativo; resta il terminal mode per la resa ANSI/fullscreen completa.
 - M2 e M2A: conclusi.
-- M3: gran parte rilasciata; service worker, offline e notifiche locali
-  validati sull'istanza pubblicata (TLS via ADR 008); prossimo blocco
-  consigliato: preferenze utente.
+- M3: gran parte rilasciata; service worker, offline, notifiche locali e
+  preferenze (vista predefinita) validati sull'istanza pubblicata (TLS via
+  ADR 008); prossimo blocco consigliato: terminal mode xterm.js.
 - M4: cronologia Claude anticipata e conclusa; il resto segue il completamento
   di M3.
 
@@ -24,8 +24,11 @@ contratto (file JSON sanitizzato o collector su API locale, senza
 credenziali/prompt/output/comandi di controllo) sarà formalizzato quando
 verrà preso in carico.
 
-Ordine corrente: preferenze → terminal mode xterm.js → operatività M4
-restante → (se ripreso) stato orchestratore locale.
+Euristica "Attende feedback" troppo stretta (richiede `?` letterale): non
+prioritaria, da riprendere — vedi `docs/backlog.md`.
+
+Ordine corrente: terminal mode xterm.js → operatività M4 restante → (se
+ripreso) stato orchestratore locale / euristica attenzione.
 
 ## M0 — Fondazioni e vertical slice
 
@@ -137,7 +140,11 @@ API specifiche di Codex, Claude o altri agenti.
   caricamento offline best-effort (mai per le chiamate `/api/`, sempre
   autoritative) e banner "connessione assente" globale; manifest PWA
   presente. Validato sull'istanza pubblicata con TLS (ADR 008).
-- [ ] Preferenze.
+- [x] Preferenze: pannello "Preferenze" nella dashboard con la vista
+  predefinita (Blocchi/Terminale) per l'apertura delle sessioni Codex/Claude,
+  persistita in `localStorage`. Scope volutamente minimo per la prima
+  versione; altre preferenze (es. consolidare qui il toggle Notifiche) restano
+  da valutare in seguito.
 - [ ] Terminal mode xterm.js e tasti speciali.
 - [x] Rinominare il pulsante "Tasti speciali" in "Funzioni speciali".
 - [x] Browser "Contenuto directory": navigazione tra cartelle entro

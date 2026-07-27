@@ -31,6 +31,8 @@ Claude.
   ADR 008);
 - TLS in nginx con certificato Tailscale reale sullo stesso bind diretto
   sull'IP Tailscale, rinnovo automatico via user timer;
+- pannello Preferenze con vista predefinita (Blocchi/Terminale) per le
+  sessioni Codex/Claude, persistita lato client;
 - deploy systemd/Compose che ricrea solo web e backend e preserva tmux.
 
 ## Invarianti operative
@@ -46,10 +48,9 @@ Claude.
 
 ## Prossimo percorso consigliato
 
-1. preferenze utente per le viste e il comportamento della console;
-2. terminal mode xterm.js per resa ANSI/fullscreen e controlli terminali
+1. terminal mode xterm.js per resa ANSI/fullscreen e controlli terminali
    completi;
-3. operatività M4: Web Push, ricerca/tag/template, supporto multi-pane esteso e
+2. operatività M4: Web Push, ricerca/tag/template, supporto multi-pane esteso e
    gestione allegati avanzata.
 
 Stato read-only dei task dell'orchestratore locale resta solo in roadmap:

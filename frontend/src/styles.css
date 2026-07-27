@@ -143,6 +143,9 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .help-modal li { padding-left: 4px; line-height: 1.45; }
 .help-modal li strong { color: #edf5ef; }
 .modal-close { width: 44px; border: 0; border-radius: 12px; background: #1d2921; color: white; font-size: 1.6rem; }
+.preference-field { display: grid; gap: 10px; margin: 18px 0; border: 1px solid #293a30; border-radius: 14px; padding: 14px; }
+.preference-field legend { padding: 0 4px; color: #7ea58c; font-size: .68rem; letter-spacing: .1em; font-weight: 700; text-transform: uppercase; }
+.preference-field label { display: flex; align-items: center; gap: 10px; min-height: 44px; color: #d2e3d7; }
 .whats-new { border: 1px solid #31533c; border-radius: 16px; padding: 16px; background: #17261c; }
 .whats-new h3 { margin: 7px 0 5px; font-size: 1rem; }
 .whats-new p { margin: 0; color: #a9bcaf; line-height: 1.45; }

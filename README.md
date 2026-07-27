@@ -41,6 +41,8 @@ generic terminal, with no dependency on any specific vendor or tool.
   live), a connection-lost banner, and opt-in local notifications when a
   session starts waiting for feedback or authorization while the app is in
   the background;
+- a Preferences panel (default view for Codex/Claude sessions: Blocks or
+  Terminal), stored client-side;
 - an in-app quick guide whose “What's new” section shows only the latest
   shipped roadmap item;
 - directory suggestions in the new-session form, prefilled from the

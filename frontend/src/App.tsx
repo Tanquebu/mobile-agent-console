@@ -84,9 +84,9 @@ const CONNECTION_LABEL: Record<Connection, string> = {
 };
 
 const LATEST_RELEASE = {
-  title: "Notifiche locali e shell offline",
+  title: "Preferenze: vista predefinita",
   description:
-    "Avviso locale opzionale quando una sessione attende feedback o autorizzazione ad app in background, più caricamento offline best-effort dell'app.",
+    "Scegli se le sessioni Codex/Claude si aprono di default in Blocchi o Terminale, dal nuovo pulsante Preferenze nella dashboard.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -103,6 +103,12 @@ const NOTIFY_STATES = new Set<AgentStatus["state"]>([
 ]);
 
 const NOTIFY_PREFERENCE_KEY = "mac-notify-attention";
+
+const DEFAULT_AGENT_VIEW_KEY = "mac-default-agent-view";
+
+function readDefaultAgentView(): "blocks" | "terminal" {
+  return window.localStorage.getItem(DEFAULT_AGENT_VIEW_KEY) === "terminal" ? "terminal" : "blocks";
+}
 
 function notifySessionAttention(sessionName: string, status: AgentStatus) {
   const title = "Mobile Agent Console";
@@ -768,6 +774,54 @@ function ArchiveModal({
   );
 }
 
+function PreferencesModal({ onClose }: { onClose: () => void }) {
+  const [defaultView, setDefaultView] = useState<"blocks" | "terminal">(readDefaultAgentView());
+
+  function choose(view: "blocks" | "terminal") {
+    setDefaultView(view);
+    window.localStorage.setItem(DEFAULT_AGENT_VIEW_KEY, view);
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section className="help-modal preferences-modal" role="dialog" aria-modal="true" aria-labelledby="preferences-title">
+        <header>
+          <div><span className="eyebrow">CONSOLE</span><h2 id="preferences-title">Preferenze</h2></div>
+          <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+        </header>
+        <fieldset className="preference-field">
+          <legend>Vista predefinita per le sessioni Codex/Claude</legend>
+          <label>
+            <input
+              type="radio"
+              name="default-agent-view"
+              checked={defaultView === "blocks"}
+              onChange={() => choose("blocks")}
+            />
+            Blocchi
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="default-agent-view"
+              checked={defaultView === "terminal"}
+              onChange={() => choose("terminal")}
+            />
+            Terminale
+          </label>
+        </fieldset>
+        <p className="empty">
+          Si applica alla prossima apertura di una sessione Codex/Claude; la
+          vista Cronologia resta sempre raggiungibile dal toggle, quando
+          abilitata.
+        </p>
+      </section>
+    </div>
+  );
+}
+
 function AuditModal({ onClose }: { onClose: () => void }) {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -981,6 +1035,7 @@ function SessionList({
   const [showAudit, setShowAudit] = useState(false);
   const [showBackups, setShowBackups] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
+  const [showPreferences, setShowPreferences] = useState(false);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
   const [providerLimits, setProviderLimits] = useState<ProviderRateLimits | null>(null);
   const [agentStatusBySession, setAgentStatusBySession] = useState<Record<string, AgentStatus>>({});
@@ -1163,6 +1218,7 @@ function SessionList({
             {notifyEnabled ? "Notifiche: on" : "Notifiche: off"}
           </button>
         )}
+        <button className="snapshot-button" onClick={() => setShowPreferences(true)}>Preferenze</button>
         {identity.role !== "viewer" && (
           <button className="snapshot-button" onClick={() => setShowSnapshots(true)}>Snapshot</button>
         )}
@@ -1395,6 +1451,7 @@ function SessionList({
       {showUsers && <UserModal onClose={() => setShowUsers(false)} />}
       {showAudit && <AuditModal onClose={() => setShowAudit(false)} />}
       {showBackups && <BackupModal onClose={() => setShowBackups(false)} />}
+      {showPreferences && <PreferencesModal onClose={() => setShowPreferences(false)} />}
       {showArchives && (
         <ArchiveModal
           onClose={() => setShowArchives(false)}
@@ -1435,7 +1492,7 @@ function Console({
   const [history, setHistory] = useState<ClaudeHistory | null>(null);
   const [historyError, setHistoryError] = useState("");
   const [outputMode, setOutputMode] = useState<"terminal" | "blocks" | "history">(
-    agentic ? "blocks" : "terminal",
+    agentic ? readDefaultAgentView() : "terminal",
   );
   const outputRef = useRef<HTMLPreElement | HTMLDivElement>(null);
   const outputLinesRef = useRef<string[]>([]);
