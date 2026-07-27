@@ -19,10 +19,10 @@
   ADR 008).
 - M4: cronologia Claude anticipata e conclusa; "Gestione allegati avanzata"
   completa (persistenza, anteprime, quote aggregate, deduplica, retention);
-  chiusura pane e split orizzontale/verticale aggiunti al supporto
-  multi-pane esteso, ancora parziale; prossimo blocco consigliato:
-  ricerca/tag/template, Web Push o riepiloghi (oppure il resto del
-  multi-pane: vista con più pane visibili insieme).
+  "Supporto multi-pane esteso" completo (chiusura pane, split orizzontale/
+  verticale; la vista con più pane simultanei è stata scartata
+  deliberatamente per l'impatto mobile-first); prossimo blocco consigliato:
+  ricerca/tag/template, Web Push o riepiloghi.
 
 Stato read-only dei task dell'orchestratore locale: resta solo in roadmap,
 intenzionalmente non implementato — dipende da un sistema esterno privato,
@@ -198,14 +198,17 @@ condiviso e mappatura pane ↔ session id.
 - [x] Cronologia Claude opzionale con collector minimizzato, feature flag,
   fallback live e rollback isolato, validata sull'istanza pubblicata.
 - [ ] Ricerca, tag e template.
-- [~] Supporto multi-pane esteso: chiusura di un singolo pane (`kill-pane`,
+- [x] Supporto multi-pane esteso: chiusura di un singolo pane (`kill-pane`,
   con conferma esplicita), che lascia sessione e altri pane attivi — rifiuta
   se è l'unico pane rimasto (va terminata la sessione). Scelta tra split
   orizzontale (side-by-side) e verticale (sopra/sotto), invece del solo
-  orizzontale fisso di prima. Selezione e resize di base restano quelli di
-  M1. Resta da fare: una vista con più pane visibili contemporaneamente
-  invece del selettore a tendina attuale (richiederebbe anche catturare la
-  posizione dei pane da tmux, non fatto oggi).
+  orizzontale fisso di prima; l'effetto è visibile lato tmux (es. `tmux
+  attach`), non nella vista MAC che mostra un pane alla volta. Selezione e
+  resize di base restano quelli di M1. Una vista con più pane visibili
+  contemporaneamente in MAC (al posto del selettore a tendina) è stata
+  valutata e scartata deliberatamente: l'app è mobile-first e uno split
+  reale sarebbe scomodo su schermi stretti; il selettore resta la
+  soluzione adottata.
 - [x] Gestione allegati avanzata: persistenza dei metadati in tabella
   `attachments` (SQLite/Alembic, come utenti/archivi/audit), con backfill dai
   vecchi sidecar JSON in migrazione. Richiede il database (stesso gate 503

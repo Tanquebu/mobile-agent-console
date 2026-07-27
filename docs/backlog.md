@@ -4,6 +4,20 @@ Elementi valutati ma non ancora pianificati in una milestone. Ogni voce
 documenta il problema e i vincoli noti, senza implicare un impegno di
 implementazione immediato.
 
+## Vista con più pane tmux visibili contemporaneamente
+
+**Stato:** scartata deliberatamente, non da riprendere senza un motivo nuovo.
+
+Valutata come possibile completamento di "Supporto multi-pane esteso" (M4):
+invece del selettore a tendina attuale (un pane alla volta), mostrare 2+
+output di pane contemporaneamente. Scartata perché l'app è mobile-first e
+uno split reale sarebbe scomodo su schermi stretti — motivo per cui anche lo
+split orizzontale/verticale scelto in MAC ha effetto visibile solo
+collegandosi direttamente con `tmux attach`, non nella vista MAC stessa.
+Richiederebbe comunque catturare anche la posizione dei pane da tmux
+(`pane_left`/`pane_top`), non fatto oggi. Riconsiderare solo se emerge un
+uso desktop-first per cui valga la pena la complessità.
+
 ## Euristica "Attende feedback" troppo stretta
 
 **Stato:** non prioritario, da riprendere.

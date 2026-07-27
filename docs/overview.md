@@ -17,8 +17,8 @@ cronologia Claude.
 ## Capacità disponibili
 
 - gestione mobile e desktop di sessioni e pane tmux, con output live, input,
-  tasti, resize, split, chiusura del singolo pane, rinomina e terminazione
-  confermata;
+  tasti, resize, split orizzontale/verticale, chiusura del singolo pane,
+  rinomina e terminazione confermata;
 - modalità tmux Docker isolata oppure host sul socket predefinito;
 - account persistenti, ruoli, CSRF, cookie sicuri, audit e rate limiting;
 - snapshot di riavvio, archivio con resume, backup verificabili e restore
@@ -53,7 +53,7 @@ cronologia Claude.
 
 ## Prossimo percorso consigliato
 
-1. operatività M4: Web Push, ricerca/tag/template, supporto multi-pane esteso.
+1. operatività M4: Web Push, ricerca/tag/template, riepiloghi opzionali.
 
 Stato read-only dei task dell'orchestratore locale resta solo in roadmap:
 dipende da un sistema esterno privato, intenzionalmente non referenziato in
