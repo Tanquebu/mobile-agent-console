@@ -18,7 +18,7 @@ def run_tmux(socket_file: str) -> list[dict[str, str]]:
             "list-panes",
             "-a",
             "-F",
-            "#{session_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}",
+            "#{session_id}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}",
         ],
         check=False,
         capture_output=True,
@@ -29,14 +29,15 @@ def run_tmux(socket_file: str) -> list[dict[str, str]]:
         return []
     panes = []
     for line in result.stdout.splitlines():
-        values = line.split("\t", 3)
-        if len(values) != 4:
+        values = line.split("\t", 4)
+        if len(values) != 5:
             continue
-        session_id, pid, command, cwd = values
+        session_id, pane_id, pid, command, cwd = values
         if session_id.startswith("$") and session_id[1:].isdigit() and pid.isdigit():
             panes.append(
                 {
                     "session_id": session_id[1:],
+                    "pane_id": pane_id.removeprefix("%"),
                     "pid": pid,
                     "command": command.lower(),
                     "cwd": cwd,
@@ -180,22 +181,75 @@ def normalize_claude(path: Path) -> tuple[str, str] | None:
     return mapping.get(modes[-1], ("unknown", "Modalità Claude non riconosciuta"))
 
 
+def codex_context_percent(path: Path) -> float | None:
+    for item in reversed(recent_json_records(path)):
+        payload = item.get("payload")
+        if not isinstance(payload, dict) or payload.get("type") != "token_count":
+            continue
+        info = payload.get("info")
+        if not isinstance(info, dict):
+            continue
+        usage = info.get("last_token_usage")
+        total = usage.get("total_tokens") if isinstance(usage, dict) else None
+        window = info.get("model_context_window")
+        if isinstance(total, (int, float)) and isinstance(window, (int, float)) and window > 0:
+            return round(max(0.0, min(100.0, total / window * 100)), 1)
+    return None
+
+
+def claude_context_cache(path: str | None) -> dict[str, tuple[str, float]]:
+    if not path:
+        return {}
+    root = Path(path)
+    if not root.is_dir():
+        return {}
+    result: dict[str, tuple[str, float]] = {}
+    for cache_file in root.glob("*.json"):
+        try:
+            item = json.loads(cache_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        percent = item.get("used_percent") if isinstance(item, dict) else None
+        pane_id = item.get("tmux_pane") if isinstance(item, dict) else None
+        if (
+            isinstance(percent, (int, float))
+            and isinstance(pane_id, str)
+            and pane_id.removeprefix("%").isdigit()
+        ):
+            result[pane_id.removeprefix("%")] = (
+                cache_file.stem,
+                max(0.0, min(100.0, float(percent))),
+            )
+    return result
+
+
 def collect(args: argparse.Namespace) -> dict[str, object]:
     sessions = []
     codex_root = Path(args.codex_sessions_root)
     claude_root = Path(args.claude_projects_root)
+    claude_context = claude_context_cache(args.claude_context_cache)
     for pane in run_tmux(args.tmux_socket_file):
         provider = None
         transcript = None
         normalized = None
+        context_used_percent = None
         if "codex" in pane["command"]:
             provider = "codex"
             transcript = codex_transcript(pane["pid"], codex_root)
             if transcript is not None:
                 normalized = normalize_codex(transcript)
+                context_used_percent = codex_context_percent(transcript)
         elif "claude" in pane["command"]:
             provider = "claude"
-            transcript = claude_transcript(pane["pid"], pane["cwd"], claude_root)
+            cached_context = claude_context.get(pane["pane_id"])
+            if cached_context is not None:
+                claude_session_id, context_used_percent = cached_context
+                candidate = claude_project_dir(claude_root, pane["cwd"]) / (
+                    f"{claude_session_id}.jsonl"
+                )
+                transcript = candidate if candidate.is_file() else None
+            else:
+                transcript = claude_transcript(pane["pid"], pane["cwd"], claude_root)
             if transcript is not None:
                 normalized = normalize_claude(transcript)
         if provider is None:
@@ -207,6 +261,7 @@ def collect(args: argparse.Namespace) -> dict[str, object]:
                 "provider": provider,
                 "permission_state": state,
                 "permission_detail": detail,
+                "context_used_percent": context_used_percent,
             }
         )
     return {
@@ -221,6 +276,7 @@ def main() -> None:
     parser.add_argument("--tmux-socket-file", required=True)
     parser.add_argument("--codex-sessions-root", required=True)
     parser.add_argument("--claude-projects-root", required=True)
+    parser.add_argument("--claude-context-cache")
     args = parser.parse_args()
     output = Path(args.output).resolve()
     output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)

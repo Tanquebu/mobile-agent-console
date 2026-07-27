@@ -108,6 +108,7 @@ def test_agent_statuses_include_only_agentic_sessions() -> None:
                 "detail": "Attende autorizzazione",
                 "permission_state": "auto",
                 "permission_detail": "Auto",
+                "context_used_percent": None,
             }
         ]
     }
@@ -117,7 +118,8 @@ def test_agent_statuses_prefer_structured_provider_permissions(tmp_path) -> None
     path = tmp_path / "provider-session-states.json"
     path.write_text(
         '{"sessions":[{"session_id":"1","provider":"codex",'
-        '"permission_state":"bypass","permission_detail":"Accesso completo"}]}',
+        '"permission_state":"bypass","permission_detail":"Accesso completo",'
+        '"context_used_percent":73.4}]}',
         encoding="utf-8",
     )
     client, fake = client_and_fake(provider_session_states_path=str(path))
@@ -135,6 +137,7 @@ def test_agent_statuses_prefer_structured_provider_permissions(tmp_path) -> None
     status = client.get("/api/v1/agent-statuses").json()["statuses"][0]
     assert status["permission_state"] == "bypass"
     assert status["permission_detail"] == "Accesso completo"
+    assert status["context_used_percent"] == 73.4
 
 
 def test_provider_rate_limits_are_authenticated_and_sanitized(tmp_path) -> None:

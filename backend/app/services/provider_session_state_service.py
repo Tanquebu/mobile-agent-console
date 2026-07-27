@@ -22,6 +22,7 @@ PermissionState = Literal[
 class ProviderSessionState:
     permission_state: PermissionState
     permission_detail: str
+    context_used_percent: float | None
 
 
 class ProviderSessionStateService:
@@ -42,6 +43,7 @@ class ProviderSessionStateService:
             session_id = item.get("session_id")
             state = item.get("permission_state")
             detail = item.get("permission_detail")
+            context = item.get("context_used_percent")
             if (
                 isinstance(session_id, str)
                 and session_id.isdigit()
@@ -61,5 +63,13 @@ class ProviderSessionStateService:
                 }
                 and isinstance(detail, str)
             ):
-                states[session_id] = ProviderSessionState(state, detail)
+                states[session_id] = ProviderSessionState(
+                    state,
+                    detail,
+                    (
+                        float(context)
+                        if isinstance(context, (int, float)) and 0 <= context <= 100
+                        else None
+                    ),
+                )
         return states

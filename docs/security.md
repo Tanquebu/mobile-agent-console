@@ -101,6 +101,9 @@ sull'host. Il file atomico risultante contiene solo identificatore numerico
 tmux, provider e modalità permessi normalizzata. Percorsi dei transcript,
 prompt, risposte e argomenti dei processi non sono serializzati né esposti
 dall'API; il backend non riceve accesso a `/proc`, `~/.codex` o `~/.claude`.
+La cache context Claude contiene soltanto session UUID, percentuale, capienza,
+timestamp e pane tmux; i file sono `0600`. Il collector pubblica al backend
+soltanto la percentuale normalizzata `0..100`.
 
 L'endpoint degli stati agentici è autenticato e restituisce soltanto session id,
 provider, stato e descrizione fissa. I frammenti di terminale usati dalle

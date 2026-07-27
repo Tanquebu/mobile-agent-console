@@ -31,8 +31,8 @@
 - [x] Modalità host-tmux sul socket predefinito dell'utente (ADR 005, che
   supera il socket dedicato previsto in origine).
 - [x] Tasti `Up`/`Down`/`Esc` per i prompt di autorizzazione.
-- [~] Controlli contestuali dei permessi: `/permissions` per Codex e
-  `Shift+Tab` per Claude; da validare sull'istanza pubblicata.
+- [x] Controlli contestuali dei permessi: `/permissions` per Codex e
+  `Shift+Tab` per Claude, validati sull'istanza pubblicata.
 - [x] `C-c` (interrupt) dietro conferma esplicita.
 - [x] Terminazione della sessione come endpoint separato e confermato.
 
@@ -95,12 +95,15 @@ API specifiche di Codex, Claude o altri agenti.
   pausa per capacità, prossimo tentativo, fallback e avanzamento del
   checkpoint. Da alimentare con un collector host-side sanitizzato, senza
   credenziali, prompt o comandi di controllo nella console.
-- [ ] Chat blocks.
+- [x] Chat blocks opzionali per Codex/Claude con ritorno immediato alla vista
+  terminale, validati sull'istanza pubblicata.
 - [x] Euristiche di attenzione Codex/Claude con stati attivo, inattivo,
   feedback, autorizzazione e sconosciuto, validate sull'istanza pubblicata.
 - [x] Badge separato per il livello permessi delle sessioni agentiche, con
   collector strutturato host-side, fallback euristico e legenda completa,
   validato sull'istanza pubblicata.
+- [x] Percentuale della finestra di contesto per sessione Codex/Claude tramite
+  metadati strutturati sanitizzati, validata sull'istanza pubblicata.
 - [ ] Notifiche PWA locali.
 - [~] Manifest PWA presente; service worker e comportamento offline da
   completare.

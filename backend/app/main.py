@@ -651,6 +651,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
                             detail="Output non disponibile",
                             permission_state="unknown",
                             permission_detail="Livello permessi non rilevato",
+                            context_used_percent=None,
                         )
                     )
                 continue
@@ -672,6 +673,11 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
                             permission.permission_detail
                             if permission is not None
                             else status.permission_detail
+                        ),
+                        context_used_percent=(
+                            permission.context_used_percent
+                            if permission is not None
+                            else None
                         ),
                     )
                 )

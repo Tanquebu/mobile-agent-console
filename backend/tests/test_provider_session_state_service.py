@@ -5,7 +5,8 @@ def test_provider_session_states_are_sanitized(tmp_path) -> None:
     path = tmp_path / "states.json"
     path.write_text(
         '{"sessions":['
-        '{"session_id":"14","permission_state":"restricted","permission_detail":"Sola lettura"},'
+        '{"session_id":"14","permission_state":"restricted","permission_detail":"Sola lettura",'
+        '"context_used_percent":42.5},'
         '{"session_id":"bad","permission_state":"bypass","permission_detail":"no"},'
         '{"session_id":"20","permission_state":"invalid","permission_detail":"no"}'
         "]}",
@@ -15,6 +16,7 @@ def test_provider_session_states_are_sanitized(tmp_path) -> None:
     assert list(states) == ["14"]
     assert states["14"].permission_state == "restricted"
     assert states["14"].permission_detail == "Sola lettura"
+    assert states["14"].context_used_percent == 42.5
 
 
 def test_provider_session_states_tolerate_missing_or_invalid_files(tmp_path) -> None:

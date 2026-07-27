@@ -119,6 +119,9 @@ aperti da Codex o aggiornati da Claude. Ogni cinque secondi pubblica soltanto
 session id, provider e livello permessi normalizzato in
 `.mobile-agent-console/provider-session-states.json`. Il backend non monta
 `/proc`, `~/.codex` o `~/.claude`.
+Lo stesso file può includere la percentuale della finestra di contesto: Codex
+la espone nei propri eventi `token_count`; Claude la consegna allo statusline,
+che salva una cache per sessione associata direttamente al pane tmux.
 
 La dashboard interroga ogni tre secondi uno stato agentico aggregato. Il
 backend considera soltanto pane con comando corrente `codex` o `claude`,
@@ -129,3 +132,8 @@ fallback `unknown`; l'output osservato resta esclusivamente in memoria.
 Il livello permessi strutturato del collector viene normalizzato in
 `restricted`, `standard`, `elevated`, `bypass`, `plan` o `unknown`; il testo
 del TUI resta un fallback quando il collector non dispone di un'associazione.
+
+La vista Chat blocks è una trasformazione esclusivamente client-side dello
+snapshot tmux autorevole. Riconosce marker di prompt, risposta e attività per
+Codex/Claude, non persiste contenuti e permette sempre il ritorno immediato
+alla resa terminale integrale.

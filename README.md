@@ -28,6 +28,9 @@ generic terminal, with no dependency on any specific vendor or tool.
   can open the native Codex or Claude resume picker;
 - heuristic Codex/Claude badges for active, idle, feedback and authorization
   states, without persisting terminal content;
+- opt-in chat blocks over the authoritative tmux snapshot, with an immediate
+  switch back to the raw terminal view;
+- per-session context-window usage beside Codex/Claude in the dashboard;
 - an in-app quick guide whose “What's new” section shows only the latest
   shipped roadmap item;
 - directory suggestions in the new-session form, prefilled from the
@@ -219,6 +222,14 @@ Prompts and responses are never copied. Enable it with:
 systemctl --user daemon-reload
 systemctl --user enable --now mobile-agent-console-provider-session-states.timer
 ```
+
+Codex context usage is read directly from its structured transcript. Claude
+provides the exact percentage to status-line commands; the included minimal
+`deploy/claude-context-cache.mjs` can be configured as Claude's `statusLine`
+command, or its small cache-writing section can be merged into an existing
+custom status line. It writes one `0600` JSON file per session under
+`~/.claude/context-window-cache`, containing only percentage, window size,
+timestamp and tmux pane id.
 
 ## Secure exposure
 

@@ -134,6 +134,10 @@ coordinate finestra/pane, stato attivo, comando, titolo e dimensioni.
 `pane_id` può essere passato a output e WebSocket e nei body di input/tasti.
 Il backend verifica sempre l'appartenenza alla sessione.
 
+`GET /api/v1/agent-statuses` include `context_used_percent` (`0..100` oppure
+`null`) accanto allo stato operativo e alla modalità permessi. Il valore deriva
+da metadati provider sanitizzati e non espone conteggi, modelli o transcript.
+
 `POST /api/v1/sessions/{id}/panes/{pane_id}/resize` accetta
 `{"columns":100,"rows":30}` con limiti rispettivamente `20..500` e `5..300`.
 `POST /api/v1/sessions/{id}/panes/split?pane_id=N` crea un nuovo pane

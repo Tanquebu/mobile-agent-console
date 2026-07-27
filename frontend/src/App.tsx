@@ -67,9 +67,9 @@ const CONNECTION_LABEL: Record<Connection, string> = {
 };
 
 const LATEST_RELEASE = {
-  title: "Stato agenti",
+  title: "Chat blocks e contesto",
   description:
-    "Badge separati per attività e permessi, rilevamento strutturato e legenda completa in dashboard.",
+    "Vista a blocchi con fallback terminale e percentuale di contesto per ogni sessione agentica.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -115,6 +115,72 @@ const PERMISSION_STATE_LEGEND: Array<
   ["bypass", "Accesso completo"],
   ["unknown", "Non rilevato"],
 ];
+
+type ChatBlockKind = "user" | "agent" | "activity";
+
+type ChatBlock = {
+  kind: ChatBlockKind;
+  content: string;
+};
+
+const ANSI_SEQUENCE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/g;
+
+function chatLines(content: string, provider: string): string[] {
+  const lines = content.split("\n");
+  if (!/claude/i.test(provider)) return lines;
+  let end = lines.length;
+  const trailingStart = Math.max(0, lines.length - 12);
+  let emptyPrompt = -1;
+  for (let index = lines.length - 1; index >= trailingStart; index -= 1) {
+    if (/^\s*❯\s*$/.test(lines[index])) {
+      emptyPrompt = index;
+      break;
+    }
+  }
+  if (emptyPrompt >= 0) {
+    end = emptyPrompt;
+    while (end > 0 && /^\s*─{5,}\s*$/.test(lines[end - 1])) end -= 1;
+    while (
+      end > 0
+      && (/\/clear to save/i.test(lines[end - 1]) || !lines[end - 1].trim())
+    ) end -= 1;
+  } else if (
+    lines.slice(trailingStart).some((line) => /Enter to select.*Esc to cancel/i.test(line))
+  ) {
+    for (let index = lines.length - 1; index >= trailingStart; index -= 1) {
+      if (/^\s*─{5,}\s*$/.test(lines[index])) {
+        end = index;
+        break;
+      }
+    }
+  }
+  return lines.slice(0, end);
+}
+
+function chatBlocks(content: string, provider: string): ChatBlock[] {
+  const blocks: ChatBlock[] = [];
+  let current: ChatBlock | undefined;
+  let afterUserBreak = false;
+  for (const line of chatLines(content, provider)) {
+    const visible = line.replace(ANSI_SEQUENCE, "");
+    let kind = current?.kind ?? "activity";
+    if (/^\s*[›❯>]\s*/.test(visible)) kind = "user";
+    else if (/^\s*[•●]\s+/.test(visible)) kind = "agent";
+    else if (
+      /^\s*(?:✔|✘|✱|✻|✽|⏺|─{3,}|Ran\b|Explored\b|Read\b|Edited\b)/.test(visible)
+    ) kind = "activity";
+    else if (afterUserBreak && line.trim()) kind = "agent";
+
+    if (!current || (line.trim() && kind !== current.kind)) {
+      current = { kind, content: line };
+      blocks.push(current);
+    } else {
+      current.content += `${current.content ? "\n" : ""}${line}`;
+    }
+    afterUserBreak = current.kind === "user" && !line.trim();
+  }
+  return blocks.filter((block) => block.content.trim());
+}
 
 function formatSize(size: number | null): string {
   if (size === null) return "—";
@@ -1105,7 +1171,23 @@ function SessionList({
                       </>
                     )}
                   </strong>
-                  <small>{session.current_command} · {session.windows} window</small>
+                  <small>
+                    {session.current_command}
+                    {agentStatusBySession[session.id]?.context_used_percent != null && (
+                      <span
+                        className="context-usage"
+                        style={{
+                          color: rateLimitColor(
+                            agentStatusBySession[session.id].context_used_percent!,
+                          ),
+                        }}
+                        title="Finestra di contesto utilizzata"
+                      >
+                        ctx {Math.round(agentStatusBySession[session.id].context_used_percent!)}%
+                      </span>
+                    )}
+                    {" · "}{session.windows} window
+                  </small>
                 </span>
                 <span className="chevron">›</span>
               </button>
@@ -1242,7 +1324,11 @@ function Console({
   const [panes, setPanes] = useState<Pane[]>([]);
   const [paneId, setPaneId] = useState("");
   const [splittingPane, setSplittingPane] = useState(false);
-  const outputRef = useRef<HTMLPreElement>(null);
+  const agentic = /codex|claude/i.test(session.current_command);
+  const [outputMode, setOutputMode] = useState<"terminal" | "blocks">(
+    agentic ? "blocks" : "terminal",
+  );
+  const outputRef = useRef<HTMLPreElement | HTMLDivElement>(null);
   const outputLinesRef = useRef<string[]>([]);
   const outputSequenceRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1470,31 +1556,78 @@ function Console({
       <section className="output-wrap">
         <div className="output-label">
           <span>OUTPUT RECENTE</span>
-          {panes.length > 1 ? (
-            <select
-              className="pane-selector"
-              aria-label="Pane tmux"
-              value={paneId}
-              onChange={(event) => setPaneId(event.target.value)}
-            >
-              {panes.map((pane) => (
-                <option value={pane.id} key={pane.id}>
-                  {pane.window_index}.{pane.pane_index} · {pane.command}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <span>{panes[0] ? `tmux ${panes[0].window_index}.${panes[0].pane_index}` : "tmux"}</span>
-          )}
+          <div className="output-controls">
+            {agentic && (
+              <span className="output-mode" role="group" aria-label="Vista output">
+                <button
+                  type="button"
+                  aria-pressed={outputMode === "blocks"}
+                  onClick={() => setOutputMode("blocks")}
+                >
+                  Blocchi
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={outputMode === "terminal"}
+                  onClick={() => setOutputMode("terminal")}
+                >
+                  Terminale
+                </button>
+              </span>
+            )}
+            {panes.length > 1 ? (
+              <select
+                className="pane-selector"
+                aria-label="Pane tmux"
+                value={paneId}
+                onChange={(event) => setPaneId(event.target.value)}
+              >
+                {panes.map((pane) => (
+                  <option value={pane.id} key={pane.id}>
+                    {pane.window_index}.{pane.pane_index} · {pane.command}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span>{panes[0] ? `tmux ${panes[0].window_index}.${panes[0].pane_index}` : "tmux"}</span>
+            )}
+          </div>
         </div>
         {connection === "closed" && (
           <div className="session-closed-banner" role="alert">
             La sessione tmux è stata chiusa. Torna alla dashboard.
           </div>
         )}
-        <pre ref={outputRef} className="output" onScroll={updateScrollMode}>
-          {content || "In attesa dell'output…"}
-        </pre>
+        {outputMode === "blocks" && agentic ? (
+          <div
+            ref={(element) => { outputRef.current = element; }}
+            className="output chat-blocks"
+            onScroll={updateScrollMode}
+          >
+            {content ? chatBlocks(content, session.current_command).map((block, index) => (
+              <article className={`chat-block ${block.kind}`} key={`${index}-${block.content.slice(0, 20)}`}>
+                <small>
+                  {block.kind === "user"
+                    ? "Tu"
+                    : block.kind === "agent"
+                      ? session.current_command
+                      : "Attività"}
+                </small>
+                <pre>{block.content}</pre>
+              </article>
+            )) : (
+              <p className="output-waiting">In attesa dell'output…</p>
+            )}
+          </div>
+        ) : (
+          <pre
+            ref={(element) => { outputRef.current = element; }}
+            className="output"
+            onScroll={updateScrollMode}
+          >
+            {content || "In attesa dell'output…"}
+          </pre>
+        )}
         {!followingOutput && (
           <button className="follow-output" type="button" onClick={resumeFollowingOutput}>
             ↓ Segui output
