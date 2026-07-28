@@ -1421,6 +1421,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         session_id: str,
         pane_id: str | None = None,
         ansi: bool = False,
+        lines: Annotated[int, Query(ge=100, le=2000)] = 500,
     ) -> None:
         cookie = websocket.cookies.get(COOKIE_NAME)
         try:
@@ -1442,7 +1443,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         try:
             while True:
                 try:
-                    content = await gateway.capture_output(session_id, 500, pane_id, ansi=ansi)
+                    content = await gateway.capture_output(session_id, lines, pane_id, ansi=ansi)
                 except (SessionNotFound, ValueError):
                     sequence += 1
                     await websocket.send_json(

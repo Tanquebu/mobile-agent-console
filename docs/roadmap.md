@@ -239,6 +239,18 @@ condiviso e mappatura pane ↔ session id.
      input/output), marcato "in attesa" quando è l'ultima voce senza
      testo successivo — resta dentro il confine ADR 007, vedi il relativo
      addendum.
+  4. la vista Terminale è (per design) uno snapshot delle ultime `lines`
+     righe del pane a partire da adesso, non una connessione persistente
+     allo scrollback — scrollare indietro in xterm.js non recupera righe
+     più vecchie di quelle già scaricate. Aggiunto un "load more"
+     all'indietro (come lo storico dell'app Claude): il WebSocket accetta
+     ora un parametro `lines` (100-2000, vedi
+     `docs/websocket-protocol.md`); quando l'utente scrolla in cima al
+     buffer caricato, il frontend aumenta la profondità richiesta e
+     riconnette, mostrando uno spinner ("Carico righe precedenti…") e
+     ripristinando la posizione di scroll dopo il redraw — resta
+     un'unica cattura autorevole (`capture-pane -S -{lines}` più ampio),
+     nessun merge lato client.
 - [x] Supporto multi-pane esteso: chiusura di un singolo pane (`kill-pane`,
   con conferma esplicita), che lascia sessione e altri pane attivi — rifiuta
   se è l'unico pane rimasto (va terminata la sessione). Scelta tra split

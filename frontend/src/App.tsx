@@ -98,6 +98,11 @@ const CONNECTION_LABEL: Record<Connection, string> = {
 // qui si forza lo stesso minimo invece di adattarsi al viewport stretto, e
 // si scrolla in orizzontale.
 const MIN_PANE_COLUMNS = 120;
+// Profondità massima e incremento dello storico caricabile in Terminale
+// con lo scroll-indietro ("load more"); il WS accetta lines 100-2000
+// (vedi main.py, stream()).
+const MAX_TERMINAL_LINES = 2000;
+const LOAD_MORE_STEP_LINES = 500;
 
 const LATEST_RELEASE = {
   title: "Preferenze: vista predefinita",
@@ -1519,6 +1524,16 @@ function Console({
   const outputRef = useRef<HTMLPreElement | HTMLDivElement>(null);
   const outputLinesRef = useRef<string[]>([]);
   const outputSequenceRef = useRef(0);
+  const [terminalLines, setTerminalLines] = useState(500);
+  const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+  const [historyExhausted, setHistoryExhausted] = useState(false);
+  const pendingHistoryRestoreRef = useRef<number | null>(null);
+  const terminalLinesRef = useRef(terminalLines);
+  const loadingMoreHistoryRef = useRef(loadingMoreHistory);
+  const historyExhaustedRef = useRef(historyExhausted);
+  useEffect(() => { terminalLinesRef.current = terminalLines; }, [terminalLines]);
+  useEffect(() => { loadingMoreHistoryRef.current = loadingMoreHistory; }, [loadingMoreHistory]);
+  useEffect(() => { historyExhaustedRef.current = historyExhausted; }, [historyExhausted]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -1587,6 +1602,13 @@ function Console({
   }, [session.id]);
 
   useEffect(() => {
+    setTerminalLines(500);
+    setLoadingMoreHistory(false);
+    setHistoryExhausted(false);
+    pendingHistoryRestoreRef.current = null;
+  }, [session.id, paneId]);
+
+  useEffect(() => {
     if (!paneId) return;
     let socket: WebSocket | undefined;
     let timer: number | undefined;
@@ -1595,7 +1617,9 @@ function Console({
     const connect = () => {
       if (stopped) return;
       setConnection("connecting");
-      socket = new WebSocket(streamUrl(session.id, paneId, outputMode === "terminal"));
+      socket = new WebSocket(
+        streamUrl(session.id, paneId, outputMode === "terminal", outputMode === "terminal" ? terminalLines : undefined),
+      );
       socket.onopen = () => { attempts = 0; setConnection("online"); };
       socket.onmessage = (event) => {
         const message = JSON.parse(event.data);
@@ -1634,7 +1658,7 @@ function Console({
       if (timer) clearTimeout(timer);
       socket?.close();
     };
-  }, [session.id, paneId, outputMode === "terminal"]);
+  }, [session.id, paneId, outputMode === "terminal", terminalLines]);
 
   useEffect(() => {
     if (outputMode !== "blocks") return;
@@ -1721,6 +1745,20 @@ function Console({
     const scrollDisposable = terminal.onScroll(() => {
       const buffer = terminal.buffer.active;
       setFollowingOutput(buffer.viewportY >= buffer.baseY);
+      // In cima al buffer caricato: richiedi altre righe più vecchie
+      // aumentando la profondità della cattura tmux e riconnettendo il
+      // WebSocket (vedi useEffect su terminalLines). Uno snapshot più
+      // grande resta l'unica fonte autorevole, niente merge manuale.
+      if (
+        buffer.viewportY === 0
+        && !loadingMoreHistoryRef.current
+        && !historyExhaustedRef.current
+        && terminalLinesRef.current < MAX_TERMINAL_LINES
+      ) {
+        pendingHistoryRestoreRef.current = buffer.length;
+        setLoadingMoreHistory(true);
+        setTerminalLines((value) => Math.min(MAX_TERMINAL_LINES, value + LOAD_MORE_STEP_LINES));
+      }
     });
 
     return () => {
@@ -1735,8 +1773,18 @@ function Console({
 
   useEffect(() => {
     if (outputMode !== "terminal" || !terminalRef.current) return;
-    terminalRef.current.reset();
-    terminalRef.current.write(content);
+    const terminal = terminalRef.current;
+    const pendingOldLength = pendingHistoryRestoreRef.current;
+    terminal.reset();
+    // write() è asincrono: il buffer è affidabile solo dentro la callback.
+    terminal.write(content, () => {
+      if (pendingOldLength === null) return;
+      const delta = terminal.buffer.active.length - pendingOldLength;
+      if (delta > 0) terminal.scrollToLine(delta);
+      else setHistoryExhausted(true);
+      pendingHistoryRestoreRef.current = null;
+      setLoadingMoreHistory(false);
+    });
   }, [content, outputMode]);
 
   useEffect(() => {
@@ -2004,6 +2052,9 @@ function Console({
           </div>
         ) : (
           <div className="output terminal-xterm" ref={terminalContainerRef} />
+        )}
+        {outputMode === "terminal" && loadingMoreHistory && (
+          <div className="history-loading" role="status">Carico righe precedenti…</div>
         )}
         {!followingOutput && (
           <button className="follow-output" type="button" onClick={resumeFollowingOutput}>

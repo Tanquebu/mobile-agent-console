@@ -11,6 +11,14 @@ nell'URL; l'endpoint verifica anche l'Origin configurato.
 Quando si usa Docker con bind Tailscale, Nginx inoltra `Host` comprensivo della
 porta pubblicata (`100.x.x.x:8081`), necessario per il controllo same-origin.
 
+Query string opzionale: `pane_id` (pattern `^\d{1,10}$`, pane targetato invece
+di quello attivo), `ansi` (`true` per includere le sequenze di escape via
+`capture-pane -e`, usato dalla vista Terminale/xterm.js), `lines` (100-2000,
+default 500 — profondità della cattura `capture-pane -S -{lines}`; la vista
+Terminale la aumenta e riconnette quando l'utente scrolla in cima al buffer
+già caricato, per un "load more" all'indietro — lo snapshot più grande resta
+l'unica fonte autorevole, nessun merge lato client).
+
 Messaggi server JSON:
 
 ```json

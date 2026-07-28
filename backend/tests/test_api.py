@@ -670,6 +670,29 @@ def test_websocket_ansi_opt_in_defaults_to_plain_capture() -> None:
     assert fake.capture_ansi_calls == [False, True]
 
 
+def test_websocket_lines_param_controls_capture_depth() -> None:
+    client, fake = client_and_fake()
+    login(client)
+    with client.websocket_connect("/api/v1/ws/sessions/1", headers={"origin": "http://testserver"}):
+        pass
+    assert fake.capture_lines_calls == [500]
+
+    with client.websocket_connect(
+        "/api/v1/ws/sessions/1?lines=1000", headers={"origin": "http://testserver"}
+    ):
+        pass
+    assert fake.capture_lines_calls == [500, 1000]
+
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect(
+        "/api/v1/ws/sessions/1?lines=50", headers={"origin": "http://testserver"}
+    ):
+        pass
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect(
+        "/api/v1/ws/sessions/1?lines=5000", headers={"origin": "http://testserver"}
+    ):
+        pass
+
+
 def test_create_session_requires_allowed_directory() -> None:
     client, fake = client_and_fake()
     csrf = login(client)

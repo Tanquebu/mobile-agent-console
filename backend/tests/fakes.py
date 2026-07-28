@@ -13,6 +13,7 @@ class FakeTmux:
     def __init__(self) -> None:
         self.content = "$ "
         self.capture_ansi_calls: list[bool] = []
+        self.capture_lines_calls: list[int] = []
         self.texts: list[str] = []
         self.keys: list[str] = []
         self.targets: list[str | None] = []
@@ -77,6 +78,7 @@ class FakeTmux:
         if pane_id is not None and pane_id != "10":
             raise SessionNotFound(pane_id)
         self.capture_ansi_calls.append(ansi)
+        self.capture_lines_calls.append(lines)
         return self.content
 
     async def send_text(self, session_id: str, text: str, pane_id: str | None = None) -> None:
