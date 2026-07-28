@@ -10,6 +10,10 @@
 *::-webkit-scrollbar-track { background: #101713; }
 *::-webkit-scrollbar-thumb { border: 2px solid #101713; border-radius: 999px; background: #41664d; }
 *::-webkit-scrollbar-thumb:hover { background: #568366; }
+@media (pointer: coarse) {
+  *::-webkit-scrollbar { width: 18px; height: 18px; }
+  *::-webkit-scrollbar-thumb { border-width: 4px; }
+}
 body { margin: 0; min-width: 320px; min-height: 100dvh; overscroll-behavior-y: none; }
 button, textarea, input { font: inherit; }
 button { min-height: 44px; cursor: pointer; }

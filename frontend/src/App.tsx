@@ -1524,6 +1524,7 @@ function Console({
   const outputRef = useRef<HTMLPreElement | HTMLDivElement>(null);
   const outputLinesRef = useRef<string[]>([]);
   const outputSequenceRef = useRef(0);
+  const [contentRevision, setContentRevision] = useState(0);
   const [terminalLines, setTerminalLines] = useState(500);
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
   const [historyExhausted, setHistoryExhausted] = useState(false);
@@ -1627,6 +1628,12 @@ function Console({
           outputLinesRef.current = message.content.match(/[^\n]*\n|[^\n]+$/g) ?? [];
           outputSequenceRef.current = message.sequence_id;
           setContent(message.content);
+          // setContent con una stringa identica alla precedente (es. il
+          // pane ha meno righe di quelle richieste) non ri-renderizza:
+          // questo contatore forza comunque l'effetto di scrittura del
+          // terminale a rieseguire, altrimenti un load-more in corso
+          // resterebbe bloccato per sempre in attesa di un content diverso.
+          setContentRevision((value) => value + 1);
         }
         if (message.type === "delta") {
           if (message.base_sequence_id !== outputSequenceRef.current) {
@@ -1785,7 +1792,7 @@ function Console({
       pendingHistoryRestoreRef.current = null;
       setLoadingMoreHistory(false);
     });
-  }, [content, outputMode]);
+  }, [content, contentRevision, outputMode]);
 
   useEffect(() => {
     if (outputMode === "terminal") return;
