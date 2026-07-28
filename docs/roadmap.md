@@ -253,7 +253,31 @@ condiviso e mappatura pane ↔ session id.
      riconnette, mostrando uno spinner ("Carico righe precedenti…") e
      ripristinando la posizione di scroll dopo il redraw — resta
      un'unica cattura autorevole (`capture-pane -S -{lines}` più ampio),
-     nessun merge lato client.
+     nessun merge lato client. **Limite non risolvibile**: per Claude
+     Code (schermo alternativo di tmux) `history_size` resta a 0 finché
+     l'agente lavora, quindi non c'è nulla da caricare — la sua vera
+     cronologia interna esiste solo nel TUI stesso (visibile con `tmux
+     attach`), mai in `capture-pane`; per queste sessioni lo strumento
+     giusto per rileggere lo storico resta Cronologia (legge la
+     trascrizione di Claude direttamente, non `capture-pane`).
+  5. lo scroll touch verticale in Terminale, anche dopo aver corretto
+     l'hijack di pagina (punto 2), restava "a scatti": xterm.js ridisegna
+     solo per righe intere (`Math.round(scrollTop / cellHeight)`, vedi
+     `_handleScroll` nel suo sorgente) — limite architetturale di
+     qualunque terminale a griglia di caratteri, non risolvibile con
+     CSS/rendering (provati e scartati: `smoothScrollDuration`,
+     `-webkit-overflow-scrolling`, renderer WebGL). Per rileggere
+     comodamente lo storico su mobile restano Blocchi/Cronologia (div
+     scrollabili nativi, senza questa quantizzazione); Terminale resta
+     utile per la resa ANSI dal vivo e come unica vista per le sessioni
+     shell semplici (Blocchi/Cronologia sono condizionati a sessioni
+     Codex/Claude).
+  6. xterm.js + addon-fit + addon-webgl (~113 KB gzip) sono ora caricati
+     con `import()` dinamico solo all'apertura effettiva di Terminale,
+     non nel bundle iniziale — chi resta su Blocchi/Cronologia scarica il
+     60% di JS in meno all'avvio (76 KB contro 189 KB gzip). Nessuna
+     funzionalità rimossa: Terminale resta disponibile ovunque, incluse
+     le sessioni shell semplici dove è l'unica vista.
 - [x] Supporto multi-pane esteso: chiusura di un singolo pane (`kill-pane`,
   con conferma esplicita), che lascia sessione e altri pane attivi — rifiuta
   se è l'unico pane rimasto (va terminata la sessione). Scelta tra split

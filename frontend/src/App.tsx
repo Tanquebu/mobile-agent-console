@@ -1,7 +1,6 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
-import { WebglAddon } from "@xterm/addon-webgl";
+import type { Terminal } from "@xterm/xterm";
+import type { FitAddon } from "@xterm/addon-fit";
 import {
   ApiError,
   AgentStatus,
@@ -1700,87 +1699,105 @@ function Console({
     if (outputMode !== "terminal") return;
     const container = terminalContainerRef.current;
     if (!container) return;
-    const terminal = new Terminal({
-      disableStdin: true,
-      convertEol: true,
-      fontSize: 13,
-      // Di default (0) xterm.js scrolla a scatti, riga per riga, invece di
-      // animare — specie percepibile col drag touch su mobile.
-      smoothScrollDuration: 120,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-      theme: {
-        background: "#101713",
-        foreground: "#e9f2ec",
-        cursor: "#9be5b3",
-        selectionBackground: "#41664d88",
-      },
-    });
-    const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.open(container);
-    terminalRef.current = terminal;
-    fitAddonRef.current = fitAddon;
-    // Il renderer DOM di default non tiene il passo col ridisegno durante
-    // lo scroll touch su mobile (percepito come "a scatti"); il renderer
-    // WebGL è accelerato via GPU. Se non disponibile (o perso a runtime),
-    // si torna silenziosamente al renderer DOM di default.
-    try {
-      const webglAddon = new WebglAddon();
-      webglAddon.onContextLoss(() => webglAddon.dispose());
-      terminal.loadAddon(webglAddon);
-    } catch {
-      /* WebGL non disponibile: resta il renderer DOM di default */
-    }
-
-    let resizeTimer: number | undefined;
-    const applyFit = () => {
-      fitAddon.fit();
-      if (!paneId) return;
-      // ResizePaneInput impone 20-500 colonne e 5-300 righe (schemas.py);
-      // durante un resize in corso FitAddon può calcolare valori transitori
-      // fuori range prima che il layout si stabilizzi.
-      const columns = Math.max(20, Math.min(500, terminal.cols));
-      const rows = Math.max(5, Math.min(300, terminal.rows));
-      const dimensions = `${columns}x${rows}`;
-      if (dimensions === previousFitRef.current) return;
-      previousFitRef.current = dimensions;
-      if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = window.setTimeout(() => {
-        resizePane(session.id, paneId, columns, rows).catch((value) => {
-          setControlError(errorMessage(value));
-        });
-      }, 750);
-    };
-    applyFit();
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(applyFit);
-    observer?.observe(container);
-
-    const scrollDisposable = terminal.onScroll(() => {
-      const buffer = terminal.buffer.active;
-      setFollowingOutput(buffer.viewportY >= buffer.baseY);
-      // In cima al buffer caricato: richiedi altre righe più vecchie
-      // aumentando la profondità della cattura tmux e riconnettendo il
-      // WebSocket (vedi useEffect su terminalLines). Uno snapshot più
-      // grande resta l'unica fonte autorevole, niente merge manuale.
-      if (
-        buffer.viewportY === 0
-        && !loadingMoreHistoryRef.current
-        && !historyExhaustedRef.current
-        && terminalLinesRef.current < MAX_TERMINAL_LINES
-      ) {
-        pendingHistoryRestoreRef.current = buffer.length;
-        setLoadingMoreHistory(true);
-        setTerminalLines((value) => Math.min(MAX_TERMINAL_LINES, value + LOAD_MORE_STEP_LINES));
+    let cancelled = false;
+    let disposeInner: (() => void) | undefined;
+    // xterm.js + addon-fit/webgl pesano parecchio: caricati solo qui, non
+    // nel bundle iniziale, così una sessione che resta su Blocchi/Cronologia
+    // non li scarica mai.
+    void (async () => {
+      const [{ Terminal }, { FitAddon }, { WebglAddon }] = await Promise.all([
+        import("@xterm/xterm"),
+        import("@xterm/addon-fit"),
+        import("@xterm/addon-webgl"),
+      ]);
+      if (cancelled) return;
+      const terminal = new Terminal({
+        disableStdin: true,
+        convertEol: true,
+        fontSize: 13,
+        // Di default (0) xterm.js scrolla a scatti, riga per riga, invece di
+        // animare — specie percepibile col drag touch su mobile.
+        smoothScrollDuration: 120,
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+        theme: {
+          background: "#101713",
+          foreground: "#e9f2ec",
+          cursor: "#9be5b3",
+          selectionBackground: "#41664d88",
+        },
+      });
+      const fitAddon = new FitAddon();
+      terminal.loadAddon(fitAddon);
+      terminal.open(container);
+      terminalRef.current = terminal;
+      fitAddonRef.current = fitAddon;
+      // Il renderer DOM di default non tiene il passo col ridisegno durante
+      // lo scroll touch su mobile (percepito come "a scatti"); il renderer
+      // WebGL è accelerato via GPU. Se non disponibile (o perso a runtime),
+      // si torna silenziosamente al renderer DOM di default.
+      try {
+        const webglAddon = new WebglAddon();
+        webglAddon.onContextLoss(() => webglAddon.dispose());
+        terminal.loadAddon(webglAddon);
+      } catch {
+        /* WebGL non disponibile: resta il renderer DOM di default */
       }
-    });
+
+      let resizeTimer: number | undefined;
+      const applyFit = () => {
+        fitAddon.fit();
+        if (!paneId) return;
+        // ResizePaneInput impone 20-500 colonne e 5-300 righe (schemas.py);
+        // durante un resize in corso FitAddon può calcolare valori transitori
+        // fuori range prima che il layout si stabilizzi.
+        const columns = Math.max(20, Math.min(500, terminal.cols));
+        const rows = Math.max(5, Math.min(300, terminal.rows));
+        const dimensions = `${columns}x${rows}`;
+        if (dimensions === previousFitRef.current) return;
+        previousFitRef.current = dimensions;
+        if (resizeTimer) clearTimeout(resizeTimer);
+        resizeTimer = window.setTimeout(() => {
+          resizePane(session.id, paneId, columns, rows).catch((value) => {
+            setControlError(errorMessage(value));
+          });
+        }, 750);
+      };
+      applyFit();
+      const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(applyFit);
+      observer?.observe(container);
+
+      const scrollDisposable = terminal.onScroll(() => {
+        const buffer = terminal.buffer.active;
+        setFollowingOutput(buffer.viewportY >= buffer.baseY);
+        // In cima al buffer caricato: richiedi altre righe più vecchie
+        // aumentando la profondità della cattura tmux e riconnettendo il
+        // WebSocket (vedi useEffect su terminalLines). Uno snapshot più
+        // grande resta l'unica fonte autorevole, niente merge manuale.
+        if (
+          buffer.viewportY === 0
+          && !loadingMoreHistoryRef.current
+          && !historyExhaustedRef.current
+          && terminalLinesRef.current < MAX_TERMINAL_LINES
+        ) {
+          pendingHistoryRestoreRef.current = buffer.length;
+          setLoadingMoreHistory(true);
+          setTerminalLines((value) => Math.min(MAX_TERMINAL_LINES, value + LOAD_MORE_STEP_LINES));
+        }
+      });
+
+      disposeInner = () => {
+        observer?.disconnect();
+        scrollDisposable.dispose();
+        if (resizeTimer) clearTimeout(resizeTimer);
+        terminal.dispose();
+        terminalRef.current = null;
+        fitAddonRef.current = null;
+      };
+    })();
 
     return () => {
-      observer?.disconnect();
-      scrollDisposable.dispose();
-      if (resizeTimer) clearTimeout(resizeTimer);
-      terminal.dispose();
-      terminalRef.current = null;
-      fitAddonRef.current = null;
+      cancelled = true;
+      disposeInner?.();
     };
   }, [outputMode, session.id, paneId]);
 
