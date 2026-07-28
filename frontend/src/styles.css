@@ -93,7 +93,8 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .console-header { grid-row: 1; display: grid; grid-template-columns: 44px 1fr 44px auto; align-items: center; gap: 10px; padding: max(10px, env(safe-area-inset-top)) 12px 10px; border-bottom: 1px solid #26352c; }
 .console-header div { display: grid; gap: 2px; }
 .agent-info-bar { grid-row: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 8px 12px; border-bottom: 1px solid #26352c; background: #141d17; font-size: .72rem; color: #91a397; }
-.agent-info-bar .agent-state { display: inline-flex; align-items: center; gap: 5px; width: auto; height: auto; padding: 3px 8px; border-radius: 999px; }
+.agent-info-state { display: inline-flex; align-items: center; gap: 6px; }
+.agent-info-state .agent-state { font-style: normal; }
 .agent-info-bar .context-usage { font-weight: 800; }
 .agent-info-bar small { color: #7ea58c; }
 .agent-info-bar strong { color: #d2e3d7; }

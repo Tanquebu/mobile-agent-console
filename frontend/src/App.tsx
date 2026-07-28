@@ -2058,11 +2058,9 @@ function Console({
       {agentic && (ownStatus || ownProviderLimit) && (
         <section className="agent-info-bar" aria-label="Stato agente">
           {ownStatus && (
-            <span
-              className={`agent-state ${ownStatus.state}`}
-              title={`${ownStatus.provider}: ${ownStatus.detail}`}
-            >
-              {AGENT_STATE_ICON[ownStatus.state]} {ownStatus.detail}
+            <span className="agent-info-state" title={`${ownStatus.provider}: ${ownStatus.detail}`}>
+              <i className={`agent-state ${ownStatus.state}`}>{AGENT_STATE_ICON[ownStatus.state]}</i>
+              {ownStatus.detail}
             </span>
           )}
           {ownStatus?.context_used_percent != null && (
