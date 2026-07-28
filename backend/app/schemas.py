@@ -49,6 +49,7 @@ class AgentStatusView(BaseModel):
     ]
     permission_detail: str
     context_used_percent: float | None = Field(default=None, ge=0, le=100)
+    summary: str | None = None
 
 
 class AgentStatusList(BaseModel):

@@ -83,6 +83,7 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 @media (prefers-reduced-motion: reduce) { .agent-state.active { animation: none; } }
 .session-copy small, .console-header small { color: #91a397; }
 .session-copy .context-usage { margin-left: 7px; font-weight: 800; }
+.session-summary { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #7ea58c; font-style: italic; }
 .chevron { color: #7ea58c; font-size: 1.8rem; }
 .empty, .error { padding: 20px; color: #91a397; }
 .error { color: #ffaaa0; }

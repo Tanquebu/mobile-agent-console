@@ -186,6 +186,7 @@ export type AgentStatus = {
     | "unknown";
   permission_detail: string;
   context_used_percent: number | null;
+  summary: string | null;
 };
 
 export async function listAgentStatuses(): Promise<AgentStatus[]> {

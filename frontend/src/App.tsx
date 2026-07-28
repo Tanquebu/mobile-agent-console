@@ -1044,7 +1044,13 @@ function SessionList({
       const stateLabel = status
         ? AGENT_STATE_LEGEND.find(([state]) => state === status.state)?.[1]
         : undefined;
-      const haystack = [session.name, session.current_command, status?.provider, stateLabel]
+      const haystack = [
+        session.name,
+        session.current_command,
+        status?.provider,
+        stateLabel,
+        status?.summary,
+      ]
         .filter((value): value is string => Boolean(value))
         .join(" ")
         .toLowerCase();
@@ -1369,6 +1375,11 @@ function SessionList({
                     )}
                     {" · "}{session.windows} window
                   </small>
+                  {agentStatusBySession[session.id]?.summary && (
+                    <small className="session-summary">
+                      {agentStatusBySession[session.id].summary}
+                    </small>
+                  )}
                 </span>
                 <span className="chevron">›</span>
               </button>

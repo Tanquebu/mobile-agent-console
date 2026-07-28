@@ -68,6 +68,35 @@ def test_agent_status_classifies_provider_and_terminal_states() -> None:
     assert claude_auto.permission_state == "auto"
 
 
+def test_agent_status_summary_filters_ui_chrome_and_truncates() -> None:
+    service = AgentStatusService(active_window_seconds=8)
+    status = service.classify(
+        "1",
+        "claude",
+        "› Sistema le date del changelog\n"
+        "⏺ Read changelog.md\n"
+        "──────\n"
+        "Ho aggiornato le date nel changelog per riflettere il rilascio corrente.\n"
+        "> ",
+        now=0,
+    )
+    assert status is not None
+    assert status.summary == (
+        "Ho aggiornato le date nel changelog per riflettere il rilascio corrente."
+    )
+
+    long_line = "parola " * 40
+    truncated = service.classify("2", "claude", long_line, now=0)
+    assert truncated is not None
+    assert truncated.summary is not None
+    assert len(truncated.summary) <= 140
+    assert truncated.summary.endswith("…")
+
+    no_prose = service.classify("3", "claude", "› \n⏺ Bash\n> ", now=0)
+    assert no_prose is not None
+    assert no_prose.summary is None
+
+
 def test_agent_status_uses_recent_output_changes_and_forgets_sessions() -> None:
     service = AgentStatusService(active_window_seconds=8)
     first = service.classify("1", "codex", "compiling", now=10)

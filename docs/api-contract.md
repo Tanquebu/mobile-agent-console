@@ -137,6 +137,12 @@ Il backend verifica sempre l'appartenenza alla sessione.
 `GET /api/v1/agent-statuses` include `context_used_percent` (`0..100` oppure
 `null`) accanto allo stato operativo e alla modalità permessi. Il valore deriva
 da metadati provider sanitizzati e non espone conteggi, modelli o transcript.
+Include anche `summary` (stringa o `null`): estratto euristico delle ultime
+righe di testo semplice del pane (max 140 caratteri), filtrando prompt,
+marcatori di tool/attività, barre di stato e suggerimenti tastiera noti. È
+un'euristica su testo grezzo, non una sintesi comprensiva del contenuto — può
+includere frammenti non descrittivi (es. comandi digitati dall'utente) e non
+richiede mai l'opt-in ANSI.
 
 `GET /api/v1/sessions/{id}/claude-history` è disponibile soltanto con
 `MAC_CLAUDE_HISTORY_ENABLED=true`, per una sessione tmux viva il cui comando

@@ -10,9 +10,10 @@ contesto e cronologia.
 
 M0 e M2 sono conclusi. Il runtime M1 include ora resa ANSI reale tramite
 terminal mode xterm.js; lo scrollback delle app a schermo alternato resta un
-limite noto di `tmux capture-pane`, non risolvibile lato rendering. M3 è in
-gran parte rilasciato; una parte di M4 è stata anticipata per risolvere la
-cronologia Claude.
+limite noto di `tmux capture-pane`, non risolvibile lato rendering — per
+Claude Code (sempre a schermo alternato mentre lavora) lo strumento giusto
+per rileggere lo storico resta Cronologia, non Terminale. M3 è in gran parte
+rilasciato. M4 è concluso.
 
 ## Capacità disponibili
 
@@ -29,12 +30,14 @@ cronologia Claude.
   prompt, con metadati persistiti in database (come utenti/archivi/audit),
   anteprima immagine, quota aggregata per sessione, deduplica per contenuto e
   pulizia alla terminazione/archiviazione della sessione;
-- dashboard agentica con stato, permessi, consumo contesto e quote provider;
-- viste Terminale (xterm.js, resa ANSI reale, sola visualizzazione) e Blocchi,
-  più Cronologia Claude opzionale e isolata; pane condiviso con larghezza
-  minima garantita (sperimentale) e indicatore di attività (solo nome tool)
-  in Cronologia durante i tratti senza testo, scroll touch corretto su
-  mobile;
+- dashboard agentica con stato, permessi, consumo contesto, quote provider e
+  riepilogo euristico di sessione (estratto di testo semplice, nessuna
+  chiamata esterna), mostrato in lista e incluso nella ricerca;
+- viste Terminale (xterm.js con addon caricati solo all'apertura, resa ANSI
+  reale, sola visualizzazione, "load more" sullo scrollback tmux) e Blocchi
+  (larghezza minima garantita per la leggibilità), più Cronologia Claude
+  opzionale e isolata con indicatore di attività (solo nome tool) durante i
+  tratti senza testo; scroll touch corretto su mobile;
 - service worker per shell offline best-effort e banner di connessione
   assente;
 - notifiche Web Push opzionali (richiede un contesto sicuro, vedi ADR 008):
@@ -60,8 +63,8 @@ cronologia Claude.
 
 ## Prossimo percorso consigliato
 
-1. operatività M4: riepiloghi opzionali; eventuali tag/etichette e template
-   di creazione sessione restano da definire.
+M4 è concluso. Eventuali tag/etichette sessione e template di creazione
+restano da definire se e quando servissero; nessun altro item M4 aperto.
 
 Stato read-only dei task dell'orchestratore locale resta solo in roadmap:
 dipende da un sistema esterno privato, intenzionalmente non referenziato in

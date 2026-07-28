@@ -17,15 +17,16 @@
 - M3: gran parte rilasciata; service worker, offline e preferenze (vista
   predefinita) validati sull'istanza pubblicata (TLS via ADR 008); le
   notifiche locali di M3 sono state superate dal Web Push di M4.
-- M4: cronologia Claude anticipata e conclusa; "Gestione allegati avanzata"
+- M4: concluso. Cronologia Claude anticipata; "Gestione allegati avanzata"
   completa (persistenza, anteprime, quote aggregate, deduplica, retention);
   "Supporto multi-pane esteso" completo (chiusura pane, split orizzontale/
   verticale; la vista con più pane simultanei è stata scartata
   deliberatamente per l'impatto mobile-first); Web Push completo (poller
   backend sempre attivo, sostituisce le notifiche locali client-side);
-  ricerca testuale sessioni completa; tag/etichette e template di
-  creazione restano da fare; prossimo blocco consigliato: riepiloghi
-  opzionali.
+  ricerca testuale sessioni completa; correzioni rendering Blocchi/
+  Terminale/Cronologia (larghezza pane, scroll touch, indicatore attività,
+  lazy-load xterm.js); riepiloghi euristici di sessione completi. Tag/
+  etichette e template di creazione restano da fare, non richiesti finora.
 
 Stato read-only dei task dell'orchestratore locale: resta solo in roadmap,
 intenzionalmente non implementato — dipende da un sistema esterno privato,
@@ -306,7 +307,16 @@ condiviso e mappatura pane ↔ session id.
   allegati (non solo al TTL), perché tmux può riassegnare l'id numerico
   liberato a una sessione futura scollegata. Validato sull'istanza
   pubblicata, incluse le anteprime nel composer.
-- [ ] Riepiloghi opzionali.
+- [x] Riepiloghi opzionali: estratto euristico (nessuna chiamata esterna, nessun
+  costo/latenza aggiuntivi) delle ultime righe di testo semplice del pane,
+  esposto in `GET /api/v1/agent-statuses` (`summary`, max 140 caratteri) e
+  mostrato nella lista sessioni sotto nome/comando, incluso nella ricerca
+  testuale. Filtra prompt, marcatori di tool/attività, barre di stato
+  ("Sonnet 5 | ~/percorso | main | ...", "gpt-5.6-terra medium · ~/percorso ·
+  ...") e suggerimenti tastiera noti — verificato su output reali di Claude
+  Code e Codex. Resta un'euristica su testo grezzo, non una sintesi
+  comprensiva: può includere frammenti non descrittivi (es. comandi digitati
+  dall'utente in una sessione shell).
 
 ## M5 — Espansioni
 

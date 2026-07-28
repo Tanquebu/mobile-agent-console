@@ -214,6 +214,7 @@ def test_agent_statuses_include_only_agentic_sessions() -> None:
                 "permission_state": "auto",
                 "permission_detail": "Auto",
                 "context_used_percent": None,
+                "summary": "Would you like to run this command? permissions: Auto",
             }
         ]
     }

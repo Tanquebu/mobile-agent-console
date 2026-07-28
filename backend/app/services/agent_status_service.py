@@ -58,6 +58,35 @@ PROMPT_PATTERNS = {
     "codex": re.compile(r"^\s*[›>]\s*"),
     "claude": re.compile(r"^\s*[>❯]\s*"),
 }
+# Righe di "chrome" dell'interfaccia (prompt, marcatori di tool/attività,
+# separatori, barre di stato, suggerimenti tastiera) da escludere dal
+# riepilogo euristico: non è un parser degli stessi blocchi di chatBlocks()
+# (frontend), solo un filtro leggero per non includere queste righe nel
+# testo estratto. Verificato su output reali di Claude Code e Codex.
+SUMMARY_NOISE_PREFIX = re.compile(
+    r"^\s*(?:[›❯>•●◻☐]|✔|✘|✱|✻|✽|✢|✳|✶|⏺|⏵⏵|\d+\.\s|─{3,}|Ran\b|Explored\b|Read\b|Edited\b)"
+)
+SUMMARY_NOISE_ANYWHERE = re.compile(
+    r"─{3,}"
+    r"|Enter to (?:select|confirm)"
+    r"|Esc to cancel"
+    r"|to navigate"
+    r"|/clear to"
+    r"|/config to"
+    r"|ctx:\s*\d"
+    r"|\d+k\s*/\s*\d+k"
+    r"|\bWorked for\b"
+    r"|\buncached\b"
+    r"|auto mode on"
+    r"|shift\+tab to cycle"
+    r"|for agents\b",
+    re.IGNORECASE,
+)
+# Barra di stato tipica ("Sonnet 5 | ~/percorso | main | ..." lato Claude,
+# "gpt-5.6-terra medium · ~/percorso · main · ..." lato Codex): due o più
+# separatori "|" oppure "·" nella stessa riga.
+SUMMARY_STATUS_BAR = re.compile(r"(?:\s\|\s.*){2,}|(?:\s·\s.*){2,}")
+SUMMARY_MAX_CHARS = 140
 
 
 @dataclass(frozen=True)
@@ -68,6 +97,7 @@ class AgentStatus:
     changed_at: float
     permission_state: PermissionState
     permission_detail: str
+    summary: str | None = None
 
 
 class AgentStatusService:
@@ -123,6 +153,7 @@ class AgentStatusService:
         )
 
         permission_state, permission_detail = self._permission(provider, nonempty[-8:])
+        summary = self._summarize(nonempty)
 
         if self._matches(AUTHORIZATION_PATTERNS[provider], tail):
             return AgentStatus(
@@ -132,6 +163,7 @@ class AgentStatusService:
                 changed_at,
                 permission_state,
                 permission_detail,
+                summary,
             )
         if (
             prompt_index is not None
@@ -147,6 +179,7 @@ class AgentStatusService:
                 changed_at,
                 permission_state,
                 permission_detail,
+                summary,
             )
         if self._matches(ACTIVE_PATTERNS[provider], tail):
             return AgentStatus(
@@ -156,6 +189,7 @@ class AgentStatusService:
                 changed_at,
                 permission_state,
                 permission_detail,
+                summary,
             )
         if previous is not None and observed_now - changed_at <= self.active_window_seconds:
             return AgentStatus(
@@ -165,6 +199,7 @@ class AgentStatusService:
                 changed_at,
                 permission_state,
                 permission_detail,
+                summary,
             )
         if prompt_index is not None:
             return AgentStatus(
@@ -174,6 +209,7 @@ class AgentStatusService:
                 changed_at,
                 permission_state,
                 permission_detail,
+                summary,
             )
         return AgentStatus(
             provider,
@@ -182,7 +218,32 @@ class AgentStatusService:
             changed_at,
             permission_state,
             permission_detail,
+            summary,
         )
+
+    @staticmethod
+    def _is_noise(line: str) -> bool:
+        return bool(
+            SUMMARY_NOISE_PREFIX.match(line)
+            or SUMMARY_NOISE_ANYWHERE.search(line)
+            or SUMMARY_STATUS_BAR.search(line)
+        )
+
+    @staticmethod
+    def _summarize(nonempty_lines: list[str]) -> str | None:
+        prose = [
+            line.strip()
+            for line in nonempty_lines
+            if line.strip() and not AgentStatusService._is_noise(line)
+        ]
+        if not prose:
+            return None
+        text = re.sub(r"\s+", " ", " ".join(prose[-3:])).strip()
+        if not text:
+            return None
+        if len(text) > SUMMARY_MAX_CHARS:
+            text = f"{text[: SUMMARY_MAX_CHARS - 1].rstrip()}…"
+        return text
 
     @staticmethod
     def _permission(

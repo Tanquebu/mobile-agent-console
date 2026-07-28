@@ -806,6 +806,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
                             if permission is not None
                             else None
                         ),
+                        summary=status.summary,
                     )
                 )
         agent_statuses.forget_missing({item.id for item in sessions})
