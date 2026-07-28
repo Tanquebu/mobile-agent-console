@@ -40,6 +40,19 @@ AUTHORIZATION_PATTERNS = {
         r"esc to cancel",
     ),
 }
+# Non solo "?" letterale: frasi come "fammi sapere se..."/"dimmi quando..."
+# sono altrettanto una richiesta di feedback ma non terminano con punto
+# interrogativo, e restavano classificate "idle" (docs/backlog.md).
+FEEDBACK_REQUEST_PATTERNS = (
+    r"\?",
+    r"\blet me know\b",
+    r"\btell me\b",
+    r"\bfammi sapere\b",
+    r"\bdimmi (?:se|quando|cosa|come)\b",
+    r"\bavvisami\b",
+    r"\bconfermami\b",
+    r"\bfammi un fischio\b",
+)
 ACTIVE_PATTERNS = {
     "codex": (
         r"\bworking\b",
@@ -167,9 +180,9 @@ class AgentStatusService:
             )
         if (
             prompt_index is not None
-            and any(
-                line.rstrip().endswith("?")
-                for line in recent_lines[max(0, prompt_index - 4) : prompt_index]
+            and self._matches(
+                FEEDBACK_REQUEST_PATTERNS,
+                "\n".join(recent_lines[max(0, prompt_index - 4) : prompt_index]),
             )
         ):
             return AgentStatus(

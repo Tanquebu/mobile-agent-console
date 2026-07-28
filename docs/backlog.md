@@ -18,21 +18,6 @@ Richiederebbe comunque catturare anche la posizione dei pane da tmux
 (`pane_left`/`pane_top`), non fatto oggi. Riconsiderare solo se emerge un
 uso desktop-first per cui valga la pena la complessità.
 
-## Euristica "Attende feedback" troppo stretta
-
-**Stato:** non prioritario, da riprendere.
-
-`AgentStatusService.classify` (`backend/app/services/agent_status_service.py`)
-richiede una riga terminata letteralmente con `?` entro le 4 righe precedenti
-un prompt vuoto per classificare `waiting_input`. Frasi come "fammi sapere
-se..."/"dimmi quando..." senza punto interrogativo restano `idle`, quindi le
-notifiche (locali prima, Web Push ora — entrambe leggono questo stesso stato)
-non scattano per quei turni. Verificato dal vivo confrontando il pane tmux
-reale con la classificazione. Possibile direzione: riconoscere anche pattern
-di richiesta senza `?` esplicito, ma va valutato l'impatto sulle altre viste
-che già usano questo stato (badge lista sessioni, euristiche di attenzione
-M3, poller Web Push M4).
-
 ## Toolbar terminali complete su viewport mobile
 
 **Stato:** differita; impatto attuale basso.

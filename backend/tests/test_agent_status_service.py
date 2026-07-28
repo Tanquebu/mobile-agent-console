@@ -23,6 +23,17 @@ def test_agent_status_classifies_provider_and_terminal_states() -> None:
     assert feedback is not None
     assert feedback.state == "waiting_input"
 
+    # docs/backlog.md: richieste di feedback senza "?" letterale restavano
+    # "idle" prima di questo fix.
+    feedback_no_question_mark = service.classify(
+        "10",
+        "claude",
+        "Fammi sapere se preferisci l'opzione A o l'opzione B.\n> ",
+        now=0,
+    )
+    assert feedback_no_question_mark is not None
+    assert feedback_no_question_mark.state == "waiting_input"
+
     active = service.classify("3", "codex", "• Working (3s • esc to interrupt)", now=0)
     assert active is not None
     assert active.state == "active"
