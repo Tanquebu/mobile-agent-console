@@ -90,13 +90,10 @@ const CONNECTION_LABEL: Record<Connection, string> = {
   closed: "chiusa",
 };
 
-// Deve combaciare con MIN_PANE_COLUMNS in backend/app/main.py: il pane è
-// condiviso da tutti i client (Blocchi/Terminale/ssh attach), quindi il
-// backend impone comunque questo minimo. In Terminale (xterm.js con
-// cursore ANSI posizionato) il buffer deve combaciare esattamente con la
-// larghezza reale del pane, altrimenti il rendering si disallinea — perciò
-// qui si forza lo stesso minimo invece di adattarsi al viewport stretto, e
-// si scrolla in orizzontale.
+// Solo per Blocchi (testo semplice, si reimpagina via CSS): forzare lo
+// stesso minimo anche su Terminale (xterm.js, cursore ANSI posizionato)
+// aveva causato un disallineamento della scrollbar interna e problemi di
+// geometria col load-more — provato e revertito, vedi docs/roadmap.md.
 const MIN_PANE_COLUMNS = 120;
 // Profondità massima e incremento dello storico caricabile in Terminale
 // con lo scroll-indietro ("load more"); il WS accetta lines 100-2000
@@ -1675,7 +1672,7 @@ function Console({
     const pane = panes.find((item) => item.id === paneId);
     let previous = pane ? `${pane.width}x${pane.height}` : "";
     const observer = new ResizeObserver(([entry]) => {
-      const columns = Math.max(20, Math.min(500, Math.floor(entry.contentRect.width / 8)));
+      const columns = Math.max(MIN_PANE_COLUMNS, Math.min(500, Math.floor(entry.contentRect.width / 8)));
       const rows = Math.max(5, Math.min(300, Math.floor(entry.contentRect.height / 20)));
       const dimensions = `${columns}x${rows}`;
       if (dimensions === previous) return;
@@ -1723,17 +1720,11 @@ function Console({
     let resizeTimer: number | undefined;
     const applyFit = () => {
       fitAddon.fit();
-      // Il pane non scende mai sotto MIN_PANE_COLUMNS (imposto anche lato
-      // server): se il fit calcola meno, si forza il buffer xterm alla
-      // larghezza minima invece di restringerlo, e si scrolla in
-      // orizzontale — altrimenti il contenuto ANSI catturato a una
-      // larghezza reale maggiore si disallineerebbe nel rendering.
-      if (terminal.cols < MIN_PANE_COLUMNS) terminal.resize(MIN_PANE_COLUMNS, terminal.rows);
       if (!paneId) return;
       // ResizePaneInput impone 20-500 colonne e 5-300 righe (schemas.py);
       // durante un resize in corso FitAddon può calcolare valori transitori
       // fuori range prima che il layout si stabilizzi.
-      const columns = Math.max(MIN_PANE_COLUMNS, Math.min(500, terminal.cols));
+      const columns = Math.max(20, Math.min(500, terminal.cols));
       const rows = Math.max(5, Math.min(300, terminal.rows));
       const dimensions = `${columns}x${rows}`;
       if (dimensions === previousFitRef.current) return;

@@ -216,13 +216,16 @@ condiviso e mappatura pane ↔ session id.
      attach`) veniva ristretto dinamicamente in base al viewport
      dell'ultimo client (spesso mobile, poche decine di colonne), wrappando
      contenuto tabellare su molte righe fisiche e consumando in fretta lo
-     scrollback condiviso (`history-limit`). Ora il backend impone un
-     minimo di `MIN_PANE_COLUMNS` (120) su ogni resize, indipendentemente
-     dal client — sperimentale, revertibile riportando la costante a un
-     valore più basso; Blocchi ne beneficia col solo reflow CSS, Terminale
-     (xterm.js con cursore ANSI posizionato) forza lo stesso minimo sul
-     buffer per non disallineare il rendering e scrolla in orizzontale
-     invece di restringersi.
+     scrollback condiviso (`history-limit`). Blocchi (testo semplice, si
+     reimpagina via CSS) ora richiede sempre almeno `MIN_PANE_COLUMNS`
+     (120) colonne nel proprio resize client-side. Terminale (xterm.js con
+     cursore ANSI posizionato) inizialmente forzava lo stesso minimo sul
+     buffer scrollando in orizzontale, ma l'esperimento è stato revertito:
+     la scrollbar verticale interna di xterm.js resta ancorata al bordo
+     del buffer largo, non del riquadro visibile, e si disallinea
+     scorrendo in orizzontale — oltre a introdurre problemi di geometria
+     nel load-more (punto 4). Terminale è tornato ad adattarsi alla
+     larghezza reale dello schermo, come da comportamento originale.
   2. bug di scroll touch su mobile: `body` usava `min-height: 100vh`
      (calcolato a barra indirizzi nascosta) mentre `.console` usa `100dvh`
      (altezza visibile reale) — il mismatch lasciava il documento più alto

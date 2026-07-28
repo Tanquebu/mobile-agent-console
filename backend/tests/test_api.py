@@ -280,13 +280,13 @@ def test_list_target_and_resize_pane() -> None:
     assert client.post(
         "/api/v1/sessions/1/panes/10/resize",
         headers=headers,
-        json={"columns": 150, "rows": 30},
+        json={"columns": 100, "rows": 30},
     ).status_code == 200
-    assert fake.resizes == [("10", 150, 30)]
+    assert fake.resizes == [("10", 100, 30)]
     assert client.post(
         "/api/v1/sessions/1/panes/99/resize",
         headers=headers,
-        json={"columns": 150, "rows": 30},
+        json={"columns": 100, "rows": 30},
     ).status_code == 404
     split = client.post(
         "/api/v1/sessions/1/panes/split?pane_id=10",
@@ -299,18 +299,6 @@ def test_list_target_and_resize_pane() -> None:
         "/api/v1/sessions/1/panes/split?pane_id=99",
         headers=headers,
     ).status_code == 404
-
-
-def test_resize_pane_enforces_minimum_columns() -> None:
-    client, fake = client_and_fake()
-    csrf = login(client)
-    headers = {"X-CSRF-Token": csrf}
-    assert client.post(
-        "/api/v1/sessions/1/panes/10/resize",
-        headers=headers,
-        json={"columns": 40, "rows": 24},
-    ).status_code == 200
-    assert fake.resizes == [("10", 120, 24)]
 
 
 def test_split_pane_direction() -> None:
