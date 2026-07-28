@@ -1522,6 +1522,7 @@ function Console({
   const outputLinesRef = useRef<string[]>([]);
   const outputSequenceRef = useRef(0);
   const [contentRevision, setContentRevision] = useState(0);
+  const [terminalLoading, setTerminalLoading] = useState(false);
   const [terminalLines, setTerminalLines] = useState(500);
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
   const [historyExhausted, setHistoryExhausted] = useState(false);
@@ -1703,7 +1704,9 @@ function Console({
     let disposeInner: (() => void) | undefined;
     // xterm.js + addon-fit/webgl pesano parecchio: caricati solo qui, non
     // nel bundle iniziale, così una sessione che resta su Blocchi/Cronologia
-    // non li scarica mai.
+    // non li scarica mai. Al primo utilizzo il download richiede qualche
+    // secondo: lo spinner evita che il riquadro sembri vuoto/rotto.
+    setTerminalLoading(true);
     void (async () => {
       const [{ Terminal }, { FitAddon }, { WebglAddon }] = await Promise.all([
         import("@xterm/xterm"),
@@ -1711,6 +1714,7 @@ function Console({
         import("@xterm/addon-webgl"),
       ]);
       if (cancelled) return;
+      setTerminalLoading(false);
       const terminal = new Terminal({
         disableStdin: true,
         convertEol: true,
@@ -1797,6 +1801,7 @@ function Console({
 
     return () => {
       cancelled = true;
+      setTerminalLoading(false);
       disposeInner?.();
     };
   }, [outputMode, session.id, paneId]);
@@ -2082,6 +2087,9 @@ function Console({
           </div>
         ) : (
           <div className="output terminal-xterm" ref={terminalContainerRef} />
+        )}
+        {outputMode === "terminal" && terminalLoading && (
+          <p className="output-waiting terminal-loading">Carico il terminale…</p>
         )}
         {outputMode === "terminal" && loadingMoreHistory && (
           <div className="history-loading" role="status">Carico righe precedenti…</div>
