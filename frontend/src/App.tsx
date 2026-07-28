@@ -1,6 +1,7 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import {
   ApiError,
   AgentStatus,
@@ -1719,6 +1720,17 @@ function Console({
     terminal.open(container);
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
+    // Il renderer DOM di default non tiene il passo col ridisegno durante
+    // lo scroll touch su mobile (percepito come "a scatti"); il renderer
+    // WebGL è accelerato via GPU. Se non disponibile (o perso a runtime),
+    // si torna silenziosamente al renderer DOM di default.
+    try {
+      const webglAddon = new WebglAddon();
+      webglAddon.onContextLoss(() => webglAddon.dispose());
+      terminal.loadAddon(webglAddon);
+    } catch {
+      /* WebGL non disponibile: resta il renderer DOM di default */
+    }
 
     let resizeTimer: number | undefined;
     const applyFit = () => {
