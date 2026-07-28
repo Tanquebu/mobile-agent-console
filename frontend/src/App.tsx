@@ -2131,7 +2131,6 @@ function Console({
       )}
       <section className="output-wrap">
         <div className="output-label">
-          <span>OUTPUT RECENTE</span>
           <div className="output-controls">
             {agentic && (
               <span className="output-mode" role="group" aria-label="Vista output">
