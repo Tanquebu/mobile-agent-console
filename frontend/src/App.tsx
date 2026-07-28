@@ -1703,6 +1703,9 @@ function Console({
       disableStdin: true,
       convertEol: true,
       fontSize: 13,
+      // Di default (0) xterm.js scrolla a scatti, riga per riga, invece di
+      // animare — specie percepibile col drag touch su mobile.
+      smoothScrollDuration: 120,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
       theme: {
         background: "#101713",
