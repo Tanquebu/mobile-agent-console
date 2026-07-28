@@ -159,3 +159,11 @@ backend lo espone con un endpoint read-only solo quando il feature flag è
 attivo. WebSocket, capture tmux e Chat blocks live non dipendono dal collector:
 assenza, ritardo, errore o rollback della cronologia lasciano invariato il
 flusso terminale.
+
+Lo stato dei task schedulati dell'orchestratore è raccolto da un terzo
+collector host-side: interroga un endpoint read-only configurato nel file
+environment privato, convalida nuovamente il payload e pubblica un file JSON
+derivato. Il backend
+riceve solo provider, quote, stato, prossimo tentativo, fallback e metadati di
+fase; prompt, path, pane, checkpoint e messaggi d'errore restano fuori dal
+container.

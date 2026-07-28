@@ -28,18 +28,15 @@
   lazy-load xterm.js); riepiloghi euristici di sessione completi. Tag/
   etichette e template di creazione restano da fare, non richiesti finora.
 
-Stato read-only dei task dell'orchestratore locale: resta solo in roadmap,
-intenzionalmente non implementato — dipende da un sistema esterno privato,
-non presente in questo repository pubblico e agent-agnostic per scelta; il
-contratto (file JSON sanitizzato o collector su API locale, senza
-credenziali/prompt/output/comandi di controllo) sarà formalizzato quando
-verrà preso in carico.
+Lo stato read-only dei task dell'orchestratore è un adapter opzionale e
+agent-agnostic: usa un endpoint configurato esclusivamente nell'environment
+privato e pubblica alla console solo un file JSON sanitizzato, senza
+credenziali, prompt, output o comandi di controllo.
 
 Euristica "Attende feedback" troppo stretta (richiede `?` letterale): non
 prioritaria, da riprendere — vedi `docs/backlog.md`.
 
-Ordine corrente: operatività M4 restante → (se ripreso) stato orchestratore
-locale / euristica attenzione.
+Ordine corrente: operatività M4 restante → euristica attenzione.
 
 ## M0 — Fondazioni e vertical slice
 
@@ -128,10 +125,11 @@ API specifiche di Codex, Claude o altri agenti.
 
 - [x] Quote rate-limit Codex e Claude nella dashboard tramite collector
   sanitizzato host-side, validate sull'istanza pubblicata.
-- [ ] Stato read-only dei task dell'orchestratore locale: provider, stato,
+- [~] Stato read-only dei task dell'orchestratore: provider, stato,
   pausa per capacità, prossimo tentativo, fallback e avanzamento del
-  checkpoint. Da alimentare con un collector host-side sanitizzato, senza
-  credenziali, prompt o comandi di controllo nella console.
+  checkpoint. Implementato come collector host-side sanitizzato; resta da
+  validare con un endpoint configurato nel deployment, senza credenziali,
+  prompt o comandi di controllo nella console.
 - [x] Chat blocks opzionali per Codex/Claude con ritorno immediato alla vista
   terminale, validati sull'istanza pubblicata.
 - [x] Euristiche di attenzione Codex/Claude con stati attivo, inattivo,

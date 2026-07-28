@@ -129,6 +129,14 @@ l'endpoint e la UI ripiega sul live senza modificare WebSocket o tmux; fermare
 il timer elimina inoltre nuove copie persistenti. Il file derivato esistente
 va rimosso manualmente se si vuole cancellarne i contenuti.
 
+Il collector dell'orchestratore usa URL, header e token configurati solo nel
+file environment privato e li invia a un endpoint read-only. L'endpoint deve
+usare HTTPS, salvo quando è strettamente su loopback. Il collector convalida e
+riscrive il contratto prima della condivisione con il backend; il file
+risultante contiene solo identificatori opachi, stato e metadati di scheduling.
+URL, header, token, prompt, path, pane, checkpoint ed errori grezzi non sono
+serializzati né montati.
+
 L'endpoint degli stati agentici è autenticato e restituisce soltanto session id,
 provider, stato e descrizione fissa. I frammenti di terminale usati dalle
 euristiche non lasciano il backend e vengono sostituiti a ogni polling. I

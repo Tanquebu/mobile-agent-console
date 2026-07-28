@@ -1,0 +1,12 @@
+[Unit]
+Description=Collect Mobile Agent Console orchestrator task state
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/mobile-agent-console/environment
+ExecStart=/usr/bin/python3 ${MAC_INSTALL_DIR}/deploy/orchestrator-state-collector.py --output ${MAC_WORKSPACE_ROOT}/.mobile-agent-console/orchestrator-state.json
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes

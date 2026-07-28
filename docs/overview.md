@@ -66,10 +66,10 @@ rilasciato. M4 è concluso.
 M4 è concluso. Eventuali tag/etichette sessione e template di creazione
 restano da definire se e quando servissero; nessun altro item M4 aperto.
 
-Stato read-only dei task dell'orchestratore locale resta solo in roadmap:
-dipende da un sistema esterno privato, intenzionalmente non referenziato in
-questo repository pubblico e agent-agnostic; verrà ripreso con un contratto
-sanitizzato dedicato solo quando servirà.
+Lo stato read-only dei task dell'orchestratore è un adapter opzionale:
+l'endpoint esterno e le credenziali sono configurati esclusivamente
+nell'environment privato, mentre la console riceve soltanto un file JSON
+sanitizzato.
 
 Multi-host, app Android e orchestrazione agentica mutativa restano M5 e non
 devono anticipare la stabilizzazione del core.

@@ -77,6 +77,7 @@ from .services.attachment_service import AttachmentError, AttachmentService
 from .services.audit_service import AuditService
 from .services.backup_service import BackupError, BackupService
 from .services.claude_history_service import ClaudeHistoryService
+from .services.orchestrator_state_service import OrchestratorState, OrchestratorStateService
 from .services.output_delta import line_delta
 from .services.provider_session_state_service import ProviderSessionStateService
 from .services.push_service import PushService
@@ -200,6 +201,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     provider_session_states = ProviderSessionStateService(
         settings.provider_session_states_path
     )
+    orchestrator_state = OrchestratorStateService(settings.orchestrator_state_path)
     claude_history = ClaudeHistoryService(
         settings.claude_history_path,
         settings.claude_history_max_age_seconds,
@@ -681,6 +683,14 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     )
     async def get_provider_rate_limits() -> RateLimitStatus | None:
         return await asyncio.to_thread(provider_rate_limits.read)
+
+    @app.get(
+        "/api/v1/orchestrator-state",
+        response_model=OrchestratorState | None,
+        dependencies=[Depends(require_active_session)],
+    )
+    async def get_orchestrator_state() -> OrchestratorState | None:
+        return await asyncio.to_thread(orchestrator_state.read)
 
     @app.post(
         "/api/v1/sessions",

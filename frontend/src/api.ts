@@ -236,6 +236,52 @@ export async function fetchProviderRateLimits(): Promise<ProviderRateLimits | nu
   return response.json();
 }
 
+export type OrchestratorWindow = {
+  used_percent: number;
+  window_minutes: number | null;
+  resets_at: number | null;
+};
+
+export type OrchestratorProvider = {
+  provider: "claude" | "codex";
+  available: boolean | null;
+  observed_at: string | null;
+  primary: OrchestratorWindow | null;
+  secondary: OrchestratorWindow | null;
+};
+
+export type OrchestratorPhase = {
+  index: number;
+  total: number;
+  name: string;
+  interruptible: boolean;
+};
+
+export type OrchestratorTask = {
+  task_id: string;
+  task_kind: string;
+  status: string;
+  provider: "claude" | "codex";
+  execution_mode: "atomic" | "phased";
+  phase: OrchestratorPhase | null;
+  capacity_paused: boolean;
+  next_attempt_at: string | null;
+  fallback_providers: ("claude" | "codex")[];
+  checkpoint_present: boolean;
+};
+
+export type OrchestratorState = {
+  schema_version: 1;
+  collected_at: string;
+  providers: OrchestratorProvider[];
+  tasks: OrchestratorTask[];
+};
+
+export async function fetchOrchestratorState(): Promise<OrchestratorState | null> {
+  const response = await request("/api/v1/orchestrator-state");
+  return response.json();
+}
+
 export async function fetchConfig(): Promise<AppConfig> {
   const response = await request("/api/v1/config");
   return response.json();

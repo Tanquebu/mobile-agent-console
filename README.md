@@ -119,6 +119,8 @@ cp deploy/systemd/mobile-agent-console-host.service ~/.config/systemd/user/
 cp deploy/systemd/mobile-agent-console-tmux-host.service ~/.config/systemd/user/
 cp deploy/systemd/mobile-agent-console-provider-session-states.service ~/.config/systemd/user/
 cp deploy/systemd/mobile-agent-console-provider-session-states.timer ~/.config/systemd/user/
+cp deploy/systemd/mobile-agent-console-orchestrator-state.service ~/.config/systemd/user/
+cp deploy/systemd/mobile-agent-console-orchestrator-state.timer ~/.config/systemd/user/
 # Opzionali: installare solo se si abilita la cronologia Claude.
 cp deploy/systemd/mobile-agent-console-claude-history.service ~/.config/systemd/user/
 cp deploy/systemd/mobile-agent-console-claude-history.timer ~/.config/systemd/user/
@@ -233,6 +235,20 @@ systemctl --user enable --now mobile-agent-console-rate-limits.timer
 
 The dashboard refreshes these values once per minute. Provider credentials and
 Codex transcripts are never mounted into the backend container.
+
+## Stato dei task schedulati
+
+Il timer opzionale `mobile-agent-console-orchestrator-state.timer` legge lo
+stato read-only di un orchestratore esterno ogni 30 secondi. Configurare
+`MAC_ORCHESTRATOR_STATE_URL`, `MAC_ORCHESTRATOR_STATE_TOKEN` e, se
+necessario, `MAC_ORCHESTRATOR_STATE_TOKEN_HEADER` nel file environment
+privato della console. L'URL e il token restano nel collector host-side e non
+vengono montati nel backend. Usare HTTPS salvo endpoint strettamente loopback.
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now mobile-agent-console-orchestrator-state.timer
+```
 
 In host-tmux mode the optional
 `mobile-agent-console-provider-session-states.timer` correlates panes with

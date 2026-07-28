@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     provider_session_states_path: str = (
         "/workspace/.mobile-agent-console/provider-session-states.json"
     )
+    orchestrator_state_path: str = (
+        "/workspace/.mobile-agent-console/orchestrator-state.json"
+    )
     claude_history_enabled: bool = False
     claude_history_path: str = (
         "/workspace/.mobile-agent-console/claude-history.json"

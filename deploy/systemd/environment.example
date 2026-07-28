@@ -6,3 +6,9 @@ MAC_WORKSPACE_ROOT=/home/example/projects
 # Nome MagicDNS del nodo Tailscale (tailscale status --self), usato da
 # mobile-agent-console-tls-renew per rinnovare il certificato nginx.
 MAC_TAILNET_HOSTNAME=example-host.example-tailnet.ts.net
+# Optional external orchestrator state collector. These values remain only in
+# this private environment file; use an HTTPS URL unless the endpoint is local.
+MAC_ORCHESTRATOR_STATE_URL=https://orchestrator.example.invalid/state
+MAC_ORCHESTRATOR_STATE_TOKEN=replace-with-a-secret
+# Optional; use the header expected by the external endpoint.
+MAC_ORCHESTRATOR_STATE_TOKEN_HEADER=Authorization

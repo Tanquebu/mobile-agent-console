@@ -26,6 +26,7 @@ import {
   fetchClaudeHistory,
   fetchDirectory,
   fetchFile,
+  fetchOrchestratorState,
   fetchProviderRateLimits,
   fetchPushPublicKey,
   fileDownloadUrl,
@@ -43,6 +44,7 @@ import {
   listSnapshots,
   listUsers,
   Pane,
+  OrchestratorState,
   ProviderRateLimits,
   renameSession,
   restoreSession,
@@ -103,9 +105,9 @@ const MAX_TERMINAL_LINES = 2000;
 const LOAD_MORE_STEP_LINES = 500;
 
 const LATEST_RELEASE = {
-  title: "Preferenze: vista predefinita",
+  title: "Task schedulati sotto controllo",
   description:
-    "Scegli se le sessioni Codex/Claude si aprono di default in Blocchi o Terminale, dal nuovo pulsante Preferenze nella dashboard.",
+    "La dashboard mostra ora lo stato read-only dei task dell'orchestratore: provider, pause per capacità, prossimi tentativi e fasi in corso.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1029,6 +1031,7 @@ function SessionList({
   const [showPreferences, setShowPreferences] = useState(false);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
   const [providerLimits, setProviderLimits] = useState<ProviderRateLimits | null>(null);
+  const [orchestratorState, setOrchestratorState] = useState<OrchestratorState | null>(null);
   const [agentStatusBySession, setAgentStatusBySession] = useState<Record<string, AgentStatus>>({});
   const [notifyEnabled, setNotifyEnabled] = useState(false);
   const [notifyError, setNotifyError] = useState("");
@@ -1093,6 +1096,21 @@ function SessionList({
     };
     refresh();
     const interval = window.setInterval(refresh, 3_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      fetchOrchestratorState()
+        .then((value) => { if (active) setOrchestratorState(value); })
+        .catch(() => { /* il collector dell'orchestratore è opzionale */ });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 30_000);
     return () => {
       active = false;
       window.clearInterval(interval);
@@ -1274,6 +1292,29 @@ function SessionList({
               )}
             </article>
           ))}
+        </section>
+      )}
+      {orchestratorState && (
+        <section className="orchestrator-state" aria-label="Task orchestratore">
+          <header>
+            <strong>Task schedulati</strong>
+            <small>{orchestratorState.tasks.length} attivi · aggiornato {formatDate(orchestratorState.collected_at)}</small>
+          </header>
+          {orchestratorState.tasks.length === 0 ? (
+            <small>Nessun task schedulato attivo.</small>
+          ) : (
+            <div className="orchestrator-tasks">
+              {orchestratorState.tasks.map((task) => (
+                <article key={task.task_id}>
+                  <strong>{task.task_kind}</strong>
+                  <small>{task.provider} · {task.status.replace("_", " ")}</small>
+                  {task.phase && <small>Fase {task.phase.index + 1}/{task.phase.total}: {task.phase.name}</small>}
+                  {task.capacity_paused && <em>In pausa per capacità{task.next_attempt_at ? ` · riprova ${formatDate(task.next_attempt_at)}` : ""}</em>}
+                  {!task.capacity_paused && task.fallback_providers.length > 0 && <small>Fallback: {task.fallback_providers.join(" → ")}</small>}
+                </article>
+              ))}
+            </div>
+          )}
         </section>
       )}
       {creating && <form className="create-form" onSubmit={async (event) => {

@@ -50,6 +50,9 @@ def client_and_fake(
     provider_session_states_path: str = (
         "/workspace/.mobile-agent-console/provider-session-states.json"
     ),
+    orchestrator_state_path: str = (
+        "/workspace/.mobile-agent-console/orchestrator-state.json"
+    ),
     claude_history_enabled: bool = False,
     claude_history_path: str = (
         "/workspace/.mobile-agent-console/claude-history.json"
@@ -63,6 +66,7 @@ def client_and_fake(
         cors_origins=["http://testserver"],
         provider_rate_limits_path=provider_rate_limits_path,
         provider_session_states_path=provider_session_states_path,
+        orchestrator_state_path=orchestrator_state_path,
         claude_history_enabled=claude_history_enabled,
         claude_history_path=claude_history_path,
     )
@@ -262,6 +266,24 @@ def test_provider_rate_limits_are_authenticated_and_sanitized(tmp_path) -> None:
     login(client)
     payload = client.get("/api/v1/provider-rate-limits").json()
     assert payload["providers"][0]["windows"][0]["used_percent"] == 12
+
+
+def test_orchestrator_state_is_authenticated_and_read_only(tmp_path) -> None:
+    path = tmp_path / "orchestrator-state.json"
+    path.write_text(
+        '{"schema_version":1,"collected_at":"2026-07-28T12:00:00Z",'
+        '"providers":[],"tasks":[{"task_id":"recOpaque",'
+        '"task_kind":"weekly-refresh","status":"paused_provider",'
+        '"provider":"claude","execution_mode":"atomic","phase":null,'
+        '"capacity_paused":true,"next_attempt_at":null,'
+        '"fallback_providers":["codex"],"checkpoint_present":false}]}',
+        encoding="utf-8",
+    )
+    client, _ = client_and_fake(orchestrator_state_path=str(path))
+    assert client.get("/api/v1/orchestrator-state").status_code == 401
+    login(client)
+    payload = client.get("/api/v1/orchestrator-state").json()
+    assert payload["tasks"][0]["fallback_providers"] == ["codex"]
 
 
 def test_list_target_and_resize_pane() -> None:
