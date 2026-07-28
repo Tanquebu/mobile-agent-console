@@ -88,8 +88,19 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .empty, .error { padding: 20px; color: #91a397; }
 .error { color: #ffaaa0; }
 .console { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100dvh; overflow: hidden; }
-.console-header { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 10px; padding: max(10px, env(safe-area-inset-top)) 12px 10px; border-bottom: 1px solid #26352c; }
+.console-header { display: grid; grid-template-columns: 44px 1fr 44px auto; align-items: center; gap: 10px; padding: max(10px, env(safe-area-inset-top)) 12px 10px; border-bottom: 1px solid #26352c; }
 .console-header div { display: grid; gap: 2px; }
+.agent-info-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 8px 12px; border-bottom: 1px solid #26352c; background: #141d17; font-size: .72rem; color: #91a397; }
+.agent-info-bar .agent-state { display: inline-flex; align-items: center; gap: 5px; width: auto; height: auto; padding: 3px 8px; border-radius: 999px; }
+.agent-info-bar .context-usage { font-weight: 800; }
+.agent-info-bar small { color: #7ea58c; }
+.agent-info-bar strong { color: #d2e3d7; }
+.switcher-backdrop { place-items: start center; }
+.session-switcher { width: min(100%, 480px); max-height: min(80dvh, 640px); overflow: hidden; display: flex; flex-direction: column; margin-top: max(10px, env(safe-area-inset-top)); border: 1px solid #3a5142; border-radius: 22px; background: #141d17; box-shadow: 0 20px 60px #000a; }
+.session-switcher > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 16px 12px; }
+.session-switcher-list { display: grid; gap: 8px; overflow-y: auto; padding: 0 12px 12px; }
+.session-switcher-item { display: flex; align-items: center; gap: 10px; border: 1px solid #293a30; border-radius: 14px; padding: 10px 12px; background: #172019; color: inherit; text-align: left; }
+.session-switcher-item.current { border-color: #4f7a5c; background: #1a261e; }
 .icon-button { border: 0; border-radius: 12px; background: #1d2921; color: white; font-size: 1.8rem; }
 .status { padding: 5px 8px; border-radius: 999px; font-size: .7rem; text-transform: uppercase; }
 .status.online { background: #193e26; color: #86dda2; }

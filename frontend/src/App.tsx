@@ -1499,10 +1499,12 @@ function SessionList({
 function Console({
   session,
   onBack,
+  onSwitch,
   identity,
 }: {
   session: Session;
   onBack: () => void;
+  onSwitch: (session: Session) => void;
   identity: Identity;
 }) {
   const [content, setContent] = useState("");
@@ -1549,6 +1551,69 @@ function Console({
   const fitAddonRef = useRef<FitAddon | null>(null);
   const terminalContainerRef = useRef<HTMLDivElement | null>(null);
   const previousFitRef = useRef("");
+  const [showSwitcher, setShowSwitcher] = useState(false);
+  const [switcherSessions, setSwitcherSessions] = useState<Session[]>([]);
+  const [agentStatusBySession, setAgentStatusBySession] = useState<Record<string, AgentStatus>>({});
+  const [providerLimits, setProviderLimits] = useState<ProviderRateLimits | null>(null);
+  const ownStatus = agentStatusBySession[session.id];
+
+  // Stato/permessi per il menu di cambio rapido e per il badge contesto
+  // qui sotto condividono lo stesso poll: la sessione agentica lo vuole
+  // sempre attivo, il menu solo mentre è aperto.
+  useEffect(() => {
+    if (!agentic && !showSwitcher) return;
+    let active = true;
+    const refresh = () => {
+      listAgentStatuses()
+        .then((statuses) => {
+          if (!active) return;
+          setAgentStatusBySession(Object.fromEntries(statuses.map((status) => [status.session_id, status])));
+        })
+        .catch(() => { /* lo stato euristico non blocca la console */ });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 3_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [agentic, showSwitcher]);
+
+  useEffect(() => {
+    if (!showSwitcher) return;
+    let active = true;
+    const refresh = () => {
+      listSessions()
+        .then((items) => { if (active) setSwitcherSessions(items); })
+        .catch(() => { /* il menu resta con l'ultimo elenco noto */ });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 5_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [showSwitcher]);
+
+  useEffect(() => {
+    if (!agentic) return;
+    let active = true;
+    const refresh = () => {
+      fetchProviderRateLimits()
+        .then((value) => { if (active) setProviderLimits(value); })
+        .catch(() => { /* la console resta utilizzabile senza le quote provider */ });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [agentic]);
+
+  const ownProviderLimit = providerLimits?.providers.find(
+    (provider) => provider.provider === ownStatus?.provider,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -1978,8 +2043,92 @@ function Console({
       <header className="console-header">
         <button className="icon-button" onClick={onBack} aria-label="Indietro">‹</button>
         <div><strong>{session.name}</strong><small>{session.current_command}</small></div>
+        <button
+          type="button"
+          className="icon-button session-switcher-toggle"
+          onClick={() => setShowSwitcher(true)}
+          aria-label="Cambia sessione"
+          aria-haspopup="true"
+          aria-expanded={showSwitcher}
+        >
+          ☰
+        </button>
         <span className={`status ${connection}`}>{CONNECTION_LABEL[connection]}</span>
       </header>
+      {agentic && (ownStatus || ownProviderLimit) && (
+        <section className="agent-info-bar" aria-label="Stato agente">
+          {ownStatus && (
+            <span
+              className={`agent-state ${ownStatus.state}`}
+              title={`${ownStatus.provider}: ${ownStatus.detail}`}
+            >
+              {AGENT_STATE_ICON[ownStatus.state]} {ownStatus.detail}
+            </span>
+          )}
+          {ownStatus?.context_used_percent != null && (
+            <span
+              className="context-usage"
+              style={{ color: rateLimitColor(ownStatus.context_used_percent) }}
+              title="Finestra di contesto utilizzata"
+            >
+              ctx {Math.round(ownStatus.context_used_percent)}%
+            </span>
+          )}
+          {ownProviderLimit?.available && ownProviderLimit.windows.map((window) => (
+            <span key={window.label} title={window.detail ?? undefined}>
+              <small>{window.label}</small>{" "}
+              <strong style={{ color: rateLimitColor(window.used_percent) }}>
+                {window.used_percent === null ? "n/d" : `${Math.round(window.used_percent)}%`}
+              </strong>
+            </span>
+          ))}
+        </section>
+      )}
+      {showSwitcher && (
+        <div
+          className="modal-backdrop switcher-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setShowSwitcher(false);
+          }}
+        >
+          <section className="session-switcher" role="dialog" aria-modal="true" aria-label="Cambia sessione">
+            <header>
+              <strong>Sessioni</strong>
+              <button className="modal-close" onClick={() => setShowSwitcher(false)} aria-label="Chiudi">×</button>
+            </header>
+            <div className="session-switcher-list">
+              {switcherSessions.map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  className={`session-switcher-item ${item.id === session.id ? "current" : ""}`}
+                  onClick={() => {
+                    setShowSwitcher(false);
+                    if (item.id !== session.id) onSwitch(item);
+                  }}
+                >
+                  <span className="session-copy">
+                    <strong>
+                      {item.name}
+                      {agentStatusBySession[item.id] && (
+                        <span
+                          className={`agent-state ${agentStatusBySession[item.id].state}`}
+                          title={`${agentStatusBySession[item.id].provider}: ${agentStatusBySession[item.id].detail}`}
+                        >
+                          {AGENT_STATE_ICON[agentStatusBySession[item.id].state]}
+                        </span>
+                      )}
+                    </strong>
+                    <small>{item.current_command}</small>
+                  </span>
+                </button>
+              ))}
+              {switcherSessions.length === 0 && <p className="empty">Nessuna sessione.</p>}
+            </div>
+          </section>
+        </div>
+      )}
       <section className="output-wrap">
         <div className="output-label">
           <span>OUTPUT RECENTE</span>
@@ -2309,7 +2458,15 @@ export default function App() {
     );
   } else {
     content = active
-      ? <Console session={active} identity={identity} onBack={() => setActive(null)} />
+      ? (
+        <Console
+          key={active.id}
+          session={active}
+          identity={identity}
+          onBack={() => setActive(null)}
+          onSwitch={setActive}
+        />
+      )
       : <SessionList identity={identity} onOpen={setActive} onUnauthorized={() => setIdentity(null)} />;
   }
   return (

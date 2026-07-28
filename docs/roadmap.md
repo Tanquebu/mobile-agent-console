@@ -317,6 +317,16 @@ condiviso e mappatura pane ↔ session id.
   Code e Codex. Resta un'euristica su testo grezzo, non una sintesi
   comprensiva: può includere frammenti non descrittivi (es. comandi digitati
   dall'utente in una sessione shell).
+- [x] Console: menu di cambio rapido sessione (chiuso di default, icona ☰
+  nell'header) con elenco sessioni, stato/permessi agentici e passaggio
+  diretto senza tornare alla lista — poll condiviso con la barra info sotto,
+  attivo solo mentre il menu è aperto o la sessione è agentica. Barra info
+  agente (solo sessioni Codex/Claude) con stato corrente, contesto usato e
+  quote del provider di questa sessione, sempre visibile in Console (prima
+  disponibili solo nella lista sessioni). Il passaggio tra sessioni
+  rimonta il componente Console (`key={session.id}`) per evitare che
+  bozza di prompt e allegati non inviati di una sessione finiscano
+  accidentalmente in un'altra.
 
 ## M5 — Espansioni
 
