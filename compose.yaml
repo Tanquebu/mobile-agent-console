@@ -59,6 +59,9 @@ services:
       MAC_MAX_ATTACHMENT_BYTES_PER_SESSION: ${MAC_MAX_ATTACHMENT_BYTES_PER_SESSION:-104857600}
       MAC_ATTACHMENT_TTL_SECONDS: ${MAC_ATTACHMENT_TTL_SECONDS:-86400}
       MAC_AGENT_ACTIVE_WINDOW_SECONDS: ${MAC_AGENT_ACTIVE_WINDOW_SECONDS:-8}
+      MAC_PUSH_VAPID_KEY_PATH: /workspace/.mobile-agent-console/vapid_private_key.pem
+      MAC_PUSH_CONTACT_EMAIL: ${MAC_PUSH_CONTACT_EMAIL:-admin@localhost}
+      MAC_PUSH_POLL_INTERVAL_SECONDS: ${MAC_PUSH_POLL_INTERVAL_SECONDS:-5}
     secrets: [mac_login_password, mac_session_secret]
     volumes:
       - tmux-socket:/tmux

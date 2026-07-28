@@ -272,3 +272,21 @@ class CreateSessionInput(BaseModel):
     name: str = Field(pattern=r"^[A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+)*$", max_length=64)
     directory: str = Field(min_length=1, max_length=4096)
     profile: Literal["shell", "codex", "claude"] = "shell"
+
+
+class PushPublicKeyView(BaseModel):
+    public_key: str
+
+
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str = Field(min_length=1, max_length=255)
+    auth: str = Field(min_length=1, max_length=255)
+
+
+class PushSubscriptionInput(BaseModel):
+    endpoint: str = Field(min_length=1, max_length=2048)
+    keys: PushSubscriptionKeys
+
+
+class PushUnsubscribeInput(BaseModel):
+    endpoint: str = Field(min_length=1, max_length=2048)

@@ -27,6 +27,7 @@ import {
   fetchDirectory,
   fetchFile,
   fetchProviderRateLimits,
+  fetchPushPublicKey,
   fileDownloadUrl,
   FileContent,
   errorMessage,
@@ -54,6 +55,8 @@ import {
   sendText,
   Session,
   setUserActive,
+  subscribePush,
+  unsubscribePush,
   Snapshot,
   SnapshotMode,
   splitPane,
@@ -101,45 +104,19 @@ const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
   unknown: "?",
 };
 
-const NOTIFY_STATES = new Set<AgentStatus["state"]>([
-  "waiting_input",
-  "waiting_authorization",
-]);
-
-const NOTIFY_PREFERENCE_KEY = "mac-notify-attention";
-
 const DEFAULT_AGENT_VIEW_KEY = "mac-default-agent-view";
 
 function readDefaultAgentView(): "blocks" | "terminal" {
   return window.localStorage.getItem(DEFAULT_AGENT_VIEW_KEY) === "terminal" ? "terminal" : "blocks";
 }
 
-function notifySessionAttention(sessionName: string, status: AgentStatus) {
-  const title = "Mobile Agent Console";
-  // Nessun contenuto di output/prompt nel corpo, per coerenza con
-  // l'invariante di sicurezza "notifiche senza contenuto di default".
-  const body = status.state === "waiting_authorization"
-    ? `“${sessionName}” attende un'autorizzazione`
-    : `“${sessionName}” attende un feedback`;
-  const options: NotificationOptions = {
-    body,
-    tag: `session-${status.session_id}`,
-  };
-  const fallback = () => {
-    try {
-      new Notification(title, options);
-    } catch {
-      /* notifiche non disponibili su questo browser/contesto */
-    }
-  };
-  if (navigator.serviceWorker) {
-    navigator.serviceWorker.ready.then(
-      (registration) => registration.showNotification(title, options),
-      fallback,
-    );
-  } else {
-    fallback();
-  }
+function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const normalized = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = window.atob(normalized);
+  const bytes = new Uint8Array(raw.length);
+  for (let index = 0; index < raw.length; index += 1) bytes[index] = raw.charCodeAt(index);
+  return bytes;
 }
 
 const PERMISSION_STATE_ICON: Record<AgentStatus["permission_state"], string> = {
@@ -1043,16 +1020,17 @@ function SessionList({
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
   const [providerLimits, setProviderLimits] = useState<ProviderRateLimits | null>(null);
   const [agentStatusBySession, setAgentStatusBySession] = useState<Record<string, AgentStatus>>({});
-  const [notifyEnabled, setNotifyEnabled] = useState(
-    () => window.localStorage.getItem(NOTIFY_PREFERENCE_KEY) === "1",
-  );
-  const notifySupported = typeof Notification !== "undefined";
-  const sessionsRef = useRef<Session[]>([]);
-  const previousAgentStatesRef = useRef<Record<string, AgentStatus["state"]>>({});
+  const [notifyEnabled, setNotifyEnabled] = useState(false);
+  const [notifyError, setNotifyError] = useState("");
+  const notifySupported = typeof Notification !== "undefined" && "serviceWorker" in navigator;
 
   useEffect(() => {
-    sessionsRef.current = sessions;
-  }, [sessions]);
+    if (!notifySupported) return;
+    navigator.serviceWorker.ready
+      .then((registration) => registration.pushManager.getSubscription())
+      .then((subscription) => setNotifyEnabled(subscription !== null))
+      .catch(() => { /* stato push non disponibile, resta disattivato */ });
+  }, [notifySupported]);
 
   useEffect(() => {
     listSessions().then(setSessions).catch((value) => {
@@ -1077,23 +1055,6 @@ function SessionList({
           setAgentStatusBySession(
             Object.fromEntries(statuses.map((status) => [status.session_id, status])),
           );
-          const previousStates = previousAgentStatesRef.current;
-          if (notifyEnabled && document.hidden && Notification.permission === "granted") {
-            for (const status of statuses) {
-              const previousState = previousStates[status.session_id];
-              if (
-                previousState !== undefined &&
-                previousState !== status.state &&
-                NOTIFY_STATES.has(status.state)
-              ) {
-                const session = sessionsRef.current.find((item) => item.id === status.session_id);
-                notifySessionAttention(session?.name ?? `#${status.session_id}`, status);
-              }
-            }
-          }
-          previousAgentStatesRef.current = Object.fromEntries(
-            statuses.map((status) => [status.session_id, status.state]),
-          );
         })
         .catch(() => { /* lo stato euristico non blocca la dashboard */ });
     };
@@ -1103,7 +1064,7 @@ function SessionList({
       active = false;
       window.clearInterval(interval);
     };
-  }, [notifyEnabled]);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1181,15 +1142,29 @@ function SessionList({
   }
 
   async function toggleNotifications() {
-    if (notifyEnabled) {
-      setNotifyEnabled(false);
-      window.localStorage.setItem(NOTIFY_PREFERENCE_KEY, "0");
-      return;
-    }
-    const permission = await Notification.requestPermission();
-    if (permission === "granted") {
+    setNotifyError("");
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      if (notifyEnabled) {
+        const subscription = await registration.pushManager.getSubscription();
+        if (subscription) {
+          await unsubscribePush(subscription.endpoint);
+          await subscription.unsubscribe();
+        }
+        setNotifyEnabled(false);
+        return;
+      }
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") return;
+      const publicKey = await fetchPushPublicKey();
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+      await subscribePush(subscription.toJSON() as PushSubscriptionJSON);
       setNotifyEnabled(true);
-      window.localStorage.setItem(NOTIFY_PREFERENCE_KEY, "1");
+    } catch (value) {
+      setNotifyError(errorMessage(value));
     }
   }
 
@@ -1211,12 +1186,12 @@ function SessionList({
         {notifySupported && (
           <button
             className="snapshot-button"
-            onClick={toggleNotifications}
+            onClick={() => void toggleNotifications()}
             disabled={!notifyEnabled && Notification.permission === "denied"}
             title={
               Notification.permission === "denied"
                 ? "Notifiche bloccate dal browser per questo sito"
-                : "Avvisa quando una sessione attende feedback o autorizzazione, ad app in background"
+                : "Avvisa quando una sessione attende feedback o autorizzazione, anche ad app chiusa"
             }
           >
             {notifyEnabled ? "Notifiche: on" : "Notifiche: off"}
@@ -1308,6 +1283,7 @@ function SessionList({
         <button type="submit">Crea sessione</button>
       </form>}
       {error && <p className="error">{error}</p>}
+      {notifyError && <p className="error">{notifyError}</p>}
       <section className="session-list">
         {sessions.map((session) => (
           <article className="session-item" key={session.id}>

@@ -43,9 +43,11 @@ generic terminal, with no dependency on any specific vendor or tool.
 - persistent users and roles, audit, archives, verified backups and offline
   restore;
 - offline-tolerant PWA shell via a service worker (API calls always stay
-  live), a connection-lost banner, and opt-in local notifications when a
-  session starts waiting for feedback or authorization while the app is in
-  the background;
+  live) and a connection-lost banner;
+- opt-in Web Push notifications when a session starts waiting for feedback
+  or authorization — detected by an always-on backend task, independent of
+  whatever view the frontend has open, so it works even with the app fully
+  closed;
 - a Preferences panel (default view for Codex/Claude sessions: Blocks or
   Terminal), stored client-side;
 - an in-app quick guide whose “What's new” section shows only the latest

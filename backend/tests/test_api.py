@@ -8,12 +8,15 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
+from pywebpush import WebPushException
 from starlette.websockets import WebSocketDisconnect
 
 from app.config import Settings
 from app.database import Database
 from app.main import create_app
+from app.models import PushSubscription
 from app.services.attachment_service import AttachmentService
+from app.services.push_service import PushService
 from app.services.user_service import UserService
 from tests.fakes import FakeTmux
 
@@ -969,6 +972,7 @@ def test_upload_attachment_and_reference_it_in_prompt(tmp_path) -> None:
         max_attachment_bytes=1024,
         database_path=migrated_database_with_admin(tmp_path),
         database_auth_enabled=True,
+        push_vapid_key_path=str(tmp_path / "vapid.pem"),
     )
     client = TestClient(create_app(settings, fake))
     csrf = login_admin(client)
@@ -1029,6 +1033,7 @@ def test_attachment_preview_only_for_images(tmp_path) -> None:
         attachments_root=str(tmp_path),
         database_path=migrated_database_with_admin(tmp_path),
         database_auth_enabled=True,
+        push_vapid_key_path=str(tmp_path / "vapid.pem"),
     )
     client = TestClient(create_app(settings, FakeTmux()))
     csrf = login_admin(client)
@@ -1071,6 +1076,7 @@ def test_attachment_deduplicates_identical_content_within_session(tmp_path) -> N
         attachments_root=str(tmp_path),
         database_path=migrated_database_with_admin(tmp_path),
         database_auth_enabled=True,
+        push_vapid_key_path=str(tmp_path / "vapid.pem"),
     )
     fake = FakeTmux()
     fake.sessions["2"] = type(fake.sessions["1"])(
@@ -1111,6 +1117,7 @@ def test_terminating_session_cleans_up_its_attachments(tmp_path) -> None:
         attachments_root=str(tmp_path),
         database_path=migrated_database_with_admin(tmp_path),
         database_auth_enabled=True,
+        push_vapid_key_path=str(tmp_path / "vapid.pem"),
     )
     client = TestClient(create_app(settings, FakeTmux()))
     csrf = login_admin(client)
@@ -1145,6 +1152,7 @@ def test_attachment_session_quota_is_enforced(tmp_path) -> None:
         max_attachment_bytes_per_session=20,
         database_path=migrated_database_with_admin(tmp_path),
         database_auth_enabled=True,
+        push_vapid_key_path=str(tmp_path / "vapid.pem"),
     )
     fake = FakeTmux()
     fake.sessions["2"] = type(fake.sessions["1"])(
@@ -1191,6 +1199,7 @@ def test_attachment_validation_rejects_unsafe_names_types_and_sizes(tmp_path) ->
         max_attachment_bytes=12,
         database_path=migrated_database_with_admin(tmp_path),
         database_auth_enabled=True,
+        push_vapid_key_path=str(tmp_path / "vapid.pem"),
     )
     client = TestClient(create_app(settings, FakeTmux()))
     csrf = login_admin(client)
@@ -1237,4 +1246,70 @@ def test_expired_attachments_are_cleaned_up(tmp_path) -> None:
     # si sposta "now" avanti nel tempo invece di retrodatare un file.
     assert service.cleanup_expired(ttl_seconds=10, now=time.time() + 1000) == 1
     assert not session_dir.exists()
+    database.dispose()
+
+
+def test_push_public_key_requires_database() -> None:
+    client, _ = client_and_fake()
+    login(client)
+    assert client.get("/api/v1/push/public-key").status_code == 503
+
+
+def test_push_subscribe_and_unsubscribe(tmp_path) -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        database_path=migrated_database_with_admin(tmp_path),
+        database_auth_enabled=True,
+        push_vapid_key_path=str(tmp_path / "vapid.pem"),
+    )
+    client = TestClient(create_app(settings, FakeTmux()))
+    csrf = login_admin(client)
+    headers = {"X-CSRF-Token": csrf}
+
+    public_key = client.get("/api/v1/push/public-key")
+    assert public_key.status_code == 200
+    assert len(public_key.json()["public_key"]) > 32
+
+    subscription = {
+        "endpoint": "https://push.example/ep1",
+        "keys": {"p256dh": "a-p256dh-key", "auth": "an-auth-key"},
+    }
+    created = client.post("/api/v1/push/subscriptions", headers=headers, json=subscription)
+    assert created.status_code == 204
+    # ri-sottoscrivere lo stesso endpoint aggiorna, non duplica.
+    again = client.post("/api/v1/push/subscriptions", headers=headers, json=subscription)
+    assert again.status_code == 204
+
+    deleted = client.request(
+        "DELETE",
+        "/api/v1/push/subscriptions",
+        headers=headers,
+        json={"endpoint": subscription["endpoint"]},
+    )
+    assert deleted.status_code == 204
+
+
+def test_push_service_notify_removes_stale_subscriptions(tmp_path, monkeypatch) -> None:
+    database = Database(str(tmp_path / "db" / "meta.db"))
+    database.migrate("/app/alembic.ini")
+    service = PushService(database.engine, str(tmp_path / "vapid.pem"), "admin@localhost")
+    service.subscribe("https://push.example/stale", "p256dh", "auth")
+
+    with service._sessions() as session:
+        assert session.query(PushSubscription).count() == 1
+
+    class FakeResponse:
+        status_code = 410
+
+    def fake_webpush(**kwargs):
+        raise WebPushException("gone", response=FakeResponse())
+
+    monkeypatch.setattr("app.services.push_service.webpush", fake_webpush)
+    service.notify("Mobile Agent Console", "test", "tag")
+
+    with service._sessions() as session:
+        assert session.query(PushSubscription).count() == 0
     database.dispose()

@@ -528,3 +528,25 @@ export function streamUrl(id: string, paneId?: string, ansi?: boolean): string {
   if (ansi) url.searchParams.set("ansi", "true");
   return url.toString();
 }
+
+export async function fetchPushPublicKey(): Promise<string> {
+  const response = await request("/api/v1/push/public-key");
+  return (await response.json()).public_key;
+}
+
+export async function subscribePush(subscription: PushSubscriptionJSON): Promise<void> {
+  await request("/api/v1/push/subscriptions", {
+    method: "POST",
+    body: JSON.stringify({
+      endpoint: subscription.endpoint,
+      keys: subscription.keys,
+    }),
+  });
+}
+
+export async function unsubscribePush(endpoint: string): Promise<void> {
+  await request("/api/v1/push/subscriptions", {
+    method: "DELETE",
+    body: JSON.stringify({ endpoint }),
+  });
+}

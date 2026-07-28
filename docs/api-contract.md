@@ -287,6 +287,34 @@ Termina definitivamente la sessione tmux. Richiede autenticazione, CSRF e
 body `{"confirmed":true}`; senza conferma esplicita risponde 400. Risposta
 `204`.
 
+## `GET /api/v1/push/public-key`
+
+Richiede autenticazione (qualsiasi ruolo) e il database dei metadati (`503`
+se `MAC_DATABASE_AUTH_ENABLED` è spento). Restituisce
+`{"public_key":"..."}`, la chiave pubblica VAPID in formato raw base64url,
+da passare come `applicationServerKey` a `PushManager.subscribe()`.
+
+## `POST /api/v1/push/subscriptions`
+
+Richiede autenticazione e CSRF. Body `{"endpoint":"...","keys":{"p256dh":
+"...","auth":"..."}}` (lo stesso oggetto restituito da
+`PushSubscription.toJSON()`). Ri-sottoscrivere lo stesso `endpoint`
+aggiorna le chiavi invece di duplicare la riga. Risposta `204`.
+
+## `DELETE /api/v1/push/subscriptions`
+
+Richiede autenticazione e CSRF. Body `{"endpoint":"..."}`. Rimuove la
+subscription; nessun errore se non esisteva. Risposta `204`. Le subscription
+vengono rimosse automaticamente anche quando il push service esterno segnala
+che non sono più valide (404/410 alla consegna).
+
+Un task backend sempre attivo (indipendente da quale vista ha il frontend
+aperta) rileva le transizioni verso "attende feedback"/"attende
+autorizzazione" e invia una push a tutte le subscription registrate; il
+payload contiene solo titolo/corpo/tag generico, mai output o prompt
+(coerente con l'invariante delle notifiche, `docs/security.md`).
+
 Errori: `400` validazione dominio (incluso id non numerico), `401`
 autenticazione, `404` sessione, `409` creazione impossibile (es. server
-tmux host non attivo), `422` schema, `503` tmux non disponibile.
+tmux host non attivo), `422` schema, `503` tmux non disponibile o database
+dei metadati assente.

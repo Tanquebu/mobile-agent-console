@@ -27,6 +27,7 @@ def test_database_migrates_to_head_and_is_reentrant(tmp_path: Path) -> None:
         "archived_sessions",
         "attachments",
         "audit_events",
+        "push_subscriptions",
         "users",
     }
     database.dispose()
@@ -53,6 +54,7 @@ def test_database_auth_bootstrap_and_login(tmp_path: Path) -> None:
         database_auth_enabled=True,
         backups_root=str(tmp_path / "backups"),
         snapshots_root=str(tmp_path / "snapshots"),
+        push_vapid_key_path=str(tmp_path / "vapid.pem"),
     )
     fake = FakeTmux()
     client = TestClient(create_app(settings, fake))

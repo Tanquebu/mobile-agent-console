@@ -30,10 +30,12 @@ cronologia Claude.
 - dashboard agentica con stato, permessi, consumo contesto e quote provider;
 - viste Terminale (xterm.js, resa ANSI reale, sola visualizzazione) e Blocchi,
   più Cronologia Claude opzionale e isolata;
-- service worker per shell offline best-effort, banner di connessione assente
-  e notifiche locali opzionali quando una sessione attende feedback o
-  autorizzazione ad app in background (richiede un contesto sicuro, vedi
-  ADR 008);
+- service worker per shell offline best-effort e banner di connessione
+  assente;
+- notifiche Web Push opzionali (richiede un contesto sicuro, vedi ADR 008):
+  un task backend sempre attivo rileva quando una sessione attende feedback
+  o autorizzazione, indipendentemente dalla vista aperta nel frontend, e
+  avvisa anche ad app completamente chiusa;
 - TLS in nginx con certificato Tailscale reale sullo stesso bind diretto
   sull'IP Tailscale, rinnovo automatico via user timer;
 - pannello Preferenze con vista predefinita (Blocchi/Terminale) per le
@@ -53,7 +55,7 @@ cronologia Claude.
 
 ## Prossimo percorso consigliato
 
-1. operatività M4: Web Push, ricerca/tag/template, riepiloghi opzionali.
+1. operatività M4: ricerca/tag/template, riepiloghi opzionali.
 
 Stato read-only dei task dell'orchestratore locale resta solo in roadmap:
 dipende da un sistema esterno privato, intenzionalmente non referenziato in

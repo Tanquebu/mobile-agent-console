@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     mutation_rate_limit: int = Field(default=120, ge=1, le=10000)
     mutation_rate_window_seconds: int = Field(default=60, ge=1, le=3600)
     agent_active_window_seconds: int = Field(default=8, ge=2, le=120)
+    push_vapid_key_path: str = "/workspace/.mobile-agent-console/vapid_private_key.pem"
+    push_contact_email: str = "admin@localhost"
+    push_poll_interval_seconds: int = Field(default=5, ge=2, le=60)
 
     @model_validator(mode="after")
     def require_explicit_host_socket(self) -> "Settings":

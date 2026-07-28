@@ -53,6 +53,9 @@ from .schemas import (
     OutputView,
     PaneList,
     PaneView,
+    PushPublicKeyView,
+    PushSubscriptionInput,
+    PushUnsubscribeInput,
     RenameSessionInput,
     ResizePaneInput,
     RestoreItemView,
@@ -76,6 +79,7 @@ from .services.backup_service import BackupError, BackupService
 from .services.claude_history_service import ClaudeHistoryService
 from .services.output_delta import line_delta
 from .services.provider_session_state_service import ProviderSessionStateService
+from .services.push_service import PushService
 from .services.rate_limit import FixedWindowRateLimiter
 from .services.rate_limit_status_service import RateLimitStatus, RateLimitStatusService
 from .services.snapshot_service import (
@@ -216,6 +220,11 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         if database
         else None
     )
+    push = (
+        PushService(database.engine, settings.push_vapid_key_path, settings.push_contact_email)
+        if database
+        else None
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -243,15 +252,64 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
                     logger.exception("Unable to clean up expired attachments")
                 await asyncio.sleep(cleanup_interval)
 
+        async def poll_agent_attention_for_push() -> None:
+            if push is None:
+                return
+            previous_states: dict[str, str] = {}
+            while True:
+                try:
+                    sessions = await gateway.list_sessions()
+                    agent_sessions = [
+                        item
+                        for item in sessions
+                        if agent_statuses.provider_for(item.current_command) is not None
+                    ]
+                    contents = await asyncio.gather(
+                        *(gateway.capture_output(item.id, 80) for item in agent_sessions),
+                        return_exceptions=True,
+                    )
+                    current_states: dict[str, str] = {}
+                    for item, content in zip(agent_sessions, contents, strict=True):
+                        if isinstance(content, BaseException):
+                            continue
+                        status = agent_statuses.classify(item.id, item.current_command, content)
+                        if status is None:
+                            continue
+                        current_states[item.id] = status.state
+                        previous_state = previous_states.get(item.id)
+                        if (
+                            previous_state is not None
+                            and previous_state != status.state
+                            and status.state in {"waiting_input", "waiting_authorization"}
+                        ):
+                            verb = (
+                                "un'autorizzazione"
+                                if status.state == "waiting_authorization"
+                                else "un feedback"
+                            )
+                            await asyncio.to_thread(
+                                push.notify,
+                                "Mobile Agent Console",
+                                f"“{item.name}” attende {verb}",
+                                f"session-{item.id}",
+                            )
+                    previous_states = current_states
+                except Exception:
+                    logger.exception("Unable to poll agent statuses for push notifications")
+                await asyncio.sleep(settings.push_poll_interval_seconds)
+
         cleanup_task = asyncio.create_task(cleanup_attachments())
+        push_poll_task = asyncio.create_task(poll_agent_attention_for_push())
         try:
             yield
         finally:
             cleanup_task.cancel()
-            try:
-                await cleanup_task
-            except asyncio.CancelledError:
-                pass
+            push_poll_task.cancel()
+            for task in (cleanup_task, push_poll_task):
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
             if database:
                 database.dispose()
 
@@ -322,6 +380,11 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         if not attachments:
             raise HTTPException(503, "Attachments require the metadata database")
         return attachments
+
+    def push_service() -> PushService:
+        if not push:
+            raise HTTPException(503, "Web Push requires the metadata database")
+        return push
 
     async def _cleanup_session_attachments(session_id: str) -> None:
         # Best-effort: terminare/archiviare la sessione non deve fallire per un
@@ -1262,6 +1325,37 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             await asyncio.to_thread(attachment_service().delete, session_id, attachment_id)
         except AttachmentError as exc:
             raise HTTPException(404, str(exc)) from exc
+        return Response(status_code=204)
+
+    @app.get(
+        "/api/v1/push/public-key",
+        response_model=PushPublicKeyView,
+        dependencies=[Depends(require_active_session)],
+    )
+    async def push_public_key() -> PushPublicKeyView:
+        return PushPublicKeyView(public_key=push_service().public_key)
+
+    @app.post(
+        "/api/v1/push/subscriptions",
+        status_code=204,
+        dependencies=[Depends(require_active_session)],
+    )
+    async def create_push_subscription(payload: PushSubscriptionInput) -> Response:
+        await asyncio.to_thread(
+            push_service().subscribe,
+            payload.endpoint,
+            payload.keys.p256dh,
+            payload.keys.auth,
+        )
+        return Response(status_code=204)
+
+    @app.delete(
+        "/api/v1/push/subscriptions",
+        status_code=204,
+        dependencies=[Depends(require_active_session)],
+    )
+    async def delete_push_subscription(payload: PushUnsubscribeInput) -> Response:
+        await asyncio.to_thread(push_service().unsubscribe, payload.endpoint)
         return Response(status_code=204)
 
     @app.post(

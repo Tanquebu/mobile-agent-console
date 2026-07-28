@@ -31,6 +31,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Cronologia Claude | opt-in esplicito, derivato `0600`, soli messaggi testuali, limiti/staleness e endpoint autenticato |
 | Classificazione agenti | sole ultime righe in memoria, risposta con stato tipizzato; nessun output persistito, restituito o inserito nell'audit |
 | Password account | solo hash Argon2id nel database; secret usato esclusivamente per bootstrap iniziale |
+| Web Push abusata | chiave privata VAPID `0600` generata/persistita lato server, mai esposta al client (solo la pubblica); payload push senza output/prompt, stesso invariante delle notifiche locali; subscription rimosse automaticamente se il push service segnala 404/410 |
 
 ## Rischi residui del vertical slice
 

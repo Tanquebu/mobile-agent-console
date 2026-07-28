@@ -14,15 +14,16 @@
   scrollback per le app a schermo alternato (limite tmux, non risolvibile
   da qui).
 - M2 e M2A: conclusi.
-- M3: gran parte rilasciata; service worker, offline, notifiche locali e
-  preferenze (vista predefinita) validati sull'istanza pubblicata (TLS via
-  ADR 008).
+- M3: gran parte rilasciata; service worker, offline e preferenze (vista
+  predefinita) validati sull'istanza pubblicata (TLS via ADR 008); le
+  notifiche locali di M3 sono state superate dal Web Push di M4.
 - M4: cronologia Claude anticipata e conclusa; "Gestione allegati avanzata"
   completa (persistenza, anteprime, quote aggregate, deduplica, retention);
   "Supporto multi-pane esteso" completo (chiusura pane, split orizzontale/
   verticale; la vista con più pane simultanei è stata scartata
-  deliberatamente per l'impatto mobile-first); prossimo blocco consigliato:
-  ricerca/tag/template, Web Push o riepiloghi.
+  deliberatamente per l'impatto mobile-first); Web Push completo (poller
+  backend sempre attivo, sostituisce le notifiche locali client-side);
+  prossimo blocco consigliato: ricerca/tag/template o riepiloghi.
 
 Stato read-only dei task dell'orchestratore locale: resta solo in roadmap,
 intenzionalmente non implementato — dipende da un sistema esterno privato,
@@ -137,14 +138,10 @@ API specifiche di Codex, Claude o altri agenti.
   validato sull'istanza pubblicata.
 - [x] Percentuale della finestra di contesto per sessione Codex/Claude tramite
   metadati strutturati sanitizzati, validata sull'istanza pubblicata.
-- [x] Notifiche PWA locali: avviso quando una sessione passa a "attende
-  feedback"/"attende autorizzazione" mentre l'app è in background, gated da
-  permesso e preferenza utente, senza contenuto di output/prompt nel corpo
-  della notifica (coerente con l'invariante di sicurezza), validate
-  sull'istanza pubblicata con TLS (ADR 008). Limite noto: il rilevamento
-  gira solo mentre la lista sessioni è montata (non mentre si è dentro la
-  console di un'altra sessione), perché lo stato euristico è interrogato
-  lì — vedi `docs/backlog.md`.
+- [x] Notifiche PWA locali: prima versione (M3) con trigger client-side
+  gated da permesso/preferenza e limitato alla lista sessioni montata,
+  poi sostituita dal poller backend di Web Push (M4) che rileva le
+  transizioni indipendentemente dalla vista aperta — vedi M4.
 - [x] Service worker con cache dell'app shell "network-first" per un
   caricamento offline best-effort (mai per le chiamate `/api/`, sempre
   autoritative) e banner "connessione assente" globale; manifest PWA
@@ -194,7 +191,17 @@ condiviso e mappatura pane ↔ session id.
 
 ## M4 — Operatività
 
-- [ ] Web Push.
+- [x] Web Push: notifiche anche ad app completamente chiusa. Un task
+  backend sempre attivo (indipendente da quale vista ha il frontend aperta —
+  a differenza delle notifiche locali M3, che giravano solo con la lista
+  sessioni montata) rileva le transizioni verso "attende feedback"/"attende
+  autorizzazione" e invia una push reale (VAPID, chiave privata `0600`
+  persistita lato server) a tutte le subscription registrate (tabella
+  `push_subscriptions`, richiede il database come allegati/archivi/audit).
+  Le notifiche locali client-side di M3 sono state rimosse: erano ridondanti
+  e meno capaci (scattavano solo con la lista sessioni montata e la tab
+  nascosta); il pulsante "Notifiche: on/off" ora gestisce direttamente la
+  sottoscrizione push.
 - [x] Cronologia Claude opzionale con collector minimizzato, feature flag,
   fallback live e rollback isolato, validata sull'istanza pubblicata.
 - [ ] Ricerca, tag e template.
