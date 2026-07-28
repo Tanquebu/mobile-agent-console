@@ -9,6 +9,16 @@ export type Session = {
 
 let csrfToken = "";
 
+// Chiamato da qualunque richiesta HTTP (Console inclusa, non solo la lista
+// sessioni) quando il cookie di sessione non è più valido — es. scaduto
+// mentre l'app resta aperta a lungo (scheda in background/dormiente).
+// Punto unico invece di doverlo ripetere in ogni singolo punto di chiamata.
+let unauthorizedHandler: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler;
+}
+
 export class ApiError extends Error {
   constructor(public readonly status: number, message: string) {
     super(message);
@@ -55,6 +65,7 @@ async function request(path: string, init?: RequestInit) {
       const body = await response.json();
       detail = body.detail ?? detail;
     } catch { /* keep status fallback */ }
+    if (response.status === 401) unauthorizedHandler?.();
     throw new ApiError(response.status, detail);
   }
   return response;

@@ -46,6 +46,7 @@ import {
   ProviderRateLimits,
   renameSession,
   restoreSession,
+  setUnauthorizedHandler,
   restoreArchive,
   restoreSnapshot,
   Role,
@@ -1006,11 +1007,9 @@ function UserModal({ onClose }: { onClose: () => void }) {
 
 function SessionList({
   onOpen,
-  onUnauthorized,
   identity,
 }: {
   onOpen: (session: Session) => void;
-  onUnauthorized: () => void;
   identity: Identity;
 }) {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -1068,8 +1067,8 @@ function SessionList({
 
   useEffect(() => {
     listSessions().then(setSessions).catch((value) => {
-      if (value instanceof ApiError && value.status === 401) onUnauthorized();
-      else setError(errorMessage(value));
+      // Il 401 è già gestito globalmente (setUnauthorizedHandler in App).
+      if (!(value instanceof ApiError && value.status === 401)) setError(errorMessage(value));
     });
     fetchConfig()
       .then((config) => {
@@ -1508,6 +1507,8 @@ function Console({
   identity: Identity;
 }) {
   const [content, setContent] = useState("");
+  const contentRef = useRef(content);
+  useEffect(() => { contentRef.current = content; }, [content]);
   const [draft, setDraft] = useState("");
   const [connection, setConnection] = useState<Connection>("connecting");
   const [sending, setSending] = useState(false);
@@ -1811,6 +1812,12 @@ function Console({
       terminal.open(container);
       terminalRef.current = terminal;
       fitAddonRef.current = fitAddon;
+      // Uno snapshot può già essere arrivato (setContent) mentre il chunk
+      // xterm.js era ancora in scaricamento: l'effetto di scrittura lo
+      // avrebbe ignorato perché terminalRef.current era ancora nullo, e
+      // senza nuovi contenuti (sessione ferma in attesa) non si sarebbe
+      // mai riscritto. Scrivilo qui una volta, ora che il terminale esiste.
+      if (contentRef.current) terminal.write(contentRef.current);
       // Il renderer DOM di default non tiene il passo col ridisegno durante
       // lo scroll touch su mobile (percepito come "a scatti"); il renderer
       // WebGL è accelerato via GPU. Se non disponibile (o perso a runtime),
@@ -2421,6 +2428,13 @@ export default function App() {
   useEffect(() => {
     restoreSession().then(setIdentity).catch(() => setIdentity(null));
   }, []);
+  useEffect(() => {
+    // Copre anche Console (WS/polling), non solo la lista sessioni: una
+    // sessione scaduta mentre si è dentro una console (es. scheda rimasta
+    // dormiente a lungo) deve comunque riportare al login.
+    setUnauthorizedHandler(() => setIdentity(null));
+    return () => setUnauthorizedHandler(null);
+  }, []);
   let content: ReactNode;
   if (identity === undefined) {
     content = <main className="login"><p>Verifica sessione…</p></main>;
@@ -2464,7 +2478,7 @@ export default function App() {
           onSwitch={setActive}
         />
       )
-      : <SessionList identity={identity} onOpen={setActive} onUnauthorized={() => setIdentity(null)} />;
+      : <SessionList identity={identity} onOpen={setActive} />;
   }
   return (
     <>
