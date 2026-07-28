@@ -112,15 +112,3 @@ previsto, non risolve lo scrollback delle app a schermo alternato (limite
 tmux); la soluzione generica resta un adapter separato con le stesse
 proprietà di isolamento, sul modello di ADR 007.
 
-## Notifiche locali attive solo con la lista sessioni montata
-
-**Stato:** limite noto, accettato per ora.
-
-Le notifiche locali si basano sul polling di `/api/v1/agent-statuses` già
-presente in `SessionList`; il rilevamento delle transizioni verso "attende
-feedback"/"attende autorizzazione" gira quindi solo mentre quella vista è
-montata (app in background o schermo bloccato mentre si è sulla lista), non
-mentre si è dentro la console di un'altra sessione. Spostare il polling a
-livello di `App` risolverebbe il limite ma richiede sollevare anche lo stato
-`sessions`, usato pervasivamente in `SessionList`: rimandato finché non
-emerge un bisogno concreto.
