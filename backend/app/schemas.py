@@ -60,6 +60,8 @@ class ClaudeHistoryMessageView(BaseModel):
     role: Literal["user", "assistant"]
     content: str
     timestamp: datetime
+    kind: Literal["message", "activity"] = "message"
+    pending: bool = False
 
 
 class ClaudeHistoryView(BaseModel):

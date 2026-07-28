@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import {
@@ -89,6 +89,15 @@ const CONNECTION_LABEL: Record<Connection, string> = {
   offline: "offline",
   closed: "chiusa",
 };
+
+// Deve combaciare con MIN_PANE_COLUMNS in backend/app/main.py: il pane è
+// condiviso da tutti i client (Blocchi/Terminale/ssh attach), quindi il
+// backend impone comunque questo minimo. In Terminale (xterm.js con
+// cursore ANSI posizionato) il buffer deve combaciare esattamente con la
+// larghezza reale del pane, altrimenti il rendering si disallinea — perciò
+// qui si forza lo stesso minimo invece di adattarsi al viewport stretto, e
+// si scrolla in orizzontale.
+const MIN_PANE_COLUMNS = 120;
 
 const LATEST_RELEASE = {
   title: "Preferenze: vista predefinita",
@@ -1023,6 +1032,23 @@ function SessionList({
   const [notifyEnabled, setNotifyEnabled] = useState(false);
   const [notifyError, setNotifyError] = useState("");
   const notifySupported = typeof Notification !== "undefined" && "serviceWorker" in navigator;
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredSessions = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return sessions;
+    return sessions.filter((session) => {
+      const status = agentStatusBySession[session.id];
+      const stateLabel = status
+        ? AGENT_STATE_LEGEND.find(([state]) => state === status.state)?.[1]
+        : undefined;
+      const haystack = [session.name, session.current_command, status?.provider, stateLabel]
+        .filter((value): value is string => Boolean(value))
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [sessions, searchQuery, agentStatusBySession]);
 
   useEffect(() => {
     if (!notifySupported) return;
@@ -1176,7 +1202,9 @@ function SessionList({
           <button className="help-button" onClick={() => setShowHelp(true)} aria-label="Apri guida">
             ?
           </button>
-          <span className="count">{sessions.length}</span>
+          <span className="count">
+            {searchQuery.trim() ? `${filteredSessions.length}/${sessions.length}` : sessions.length}
+          </span>
         </div>
       </header>
       <div className="dashboard-actions">
@@ -1284,8 +1312,18 @@ function SessionList({
       </form>}
       {error && <p className="error">{error}</p>}
       {notifyError && <p className="error">{notifyError}</p>}
+      {sessions.length > 0 && (
+        <input
+          type="search"
+          className="session-search"
+          placeholder="Cerca per nome, comando o stato…"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          aria-label="Cerca sessioni"
+        />
+      )}
       <section className="session-list">
-        {sessions.map((session) => (
+        {filteredSessions.map((session) => (
           <article className="session-item" key={session.id}>
             <div className="session-row">
               <button className="session-card" onClick={() => onOpen(session)}>
@@ -1358,6 +1396,9 @@ function SessionList({
           </article>
         ))}
         {!error && sessions.length === 0 && <p className="empty">Nessuna sessione sul socket configurato.</p>}
+        {!error && sessions.length > 0 && filteredSessions.length === 0 && (
+          <p className="empty">Nessuna sessione corrisponde alla ricerca.</p>
+        )}
       </section>
       <footer className="agent-legend" aria-label="Legenda stati agentici">
         <section>
@@ -1651,11 +1692,17 @@ function Console({
     let resizeTimer: number | undefined;
     const applyFit = () => {
       fitAddon.fit();
+      // Il pane non scende mai sotto MIN_PANE_COLUMNS (imposto anche lato
+      // server): se il fit calcola meno, si forza il buffer xterm alla
+      // larghezza minima invece di restringerlo, e si scrolla in
+      // orizzontale — altrimenti il contenuto ANSI catturato a una
+      // larghezza reale maggiore si disallineerebbe nel rendering.
+      if (terminal.cols < MIN_PANE_COLUMNS) terminal.resize(MIN_PANE_COLUMNS, terminal.rows);
       if (!paneId) return;
       // ResizePaneInput impone 20-500 colonne e 5-300 righe (schemas.py);
       // durante un resize in corso FitAddon può calcolare valori transitori
       // fuori range prima che il layout si stabilizzi.
-      const columns = Math.max(20, Math.min(500, terminal.cols));
+      const columns = Math.max(MIN_PANE_COLUMNS, Math.min(500, terminal.cols));
       const rows = Math.max(5, Math.min(300, terminal.rows));
       const dimensions = `${columns}x${rows}`;
       if (dimensions === previousFitRef.current) return;
@@ -1907,14 +1954,24 @@ function Console({
             )}
             {history?.messages.map((message) => (
               <article
-                className={`chat-block ${message.role === "user" ? "user" : "agent"}`}
+                className={`chat-block ${
+                  message.kind === "activity" ? "activity" : message.role === "user" ? "user" : "agent"
+                }`}
                 key={message.id}
               >
                 <small>
-                  {message.role === "user" ? "Tu" : session.current_command}
+                  {message.kind === "activity"
+                    ? "Attività"
+                    : message.role === "user"
+                      ? "Tu"
+                      : session.current_command}
                   {" · "}{new Date(message.timestamp).toLocaleString("it-IT")}
                 </small>
-                <pre>{message.content}</pre>
+                <pre>
+                  {message.kind === "activity"
+                    ? `${message.pending ? "⏳ " : "🔧 "}${message.content}${message.pending ? " (in corso o in attesa di conferma)" : ""}`
+                    : message.content}
+                </pre>
               </article>
             ))}
             {!history && !historyError && (

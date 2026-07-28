@@ -80,6 +80,30 @@ def _ask_user_question_text(item: dict[str, object]) -> str | None:
     return "\n\n".join(blocks) if blocks else None
 
 
+def _tool_names(record: dict[str, object]) -> str | None:
+    if (
+        record.get("type") != "assistant"
+        or record.get("isSidechain") is True
+        or record.get("isMeta") is True
+    ):
+        return None
+    message = record.get("message")
+    if not isinstance(message, dict) or message.get("role") != "assistant":
+        return None
+    content = message.get("content")
+    if not isinstance(content, list):
+        return None
+    names = [
+        item["name"]
+        for item in content
+        if isinstance(item, dict)
+        and item.get("type") == "tool_use"
+        and isinstance(item.get("name"), str)
+        and item["name"]
+    ]
+    return ", ".join(dict.fromkeys(names)) if names else None
+
+
 def text_content(record: dict[str, object], ask_ids: frozenset[str] = frozenset()) -> tuple[str, str] | None:
     record_type = record.get("type")
     if (
@@ -144,16 +168,19 @@ def normalize_transcript(path: Path) -> dict[str, object]:
     messages = []
     for record in records:
         normalized = text_content(record, ask_ids)
+        kind = "message"
+        if normalized is None:
+            names = _tool_names(record)
+            if names is None:
+                continue
+            role, content = "assistant", names
+            kind = "activity"
+        else:
+            role, content = normalized
         identifier = record.get("uuid")
         timestamp = record.get("timestamp")
-        if (
-            normalized is None
-            or not isinstance(identifier, str)
-            or not identifier
-            or not isinstance(timestamp, str)
-        ):
+        if not isinstance(identifier, str) or not identifier or not isinstance(timestamp, str):
             continue
-        role, content = normalized
         if len(content) > MAX_MESSAGE_CHARS:
             content = content[:MAX_MESSAGE_CHARS]
             truncated = True
@@ -163,8 +190,15 @@ def normalize_transcript(path: Path) -> dict[str, object]:
                 "role": role,
                 "content": content,
                 "timestamp": timestamp,
+                "kind": kind,
+                "pending": False,
             }
         )
+    # Nessun blocco "text" dopo l'ultima attività: il tool è ancora in corso
+    # o in attesa di conferma. Segnale di solo stato (nessun contenuto
+    # aggiuntivo), coerente col confine ADR 007.
+    if messages and messages[-1]["kind"] == "activity":
+        messages[-1]["pending"] = True
     if len(messages) > MAX_MESSAGES:
         messages = messages[-MAX_MESSAGES:]
         truncated = True

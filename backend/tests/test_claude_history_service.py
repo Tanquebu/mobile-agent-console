@@ -61,6 +61,32 @@ def test_rejects_stale_malformed_and_oversized_messages(tmp_path) -> None:
     assert service.read("43") is None
 
 
+def test_activity_kind_and_pending_round_trip(tmp_path) -> None:
+    path = tmp_path / "history.json"
+    now = datetime.now(UTC)
+    current = payload(now)
+    current["sessions"][0]["messages"].append(
+        {
+            "id": "message-3",
+            "role": "assistant",
+            "content": "Bash",
+            "timestamp": now.isoformat(),
+            "kind": "activity",
+            "pending": True,
+        }
+    )
+    path.write_text(json.dumps(current), encoding="utf-8")
+    history = ClaudeHistoryService(str(path), 30).read("43")
+    assert history is not None
+    last = history.messages[-1]
+    assert (last.kind, last.pending) == ("activity", True)
+
+    current = payload(now)
+    current["sessions"][0]["messages"][0]["kind"] = "not-a-real-kind"
+    path.write_text(json.dumps(current), encoding="utf-8")
+    assert ClaudeHistoryService(str(path), 30).read("43") is None
+
+
 def test_missing_invalid_or_unknown_session_is_unavailable(tmp_path) -> None:
     path = tmp_path / "history.json"
     service = ClaudeHistoryService(str(path), 30)

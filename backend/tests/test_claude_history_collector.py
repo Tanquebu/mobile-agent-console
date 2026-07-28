@@ -157,10 +157,80 @@ def test_normalize_transcript_keeps_ask_user_question_qa(tmp_path) -> None:
         encoding="utf-8",
     )
     result = normalize_transcript(transcript)
-    assert [(item["role"], item["content"]) for item in result["messages"]] == [
-        ("assistant", "H: Domanda?"),
-        ("user", "Risposta scelta"),
+    assert [(item["role"], item["content"], item["kind"], item["pending"]) for item in result["messages"]] == [
+        ("assistant", "H: Domanda?", "message", False),
+        ("user", "Risposta scelta", "message", False),
+        ("assistant", "Bash", "activity", True),
     ]
+
+
+def test_activity_marker_shows_tool_name_and_pending_only_when_last(tmp_path) -> None:
+    transcript = tmp_path / "session.jsonl"
+    transcript.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "uuid": "a1",
+                        "timestamp": "2026-07-27T10:00:00Z",
+                        "message": {
+                            "role": "assistant",
+                            "content": [
+                                {"type": "thinking", "thinking": "privato"},
+                                {"type": "tool_use", "name": "Read", "input": {"path": "/secret"}},
+                            ],
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "user",
+                        "uuid": "u1",
+                        "timestamp": "2026-07-27T10:00:01Z",
+                        "message": {
+                            "role": "user",
+                            "content": [{"type": "tool_result", "content": "contenuto file"}],
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "uuid": "a2",
+                        "timestamp": "2026-07-27T10:00:02Z",
+                        "message": {
+                            "role": "assistant",
+                            "content": [{"type": "text", "text": "Ecco il riepilogo"}],
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "uuid": "a3",
+                        "timestamp": "2026-07-27T10:00:03Z",
+                        "message": {
+                            "role": "assistant",
+                            "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "rm -rf /"}}],
+                        },
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = normalize_transcript(transcript)
+    messages = result["messages"]
+    assert [(item["role"], item["content"], item["kind"], item["pending"]) for item in messages] == [
+        ("assistant", "Read", "activity", False),
+        ("assistant", "Ecco il riepilogo", "message", False),
+        ("assistant", "Bash", "activity", True),
+    ]
+    # nessun contenuto di tool (path, comando, output) deve trapelare: solo il nome.
+    assert "secret" not in json.dumps(messages)
+    assert "rm -rf" not in json.dumps(messages)
+    assert "contenuto file" not in json.dumps(messages)
 
 
 def test_normalizes_with_limits_and_ignores_invalid_records(tmp_path) -> None:

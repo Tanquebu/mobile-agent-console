@@ -234,6 +234,8 @@ export type ClaudeHistoryMessage = {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  kind: "message" | "activity";
+  pending: boolean;
 };
 
 export type ClaudeHistory = {

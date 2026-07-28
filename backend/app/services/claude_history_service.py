@@ -15,6 +15,8 @@ class ClaudeHistoryMessage:
     role: Literal["user", "assistant"]
     content: str
     timestamp: datetime
+    kind: Literal["message", "activity"] = "message"
+    pending: bool = False
 
 
 @dataclass(frozen=True)
@@ -86,6 +88,8 @@ def _session(item: object, collected_at: datetime) -> ClaudeHistory | None:
         role = message.get("role")
         content = message.get("content")
         timestamp = _timestamp(message.get("timestamp"))
+        kind = message.get("kind", "message")
+        pending = message.get("pending", False)
         if (
             not isinstance(identifier, str)
             or not identifier
@@ -94,6 +98,8 @@ def _session(item: object, collected_at: datetime) -> ClaudeHistory | None:
             or not content.strip()
             or len(content) > MAX_MESSAGE_CHARS
             or timestamp is None
+            or kind not in {"message", "activity"}
+            or not isinstance(pending, bool)
         ):
             return None
         parsed.append(
@@ -102,6 +108,8 @@ def _session(item: object, collected_at: datetime) -> ClaudeHistory | None:
                 role=role,
                 content=content,
                 timestamp=timestamp,
+                kind=kind,
+                pending=pending,
             )
         )
     return ClaudeHistory(

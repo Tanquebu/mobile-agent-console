@@ -94,6 +94,11 @@ logger = logging.getLogger("mobile_agent_console")
 
 DIRECTORY_ENTRY_LIMIT = 2000
 FILE_PREVIEW_MAX_BYTES = 256 * 1024
+# Il pane tmux è condiviso da tutti i client (Blocchi/Terminale/ssh attach):
+# se scende sotto questa soglia per un client mobile stretto, il testo
+# tabellare wrappa su più righe fisiche e consuma in fretta lo scrollback
+# condiviso (history-limit). Sperimentale, vedi docs/roadmap.md.
+MIN_PANE_COLUMNS = 120
 DOWNLOADABLE_EXTENSIONS = {
     ".bmp",
     ".doc",
@@ -1097,8 +1102,9 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     async def resize_pane(
         session_id: str, pane_id: str, payload: ResizePaneInput
     ) -> Accepted:
+        columns = max(payload.columns, MIN_PANE_COLUMNS)
         try:
-            await gateway.resize_pane(session_id, pane_id, payload.columns, payload.rows)
+            await gateway.resize_pane(session_id, pane_id, columns, payload.rows)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except SessionNotFound as exc:

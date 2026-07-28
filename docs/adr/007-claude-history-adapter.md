@@ -76,3 +76,21 @@ il cui `tool_use_id` corrisponde a un `AskUserQuestion` visto in precedenza
 nello stesso transcript. Tutti gli altri tool restano esclusi esattamente
 come al punto 3 — l'eccezione non riapre il confine generico su tool
 input/output.
+
+## Addendum: indicatore di attività (solo nome tool, nessun contenuto)
+
+Anche fuori da `AskUserQuestion`, i tratti senza alcun blocco `text` restano
+un problema pratico: durante un giro di tool (Bash/Edit/Read/...) o mentre è
+a schermo il prompt nativo di conferma ("vuoi procedere?"), la cronologia
+resta silenziosa dall'ultimo testo fino al prossimo, dando l'impressione che
+si sia fermata proprio dove serve più continuità — tipicamente quando
+l'agente sta per chiedere un'autorizzazione.
+
+Il normalizzatore emette quindi, per i record assistant con solo
+`tool_use` e nessun testo, una voce di tipo `"activity"` il cui contenuto è
+**esclusivamente il nome del tool** (es. `"Bash"`, `"Edit"`), mai il suo
+`input`/`output`: resta quindi dentro il confine del punto 3, non lo
+allarga. Se l'ultima voce della cronologia è un'attività senza alcun testo
+successivo, viene marcata `pending: true` — segnale di solo stato ("il tool
+è ancora in corso o in attesa di conferma"), non contenuto aggiuntivo.
+Record senza un nome tool valido restano esclusi come prima.

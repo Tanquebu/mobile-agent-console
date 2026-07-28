@@ -23,7 +23,9 @@
   verticale; la vista con più pane simultanei è stata scartata
   deliberatamente per l'impatto mobile-first); Web Push completo (poller
   backend sempre attivo, sostituisce le notifiche locali client-side);
-  prossimo blocco consigliato: ricerca/tag/template o riepiloghi.
+  ricerca testuale sessioni completa; tag/etichette e template di
+  creazione restano da fare; prossimo blocco consigliato: riepiloghi
+  opzionali.
 
 Stato read-only dei task dell'orchestratore locale: resta solo in roadmap,
 intenzionalmente non implementato — dipende da un sistema esterno privato,
@@ -204,7 +206,39 @@ condiviso e mappatura pane ↔ session id.
   sottoscrizione push.
 - [x] Cronologia Claude opzionale con collector minimizzato, feature flag,
   fallback live e rollback isolato, validata sull'istanza pubblicata.
-- [ ] Ricerca, tag e template.
+- [x] Ricerca testuale nella lista sessioni: campo di filtro client-side su
+  nome, comando corrente, provider e stato agente (icona/etichetta), nessuna
+  chiamata di rete aggiuntiva. Tag ed etichette libere e template di
+  creazione sessione restano da fare, non ancora richiesti.
+- [x] Correzioni rendering sessioni Claude (Blocchi/Terminale/Cronologia),
+  tre cause distinte:
+  1. il pane tmux condiviso (stesso in Blocchi, Terminale e via `ssh`+`tmux
+     attach`) veniva ristretto dinamicamente in base al viewport
+     dell'ultimo client (spesso mobile, poche decine di colonne), wrappando
+     contenuto tabellare su molte righe fisiche e consumando in fretta lo
+     scrollback condiviso (`history-limit`). Ora il backend impone un
+     minimo di `MIN_PANE_COLUMNS` (120) su ogni resize, indipendentemente
+     dal client — sperimentale, revertibile riportando la costante a un
+     valore più basso; Blocchi ne beneficia col solo reflow CSS, Terminale
+     (xterm.js con cursore ANSI posizionato) forza lo stesso minimo sul
+     buffer per non disallineare il rendering e scrolla in orizzontale
+     invece di restringersi.
+  2. bug di scroll touch su mobile: `body` usava `min-height: 100vh`
+     (calcolato a barra indirizzi nascosta) mentre `.console` usa `100dvh`
+     (altezza visibile reale) — il mismatch lasciava il documento più alto
+     del viewport, rendendo l'intera pagina scrollabile e catturando il
+     gesto touch al posto del contenitore interno. Allineato `body` a
+     `100dvh` con `overscroll-behavior-y: none`, più `touch-action: pan-y`
+     e `overscroll-behavior: contain` sui contenitori di output interni.
+  3. la vista Cronologia (ADR 007) esclude ogni I/O di tool per non far
+     trapelare contenuto di file/comandi — ma questo la lasciava
+     completamente silenziosa durante l'esecuzione di tool o davanti al
+     prompt nativo di conferma, dando l'impressione di essersi fermata
+     proprio dove serve più continuità. Il normalizzatore ora emette un
+     indicatore di attività col solo nome del tool (mai il suo
+     input/output), marcato "in attesa" quando è l'ultima voce senza
+     testo successivo — resta dentro il confine ADR 007, vedi il relativo
+     addendum.
 - [x] Supporto multi-pane esteso: chiusura di un singolo pane (`kill-pane`,
   con conferma esplicita), che lascia sessione e altri pane attivi — rifiuta
   se è l'unico pane rimasto (va terminata la sessione). Scelta tra split

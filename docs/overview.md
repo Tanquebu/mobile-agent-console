@@ -19,6 +19,8 @@ cronologia Claude.
 - gestione mobile e desktop di sessioni e pane tmux, con output live, input,
   tasti, resize, split orizzontale/verticale, chiusura del singolo pane,
   rinomina e terminazione confermata;
+- ricerca testuale nella lista sessioni (nome, comando corrente, provider e
+  stato agente), filtro client-side senza chiamate di rete aggiuntive;
 - modalità tmux Docker isolata oppure host sul socket predefinito;
 - account persistenti, ruoli, CSRF, cookie sicuri, audit e rate limiting;
 - snapshot di riavvio, archivio con resume, backup verificabili e restore
@@ -29,7 +31,10 @@ cronologia Claude.
   pulizia alla terminazione/archiviazione della sessione;
 - dashboard agentica con stato, permessi, consumo contesto e quote provider;
 - viste Terminale (xterm.js, resa ANSI reale, sola visualizzazione) e Blocchi,
-  più Cronologia Claude opzionale e isolata;
+  più Cronologia Claude opzionale e isolata; pane condiviso con larghezza
+  minima garantita (sperimentale) e indicatore di attività (solo nome tool)
+  in Cronologia durante i tratti senza testo, scroll touch corretto su
+  mobile;
 - service worker per shell offline best-effort e banner di connessione
   assente;
 - notifiche Web Push opzionali (richiede un contesto sicuro, vedi ADR 008):
@@ -55,7 +60,8 @@ cronologia Claude.
 
 ## Prossimo percorso consigliato
 
-1. operatività M4: ricerca/tag/template, riepiloghi opzionali.
+1. operatività M4: riepiloghi opzionali; eventuali tag/etichette e template
+   di creazione sessione restano da definire.
 
 Stato read-only dei task dell'orchestratore locale resta solo in roadmap:
 dipende da un sistema esterno privato, intenzionalmente non referenziato in
