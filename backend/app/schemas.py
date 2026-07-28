@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Literal
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ConfigView(BaseModel):
@@ -286,9 +287,38 @@ class PushSubscriptionKeys(BaseModel):
     auth: str = Field(min_length=1, max_length=255)
 
 
+# Un vero browser PushManager.subscribe() produce endpoint solo su questi
+# host: un allowlist chiude l'SSRF (il poller Web Push chiama pywebpush con
+# questo valore dalla rete del backend) senza rifiutare alcun uso legittimo.
+PUSH_ENDPOINT_ALLOWED_HOSTS = {
+    "fcm.googleapis.com",
+    "updates.push.services.mozilla.com",
+    "web.push.apple.com",
+}
+PUSH_ENDPOINT_ALLOWED_SUFFIXES = (".notify.windows.com",)
+
+
+def _validate_push_endpoint_host(value: str) -> str:
+    parsed = urlparse(value)
+    if parsed.scheme != "https":
+        raise ValueError("endpoint must use https")
+    host = parsed.hostname
+    if host is None or (
+        host not in PUSH_ENDPOINT_ALLOWED_HOSTS
+        and not host.endswith(PUSH_ENDPOINT_ALLOWED_SUFFIXES)
+    ):
+        raise ValueError("endpoint host is not a recognized push service")
+    return value
+
+
 class PushSubscriptionInput(BaseModel):
     endpoint: str = Field(min_length=1, max_length=2048)
     keys: PushSubscriptionKeys
+
+    @field_validator("endpoint")
+    @classmethod
+    def endpoint_must_be_known_push_service(cls, value: str) -> str:
+        return _validate_push_endpoint_host(value)
 
 
 class PushUnsubscribeInput(BaseModel):

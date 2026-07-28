@@ -1339,7 +1339,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     @app.post(
         "/api/v1/push/subscriptions",
         status_code=204,
-        dependencies=[Depends(require_active_session)],
+        dependencies=[Depends(require_active_csrf)],
     )
     async def create_push_subscription(payload: PushSubscriptionInput) -> Response:
         await asyncio.to_thread(
@@ -1353,7 +1353,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     @app.delete(
         "/api/v1/push/subscriptions",
         status_code=204,
-        dependencies=[Depends(require_active_session)],
+        dependencies=[Depends(require_active_csrf)],
     )
     async def delete_push_subscription(payload: PushUnsubscribeInput) -> Response:
         await asyncio.to_thread(push_service().unsubscribe, payload.endpoint)

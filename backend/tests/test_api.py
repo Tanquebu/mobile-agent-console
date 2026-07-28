@@ -1298,7 +1298,7 @@ def test_push_subscribe_and_unsubscribe(tmp_path) -> None:
     assert len(public_key.json()["public_key"]) > 32
 
     subscription = {
-        "endpoint": "https://push.example/ep1",
+        "endpoint": "https://fcm.googleapis.com/fcm/send/ep1",
         "keys": {"p256dh": "a-p256dh-key", "auth": "an-auth-key"},
     }
     created = client.post("/api/v1/push/subscriptions", headers=headers, json=subscription)
@@ -1314,6 +1314,57 @@ def test_push_subscribe_and_unsubscribe(tmp_path) -> None:
         json={"endpoint": subscription["endpoint"]},
     )
     assert deleted.status_code == 204
+
+
+def test_push_subscribe_requires_csrf(tmp_path) -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        database_path=migrated_database_with_admin(tmp_path),
+        database_auth_enabled=True,
+        push_vapid_key_path=str(tmp_path / "vapid.pem"),
+    )
+    client = TestClient(create_app(settings, FakeTmux()))
+    login_admin(client)
+    subscription = {
+        "endpoint": "https://fcm.googleapis.com/fcm/send/ep1",
+        "keys": {"p256dh": "a-p256dh-key", "auth": "an-auth-key"},
+    }
+    assert client.post("/api/v1/push/subscriptions", json=subscription).status_code == 403
+    assert client.request(
+        "DELETE", "/api/v1/push/subscriptions", json={"endpoint": subscription["endpoint"]}
+    ).status_code == 403
+
+
+def test_push_subscribe_rejects_endpoints_outside_known_push_services(tmp_path) -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        database_path=migrated_database_with_admin(tmp_path),
+        database_auth_enabled=True,
+        push_vapid_key_path=str(tmp_path / "vapid.pem"),
+    )
+    client = TestClient(create_app(settings, FakeTmux()))
+    csrf = login_admin(client)
+    headers = {"X-CSRF-Token": csrf}
+    keys = {"p256dh": "a-p256dh-key", "auth": "an-auth-key"}
+    # non-https e host arbitrari (potenziale SSRF verso la rete del backend)
+    # devono essere rifiutati prima di raggiungere il servizio.
+    for endpoint in (
+        "http://fcm.googleapis.com/fcm/send/ep1",
+        "https://127.0.0.1:9200/_shutdown",
+        "https://attacker.example/ep1",
+    ):
+        response = client.post(
+            "/api/v1/push/subscriptions",
+            headers=headers,
+            json={"endpoint": endpoint, "keys": keys},
+        )
+        assert response.status_code == 422
 
 
 def test_push_service_notify_removes_stale_subscriptions(tmp_path, monkeypatch) -> None:
