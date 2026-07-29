@@ -105,9 +105,9 @@ const MAX_TERMINAL_LINES = 2000;
 const LOAD_MORE_STEP_LINES = 500;
 
 const LATEST_RELEASE = {
-  title: "Task schedulati sotto controllo",
+  title: "Nuova identità per Agent Console",
   description:
-    "La dashboard mostra ora lo stato read-only dei task dell'orchestratore: provider, pause per capacità, prossimi tentativi e fasi in corso.",
+    "Una nuova favicon robotica identifica Agent Console nel browser, nelle scorciatoie e nell'installazione PWA.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
