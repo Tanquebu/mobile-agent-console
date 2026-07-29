@@ -483,10 +483,32 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   );
 }
 
+function isPreviewableImage(mediaType: string): boolean {
+  return mediaType.startsWith("image/");
+}
+
+function ArtifactPreview({ sessionId, item, onBack }: { sessionId: string; item: Artifact; onBack: () => void }) {
+  return (
+    <>
+      <header>
+        <div>
+          <span className="eyebrow">ANTEPRIMA</span>
+          <h2 className="directory-path" title={item.name}>{item.name}</h2>
+        </div>
+        <button className="modal-close" onClick={onBack} aria-label="Torna all'elenco">‹</button>
+      </header>
+      <div className="artifact-preview">
+        <img src={artifactDownloadUrl(sessionId, item.name)} alt={item.name} />
+      </div>
+    </>
+  );
+}
+
 function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
   const [items, setItems] = useState<Artifact[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [previewItem, setPreviewItem] = useState<Artifact | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -501,11 +523,13 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape") return;
+      if (previewItem !== null) setPreviewItem(null);
+      else onClose();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+  }, [onClose, previewItem]);
 
   function downloadArtifact(item: Artifact) {
     const anchor = document.createElement("a");
@@ -525,31 +549,42 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
       }}
     >
       <section className="help-modal directory-modal" role="dialog" aria-modal="true" aria-labelledby="artifacts-title">
-        <header>
-          <div>
-            <span className="eyebrow">ARTEFATTI CONSEGNATI DALL'AGENTE</span>
-            <h2 id="artifacts-title" className="directory-path">Sessione {sessionId}</h2>
-          </div>
-          <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
-        </header>
-        {loading && <p className="empty">Caricamento…</p>}
-        {error && <p className="error">{error}</p>}
-        {!loading && !error && (
-          <ul className="directory-list">
-            {items.map((item) => (
-              <li key={item.name} className="directory-entry">
-                <div className="directory-open">
-                  <span className="directory-type file">FILE</span>
-                  <span className="directory-name" title={item.name}>{item.name}</span>
-                  <span className="directory-meta">{formatSize(item.size)} · {formatDate(item.modified_at)}</span>
-                </div>
-                <button type="button" className="directory-download" onClick={() => downloadArtifact(item)}>
-                  Download
-                </button>
-              </li>
-            ))}
-            {items.length === 0 && <li className="empty">Nessun artefatto consegnato in questa sessione.</li>}
-          </ul>
+        {previewItem !== null ? (
+          <ArtifactPreview sessionId={sessionId} item={previewItem} onBack={() => setPreviewItem(null)} />
+        ) : (
+          <>
+            <header>
+              <div>
+                <span className="eyebrow">ARTEFATTI CONSEGNATI DALL'AGENTE</span>
+                <h2 id="artifacts-title" className="directory-path">Sessione {sessionId}</h2>
+              </div>
+              <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+            </header>
+            {loading && <p className="empty">Caricamento…</p>}
+            {error && <p className="error">{error}</p>}
+            {!loading && !error && (
+              <ul className="directory-list">
+                {items.map((item) => (
+                  <li key={item.name} className="directory-entry">
+                    <button
+                      type="button"
+                      className="directory-open"
+                      disabled={!isPreviewableImage(item.media_type)}
+                      onClick={() => setPreviewItem(item)}
+                    >
+                      <span className="directory-type file">FILE</span>
+                      <span className="directory-name" title={item.name}>{item.name}</span>
+                      <span className="directory-meta">{formatSize(item.size)} · {formatDate(item.modified_at)}</span>
+                    </button>
+                    <button type="button" className="directory-download" onClick={() => downloadArtifact(item)}>
+                      Download
+                    </button>
+                  </li>
+                ))}
+                {items.length === 0 && <li className="empty">Nessun artefatto consegnato in questa sessione.</li>}
+              </ul>
+            )}
+          </>
         )}
       </section>
     </div>
