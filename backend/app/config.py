@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173"]
     workspace_presets: dict[str, str] = {}
     attachments_root: str = "/workspace/.agent-attachments"
+    artifacts_root: str = "/workspace/.agent-artifacts"
     snapshots_root: str = "/workspace/.agent-snapshots"
     backups_root: str = "/workspace/.mobile-agent-console/backups"
     backup_retention: int = Field(default=10, ge=1, le=100)
@@ -53,6 +54,8 @@ class Settings(BaseSettings):
         default=100 * 1024 * 1024, ge=1, le=1000 * 1024 * 1024
     )
     attachment_ttl_seconds: int = Field(default=86400, ge=300, le=30 * 86400)
+    artifacts_prompt_root: str | None = None
+    max_artifact_bytes: int = Field(default=25 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
     login_rate_limit: int = Field(default=5, ge=1, le=1000)
     login_rate_window_seconds: int = Field(default=60, ge=1, le=3600)
     mutation_rate_limit: int = Field(default=120, ge=1, le=10000)
@@ -113,6 +116,10 @@ class Settings(BaseSettings):
     @property
     def resolved_attachments_prompt_root(self) -> str:
         return self.attachments_prompt_root or self.attachments_root
+
+    @property
+    def resolved_artifacts_prompt_root(self) -> str:
+        return self.artifacts_prompt_root or self.artifacts_root
 
     @property
     def database_url(self) -> str:

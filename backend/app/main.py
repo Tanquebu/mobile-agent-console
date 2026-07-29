@@ -32,6 +32,7 @@ from .schemas import (
     AgentStatusView,
     ArchivedSessionView,
     ArchiveList,
+    ArtifactView,
     AttachmentView,
     AuditEventView,
     AuditList,
@@ -73,6 +74,7 @@ from .schemas import (
 from .security import COOKIE_NAME, SessionSecurity
 from .services.agent_status_service import AgentStatusService
 from .services.archive_service import ArchiveService
+from .services.artifact_service import ArtifactError, ArtifactService
 from .services.attachment_service import AttachmentError, AttachmentService
 from .services.audit_service import AuditService
 from .services.backup_service import BackupError, BackupService
@@ -221,6 +223,11 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         )
         if database
         else None
+    )
+    artifacts = ArtifactService(
+        settings.artifacts_root,
+        settings.resolved_artifacts_prompt_root,
+        settings.max_artifact_bytes,
     )
     push = (
         PushService(database.engine, settings.push_vapid_key_path, settings.push_contact_email)
@@ -388,15 +395,38 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             raise HTTPException(503, "Web Push requires the metadata database")
         return push
 
-    async def _cleanup_session_attachments(session_id: str) -> None:
+    async def _cleanup_session_files(session_id: str) -> None:
         # Best-effort: terminare/archiviare la sessione non deve fallire per un
-        # problema di pulizia degli allegati, che restano comunque soggetti al TTL.
-        if attachments is None:
-            return
+        # problema di pulizia di allegati/artefatti, che gli allegati restano
+        # comunque soggetti al TTL.
+        if attachments is not None:
+            try:
+                await asyncio.to_thread(attachments.delete_all_for_session, session_id)
+            except Exception:
+                logger.exception("Unable to clean up attachments for session %s", session_id)
         try:
-            await asyncio.to_thread(attachments.delete_all_for_session, session_id)
+            await asyncio.to_thread(artifacts.delete_all_for_session, session_id)
         except Exception:
-            logger.exception("Unable to clean up attachments for session %s", session_id)
+            logger.exception("Unable to clean up artifacts for session %s", session_id)
+
+    async def _announce_artifacts_folder(session_name: str, profile: str) -> None:
+        # Best-effort: la creazione della sessione non deve fallire per un
+        # problema nella cartella di consegna o nell'invio dell'hint nel pane.
+        try:
+            items = await gateway.list_sessions()
+            created = next((item for item in items if item.name == session_name), None)
+            if created is None:
+                return
+            await asyncio.to_thread(artifacts.ensure_session_dir, created.id)
+            if profile in ("claude", "codex"):
+                hint = (
+                    "Per rendere un file scaricabile dalla console mobile, "
+                    f"salvalo in: {artifacts.prompt_path(created.id)}"
+                )
+                await gateway.send_text(created.id, hint)
+                await gateway.send_key(created.id, "Enter")
+        except Exception:
+            logger.exception("Unable to prepare artifacts folder for session %s", session_name)
 
     def archive_service() -> ArchiveService:
         if not archives:
@@ -708,6 +738,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         except TmuxError as exc:
             detail = _tmux_mutation_error(exc, "Unable to create session")
             raise HTTPException(409, detail) from exc
+        await _announce_artifacts_folder(payload.name, payload.profile)
         return Accepted()
 
     @app.get(
@@ -894,7 +925,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         except (ValueError, SessionNotFound, TmuxError) as exc:
             await asyncio.to_thread(service.delete, item.id)
             raise HTTPException(409, "Unable to archive session") from exc
-        await _cleanup_session_attachments(session_id)
+        await _cleanup_session_files(session_id)
         return ArchivedSessionView.model_validate(item, from_attributes=True)
 
     @app.post(
@@ -1339,6 +1370,40 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         return Response(status_code=204)
 
     @app.get(
+        "/api/v1/sessions/{session_id}/artifacts",
+        response_model=list[ArtifactView],
+        dependencies=[Depends(require_active_session)],
+    )
+    async def list_artifacts(session_id: str) -> list[ArtifactView]:
+        try:
+            TmuxService.validate_target(session_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        items = await asyncio.to_thread(artifacts.list, session_id)
+        return [ArtifactView(**item.__dict__) for item in items]
+
+    @app.get(
+        "/api/v1/sessions/{session_id}/artifacts/{name}",
+        dependencies=[Depends(require_active_session)],
+    )
+    async def download_artifact(session_id: str, name: str) -> FileResponse:
+        try:
+            TmuxService.validate_target(session_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        try:
+            artifact = await asyncio.to_thread(artifacts.get, session_id, name)
+        except ArtifactError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        file_path = artifacts.storage_root / session_id / artifact.name
+        return FileResponse(
+            file_path,
+            media_type=artifact.media_type,
+            filename=artifact.name,
+            content_disposition_type="attachment",
+        )
+
+    @app.get(
         "/api/v1/push/public-key",
         response_model=PushPublicKeyView,
         dependencies=[Depends(require_active_session)],
@@ -1400,7 +1465,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             raise HTTPException(400, str(exc)) from exc
         except SessionNotFound as exc:
             raise HTTPException(404, "Session not found") from exc
-        await _cleanup_session_attachments(session_id)
+        await _cleanup_session_files(session_id)
         return Response(status_code=204)
 
     @app.post(

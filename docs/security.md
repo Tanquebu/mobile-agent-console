@@ -142,6 +142,18 @@ provider, stato e descrizione fissa. I frammenti di terminale usati dalle
 euristiche non lasciano il backend e vengono sostituiti a ogni polling. I
 pattern non devono mai essere inclusi nei log insieme alle righe corrispondenti.
 
+Gli artefatti prodotti dall'agente sono serviti solo da dentro
+`MAC_ARTIFACTS_ROOT/<session_id>/`: il backend non si fida di alcun path
+stampato nel terminale né apre altre directory, e la lista/il download
+rivalidano nome file e tipo (by-signature, stessa allowlist di M2A: immagini,
+PDF, testo) a ogni accesso, indipendentemente da cosa sia stato scritto lì. Il
+rischio residuo è che l'agente (se istruito, deliberatamente o per prompt
+injection) copi lì un file non voluto — stesso modello di fiducia già accettato
+per gli allegati M2A, qui invertito. La pulizia è legata al ciclo di vita della
+sessione (archiviazione/terminazione), non a un TTL: la cartella si popola solo
+per consegna deliberata, non per cattura automatica di tutto ciò che l'agente
+tocca.
+
 Quando il client specifica un pane, il backend accetta soltanto un id numerico
 e verifica tramite tmux che appartenga alla sessione indicata prima di usarlo
 per capture, input, tasti o resize. Questo impedisce di usare una sessione

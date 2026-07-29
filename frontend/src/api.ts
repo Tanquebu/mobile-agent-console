@@ -580,6 +580,22 @@ export function attachmentPreviewUrl(sessionId: string, attachmentId: string): s
   return `/api/v1/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}/preview`;
 }
 
+export type Artifact = {
+  name: string;
+  media_type: string;
+  size: number;
+  modified_at: string;
+};
+
+export async function listArtifacts(sessionId: string): Promise<Artifact[]> {
+  const response = await request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/artifacts`);
+  return response.json();
+}
+
+export function artifactDownloadUrl(sessionId: string, name: string): string {
+  return `/api/v1/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(name)}`;
+}
+
 export function streamUrl(id: string, paneId?: string, ansi?: boolean, lines?: number): string {
   const url = new URL(window.location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";

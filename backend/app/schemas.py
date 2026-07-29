@@ -109,6 +109,13 @@ class AttachmentView(BaseModel):
     path: str
 
 
+class ArtifactView(BaseModel):
+    name: str
+    media_type: str
+    size: int
+    modified_at: datetime
+
+
 class DirectoryEntryView(BaseModel):
     name: str
     type: Literal["file", "dir", "other"]

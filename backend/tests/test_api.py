@@ -1187,6 +1187,91 @@ def test_terminating_session_cleans_up_its_attachments(tmp_path) -> None:
     ).status_code == 404
 
 
+def test_artifacts_require_authentication() -> None:
+    client, _ = client_and_fake()
+    assert client.get("/api/v1/sessions/1/artifacts").status_code == 401
+    assert client.get("/api/v1/sessions/1/artifacts/note.txt").status_code == 401
+
+
+def test_list_and_download_artifacts(tmp_path) -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        artifacts_root=str(tmp_path),
+    )
+    client = TestClient(create_app(settings, FakeTmux()))
+    login(client)
+    session_dir = tmp_path / "1"
+    session_dir.mkdir(parents=True)
+    (session_dir / "report.pdf").write_bytes(b"%PDF-1.4\nhello")
+    (session_dir / "unrecognized.bin").write_bytes(b"\x01\x02\x03")
+
+    listed = client.get("/api/v1/sessions/1/artifacts").json()
+    assert [item["name"] for item in listed] == ["report.pdf"]
+    assert listed[0]["media_type"] == "application/pdf"
+
+    downloaded = client.get("/api/v1/sessions/1/artifacts/report.pdf")
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"%PDF-1.4\nhello"
+    assert downloaded.headers["content-type"] == "application/pdf"
+
+    assert client.get("/api/v1/sessions/1/artifacts/unrecognized.bin").status_code == 404
+    assert client.get("/api/v1/sessions/1/artifacts/missing.pdf").status_code == 404
+
+
+def test_create_session_sends_artifacts_hint_only_for_agent_profiles(tmp_path) -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        artifacts_root=str(tmp_path),
+    )
+    fake = FakeTmux()
+    client = TestClient(create_app(settings, fake))
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+    client.post(
+        "/api/v1/sessions",
+        headers=headers,
+        json={"name": "shell-one", "directory": "/workspace", "profile": "shell"},
+    )
+    assert fake.texts == []
+    assert fake.keys == []
+    client.post(
+        "/api/v1/sessions",
+        headers=headers,
+        json={"name": "claude-one", "directory": "/workspace", "profile": "claude"},
+    )
+    assert len(fake.texts) == 1
+    assert "salvalo in" in fake.texts[0]
+    assert fake.keys == ["Enter"]
+
+
+def test_terminating_session_cleans_up_its_artifacts(tmp_path) -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        artifacts_root=str(tmp_path),
+    )
+    client = TestClient(create_app(settings, FakeTmux()))
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+    session_dir = tmp_path / "1"
+    session_dir.mkdir(parents=True)
+    (session_dir / "report.pdf").write_bytes(b"%PDF-1.4\nhello")
+
+    terminated = client.request(
+        "DELETE", "/api/v1/sessions/1", headers=headers, json={"confirmed": True}
+    )
+    assert terminated.status_code == 204
+    assert not session_dir.exists()
+
+
 def test_attachment_session_quota_is_enforced(tmp_path) -> None:
     settings = Settings(
         login_password=PASSWORD,

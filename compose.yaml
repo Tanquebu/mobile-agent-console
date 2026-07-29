@@ -45,6 +45,8 @@ services:
       MAC_WORKSPACE_PRESETS: ${MAC_WORKSPACE_PRESETS:-}
       MAC_ATTACHMENTS_ROOT: /workspace/.agent-attachments
       MAC_ATTACHMENTS_PROMPT_ROOT: /workspace/.agent-attachments
+      MAC_ARTIFACTS_ROOT: /workspace/.agent-artifacts
+      MAC_ARTIFACTS_PROMPT_ROOT: /workspace/.agent-artifacts
       MAC_SNAPSHOTS_ROOT: /workspace/.agent-snapshots
       MAC_BACKUPS_ROOT: /workspace/.mobile-agent-console/backups
       MAC_BACKUP_RETENTION: ${MAC_BACKUP_RETENTION:-10}
@@ -57,6 +59,7 @@ services:
       MAC_BOOTSTRAP_USERNAME: ${MAC_BOOTSTRAP_USERNAME:-admin}
       MAC_MAX_ATTACHMENT_BYTES: ${MAC_MAX_ATTACHMENT_BYTES:-10485760}
       MAC_MAX_ATTACHMENT_BYTES_PER_SESSION: ${MAC_MAX_ATTACHMENT_BYTES_PER_SESSION:-104857600}
+      MAC_MAX_ARTIFACT_BYTES: ${MAC_MAX_ARTIFACT_BYTES:-26214400}
       MAC_ATTACHMENT_TTL_SECONDS: ${MAC_ATTACHMENT_TTL_SECONDS:-86400}
       MAC_AGENT_ACTIVE_WINDOW_SECONDS: ${MAC_AGENT_ACTIVE_WINDOW_SECONDS:-8}
       MAC_PUSH_VAPID_KEY_PATH: /workspace/.mobile-agent-console/vapid_private_key.pem

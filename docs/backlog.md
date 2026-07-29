@@ -111,4 +111,3 @@ il fallback live. Il terminal mode xterm.js è stato implementato ma, come
 previsto, non risolve lo scrollback delle app a schermo alternato (limite
 tmux); la soluzione generica resta un adapter separato con le stesse
 proprietà di isolamento, sul modello di ADR 007.
-

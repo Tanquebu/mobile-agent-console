@@ -167,3 +167,15 @@ derivato. Il backend
 riceve solo provider, quote, stato, prossimo tentativo, fallback e metadati di
 fase; prompt, path, pane, checkpoint e messaggi d'errore restano fuori dal
 container.
+
+Il download degli artefatti prodotti dall'agente (verso opposto di M2A) non
+usa un adapter provider-specifico: alla creazione di ogni sessione il backend
+crea una cartella di consegna dedicata (stesso pattern di storage/validazione
+by-signature di M2A, invertito) e, per i profili `claude`/`codex`, invia nel
+pane un'unica riga informativa con il path assoluto via lo stesso meccanismo
+`load-buffer`/`paste-buffer` usato per l'input libero — nessuna modifica ai
+CLAUDE.md di progetto, nessun collector host-side, nessun parsing di
+transcript. Qualunque file che l'agente (o l'utente) copia in quella cartella
+diventa per definizione un artefatto scaricabile; il backend non si fida di
+alcun path stampato nel terminale e non apre altre directory. La pulizia è
+legata al ciclo di vita della sessione, come per gli allegati M2A.

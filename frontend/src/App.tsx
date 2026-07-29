@@ -7,9 +7,11 @@ import {
   ArchivedSession,
   AuditEvent,
   Attachment,
+  Artifact,
   Backup,
   ClaudeHistory,
   archiveSession,
+  artifactDownloadUrl,
   attachmentPreviewUrl,
   backupDownloadUrl,
   createBackup,
@@ -38,6 +40,7 @@ import {
   listSessions,
   listArchives,
   listAgentStatuses,
+  listArtifacts,
   listAudit,
   listBackups,
   listPanes,
@@ -474,6 +477,79 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
               </>
             )}
           </>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
+  const [items, setItems] = useState<Artifact[]>([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    listArtifacts(sessionId)
+      .then((result) => { if (!cancelled) setItems(result); })
+      .catch((value) => { if (!cancelled) setError(errorMessage(value)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [sessionId]);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  function downloadArtifact(item: Artifact) {
+    const anchor = document.createElement("a");
+    anchor.href = artifactDownloadUrl(sessionId, item.name);
+    anchor.download = item.name;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+
+  return (
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section className="help-modal directory-modal" role="dialog" aria-modal="true" aria-labelledby="artifacts-title">
+        <header>
+          <div>
+            <span className="eyebrow">ARTEFATTI CONSEGNATI DALL'AGENTE</span>
+            <h2 id="artifacts-title" className="directory-path">Sessione {sessionId}</h2>
+          </div>
+          <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+        </header>
+        {loading && <p className="empty">Caricamento…</p>}
+        {error && <p className="error">{error}</p>}
+        {!loading && !error && (
+          <ul className="directory-list">
+            {items.map((item) => (
+              <li key={item.name} className="directory-entry">
+                <div className="directory-open">
+                  <span className="directory-type file">FILE</span>
+                  <span className="directory-name" title={item.name}>{item.name}</span>
+                  <span className="directory-meta">{formatSize(item.size)} · {formatDate(item.modified_at)}</span>
+                </div>
+                <button type="button" className="directory-download" onClick={() => downloadArtifact(item)}>
+                  Download
+                </button>
+              </li>
+            ))}
+            {items.length === 0 && <li className="empty">Nessun artefatto consegnato in questa sessione.</li>}
+          </ul>
         )}
       </section>
     </div>
@@ -1558,6 +1634,7 @@ function Console({
   const [followingOutput, setFollowingOutput] = useState(true);
   const [showSpecialKeys, setShowSpecialKeys] = useState(false);
   const [showDirectory, setShowDirectory] = useState(false);
+  const [showArtifacts, setShowArtifacts] = useState(false);
   const [controlError, setControlError] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
@@ -2366,6 +2443,14 @@ function Console({
           >
             Contenuto directory
           </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={connection === "closed"}
+            onClick={() => setShowArtifacts(true)}
+          >
+            Artefatti
+          </button>
         </div>
         {showSpecialKeys && (
           <div className="special-actions" aria-label="Funzioni speciali">
@@ -2421,6 +2506,9 @@ function Console({
         )}
         {showDirectory && (
           <DirectoryModal sessionId={session.id} onClose={() => setShowDirectory(false)} />
+        )}
+        {showArtifacts && (
+          <ArtifactsModal sessionId={session.id} onClose={() => setShowArtifacts(false)} />
         )}
         <div className="actions">
           <button

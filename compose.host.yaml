@@ -25,6 +25,8 @@ services:
       MAC_ALLOWED_ROOTS: '["${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}"]'
       MAC_ATTACHMENTS_ROOT: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.agent-attachments
       MAC_ATTACHMENTS_PROMPT_ROOT: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.agent-attachments
+      MAC_ARTIFACTS_ROOT: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.agent-artifacts
+      MAC_ARTIFACTS_PROMPT_ROOT: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.agent-artifacts
       MAC_SNAPSHOTS_ROOT: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.agent-snapshots
       MAC_BACKUPS_ROOT: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.mobile-agent-console/backups
       MAC_PROVIDER_RATE_LIMITS_PATH: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.mobile-agent-console/provider-rate-limits.json
