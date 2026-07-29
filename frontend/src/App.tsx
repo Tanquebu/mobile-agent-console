@@ -109,9 +109,9 @@ const MAX_TERMINAL_LINES = 2000;
 const LOAD_MORE_STEP_LINES = 500;
 
 const LATEST_RELEASE = {
-  title: "Apertura immediata delle nuove sessioni",
+  title: "Copia pulita delle risposte dell’agente",
   description:
-    "Dopo la creazione, la console apre automaticamente la nuova sessione tmux.",
+    "Le risposte Codex e Claude possono essere copiate senza marker del terminale, rientri o a capo visivi.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -301,13 +301,19 @@ async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 function cleanShareableOutput(text: string): string {
-  return text
+  const lines = text
     .replace(ANSI_SEQUENCE, "")
     .replace(/\r/g, "")
     .split("\n")
-    .map((line) => line.replace(/^\s*(?:[•●][ \t]*)?[›❯>][ \t]*/, ""))
+    .map((line) => line.replace(/^\s*(?:[•●][ \t]*)?[›❯>][ \t]*/, ""));
+  const firstContent = lines.findIndex((line) => line.trim());
+  if (firstContent >= 0) lines[firstContent] = lines[firstContent].replace(/^\s*[•●][ \t]*/, "");
+  return lines
     .join("\n")
-    .trim();
+    .split(/\n[ \t]*\n+/)
+    .map((paragraph) => paragraph.split("\n").map((line) => line.trim()).join(" ").trim())
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function joinPath(base: string, name: string): string {
