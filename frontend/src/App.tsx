@@ -109,9 +109,9 @@ const MAX_TERMINAL_LINES = 2000;
 const LOAD_MORE_STEP_LINES = 500;
 
 const LATEST_RELEASE = {
-  title: "Copia pulita delle risposte dell’agente",
+  title: "Richiami rapidi tra sessioni",
   description:
-    "Le risposte Codex e Claude possono essere copiate senza marker del terminale, rientri o a capo visivi.",
+    "Nell'header di ogni sessione trovi le ultime due visitate per passare rapidamente dall'una all'altra.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -123,9 +123,34 @@ const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
 };
 
 const DEFAULT_AGENT_VIEW_KEY = "mac-default-agent-view";
+const DASHBOARD_DENSITY_KEY = "mac-dashboard-density";
+const RECENT_SESSIONS_KEY = "mac-recent-sessions";
+
+type DashboardDensity = "extended" | "compact";
 
 function readDefaultAgentView(): "blocks" | "terminal" {
   return window.localStorage.getItem(DEFAULT_AGENT_VIEW_KEY) === "terminal" ? "terminal" : "blocks";
+}
+
+function readDashboardDensity(): DashboardDensity {
+  return window.localStorage.getItem(DASHBOARD_DENSITY_KEY) === "compact" ? "compact" : "extended";
+}
+
+function readRecentSessions(): Session[] {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(RECENT_SESSIONS_KEY) ?? "[]");
+    if (!Array.isArray(stored)) return [];
+    return stored.filter((item): item is Session => (
+      typeof item?.id === "string"
+      && typeof item.name === "string"
+      && typeof item.current_command === "string"
+      && typeof item.attached === "boolean"
+      && typeof item.windows === "number"
+      && typeof item.activity_at === "string"
+    )).slice(0, 2);
+  } catch {
+    return [];
+  }
 }
 
 function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
@@ -944,7 +969,15 @@ function ArchiveModal({
   );
 }
 
-function PreferencesModal({ onClose }: { onClose: () => void }) {
+function PreferencesModal({
+  onClose,
+  dashboardDensity,
+  onDashboardDensityChange,
+}: {
+  onClose: () => void;
+  dashboardDensity: DashboardDensity;
+  onDashboardDensityChange: (density: DashboardDensity) => void;
+}) {
   const [defaultView, setDefaultView] = useState<"blocks" | "terminal">(readDefaultAgentView());
 
   function choose(view: "blocks" | "terminal") {
@@ -982,10 +1015,35 @@ function PreferencesModal({ onClose }: { onClose: () => void }) {
             Terminale
           </label>
         </fieldset>
+        <fieldset className="preference-field">
+          <legend>Dashboard</legend>
+          <label>
+            <input
+              type="radio"
+              name="dashboard-density"
+              checked={dashboardDensity === "extended"}
+              onChange={() => onDashboardDensityChange("extended")}
+            />
+            Estesa
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="dashboard-density"
+              checked={dashboardDensity === "compact"}
+              onChange={() => onDashboardDensityChange("compact")}
+            />
+            Compatta
+          </label>
+        </fieldset>
         <p className="empty">
           Si applica alla prossima apertura di una sessione Codex/Claude; la
           vista Cronologia resta sempre raggiungibile dal toggle, quando
           abilitata.
+        </p>
+        <p className="empty">
+          La versione compatta agisce solo sulla home: riduce le informazioni
+          di servizio per lasciare più spazio all’elenco delle sessioni.
         </p>
       </section>
     </div>
@@ -1204,6 +1262,8 @@ function SessionList({
   const [showBackups, setShowBackups] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
   const [showPreferences, setShowPreferences] = useState(false);
+  const [showDashboardActions, setShowDashboardActions] = useState(false);
+  const [dashboardDensity, setDashboardDensity] = useState<DashboardDensity>(readDashboardDensity);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
   const [providerLimits, setProviderLimits] = useState<ProviderRateLimits | null>(null);
   const [orchestratorState, setOrchestratorState] = useState<OrchestratorState | null>(null);
@@ -1212,6 +1272,8 @@ function SessionList({
   const [notifyError, setNotifyError] = useState("");
   const notifySupported = typeof Notification !== "undefined" && "serviceWorker" in navigator;
   const [searchQuery, setSearchQuery] = useState("");
+
+  const compactDashboard = dashboardDensity === "compact";
 
   const filteredSessions = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -1234,6 +1296,13 @@ function SessionList({
       return haystack.includes(query);
     });
   }, [sessions, searchQuery, agentStatusBySession]);
+  const visibleSessions = compactDashboard ? sessions : filteredSessions;
+
+  function chooseDashboardDensity(density: DashboardDensity) {
+    window.localStorage.setItem(DASHBOARD_DENSITY_KEY, density);
+    setDashboardDensity(density);
+    if (density === "compact") setSearchQuery("");
+  }
 
   useEffect(() => {
     if (!notifySupported) return;
@@ -1395,7 +1464,7 @@ function SessionList({
   }
 
   return (
-    <main className="shell">
+    <main className={`shell ${compactDashboard ? "compact-dashboard" : ""}`}>
       <header className="topbar">
         <div><span className="eyebrow">TMUX / PRIVATE NETWORK</span><h1>Sessions</h1></div>
         <div className="topbar-actions">
@@ -1409,7 +1478,14 @@ function SessionList({
       </header>
       <div className="dashboard-actions">
         {identity.role !== "viewer" && (
-          <button className="new-session" onClick={() => setCreating((value) => !value)}>+ Nuova sessione</button>
+          <button
+            className="new-session"
+            onClick={() => setCreating((value) => !value)}
+            aria-label={compactDashboard ? "Nuova sessione" : undefined}
+            title={compactDashboard ? "Nuova sessione" : undefined}
+          >
+            {compactDashboard ? "＋" : "+ Nuova sessione"}
+          </button>
         )}
         {notifySupported && (
           <button
@@ -1422,75 +1498,39 @@ function SessionList({
                 : "Avvisa quando una sessione attende feedback o autorizzazione, anche ad app chiusa"
             }
           >
-            {notifyEnabled ? "Notifiche: on" : "Notifiche: off"}
+            {compactDashboard ? (notifyEnabled ? "🔔" : "🔕") : (notifyEnabled ? "Notifiche: on" : "Notifiche: off")}
           </button>
         )}
-        <button className="snapshot-button" onClick={() => setShowPreferences(true)}>Preferenze</button>
-        {identity.role !== "viewer" && (
-          <button className="snapshot-button" onClick={() => setShowSnapshots(true)}>Snapshot</button>
-        )}
-        {identity.role !== "viewer" && (
-          <button className="snapshot-button" onClick={() => setShowArchives(true)}>Archivio</button>
-        )}
-        {identity.role === "admin" && (
-          <button className="snapshot-button" onClick={() => setShowUsers(true)}>Utenti</button>
-        )}
-        {identity.role === "admin" && (
-          <button className="snapshot-button" onClick={() => setShowAudit(true)}>Audit</button>
-        )}
-        {identity.role === "admin" && (
-          <button className="snapshot-button" onClick={() => setShowBackups(true)}>Backup</button>
-        )}
+        <button
+          className="snapshot-button dashboard-more-actions"
+          aria-expanded={showDashboardActions}
+          aria-controls="dashboard-secondary-actions"
+          aria-label={compactDashboard ? (showDashboardActions ? "Nascondi altre azioni" : "Mostra altre azioni") : undefined}
+          title={compactDashboard ? (showDashboardActions ? "Meno azioni" : "Altre azioni") : undefined}
+          onClick={() => setShowDashboardActions((value) => !value)}
+        >
+          {compactDashboard ? "⋯" : (showDashboardActions ? "Meno azioni" : "Altre azioni")}
+        </button>
       </div>
-      {providerLimits && (
-        <section className="provider-limits" aria-label="Quote provider">
-          {providerLimits.providers.map((provider) => (
-            <article key={provider.provider}>
-              <header>
-                <strong>{provider.provider}</strong>
-                <small>{provider.observed_at ? formatDate(provider.observed_at) : "non disponibile"}</small>
-              </header>
-              {provider.available ? (
-                <div className="provider-windows">
-                  {provider.windows.map((window) => (
-                    <span key={window.label} title={window.detail ?? undefined}>
-                      <small>{window.label}</small>
-                      <strong style={{ color: rateLimitColor(window.used_percent) }}>
-                        {window.used_percent === null ? "n/d" : `${Math.round(window.used_percent)}%`}
-                      </strong>
-                      {window.detail && <em>{window.detail}</em>}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <small className="provider-unavailable">{provider.error ?? "Dati non disponibili"}</small>
-              )}
-            </article>
-          ))}
-        </section>
-      )}
-      {orchestratorState && (
-        <section className="orchestrator-state" aria-label="Task orchestratore">
-          <header>
-            <strong>Task schedulati</strong>
-            <small>{orchestratorState.tasks.length} attivi · aggiornato {formatDate(orchestratorState.collected_at)}</small>
-          </header>
-          {orchestratorState.tasks.length === 0 ? (
-            <small>Nessun task schedulato attivo.</small>
-          ) : (
-            <div className="orchestrator-tasks">
-              {orchestratorState.tasks.map((task) => (
-                <article key={task.task_id}>
-                  <strong>{task.task_kind}</strong>
-                  <small>{task.provider} · {task.status.replace("_", " ")}</small>
-                  {task.phase && <small>Fase {task.phase.index + 1}/{task.phase.total}: {task.phase.name}</small>}
-                  {task.capacity_paused && <em>In pausa per capacità{task.next_attempt_at ? ` · riprova ${formatDate(task.next_attempt_at)}` : ""}</em>}
-                  {!task.capacity_paused && task.fallback_providers.length > 0 && <small>Fallback: {task.fallback_providers.join(" → ")}</small>}
-                </article>
-              ))}
-            </div>
+      {showDashboardActions && (
+        <div className="dashboard-secondary-actions" id="dashboard-secondary-actions" role="group" aria-label="Altre azioni">
+          <button className="snapshot-button" onClick={() => setShowPreferences(true)} aria-label="Preferenze" title="Preferenze">{compactDashboard ? "⚙" : "Preferenze"}</button>
+          {identity.role !== "viewer" && (
+            <button className="snapshot-button" onClick={() => setShowSnapshots(true)} aria-label="Snapshot" title="Snapshot">{compactDashboard ? "◫" : "Snapshot"}</button>
           )}
-        </section>
+          {identity.role !== "viewer" && (
+            <button className="snapshot-button" onClick={() => setShowArchives(true)} aria-label="Archivio" title="Archivio">{compactDashboard ? "▣" : "Archivio"}</button>
+          )}
+          {identity.role === "admin" && (
+            <button className="snapshot-button" onClick={() => setShowUsers(true)} aria-label="Utenti" title="Utenti">{compactDashboard ? "♟" : "Utenti"}</button>
+          )}
+          {identity.role === "admin" && (
+            <button className="snapshot-button" onClick={() => setShowAudit(true)} aria-label="Audit" title="Audit">{compactDashboard ? "≡" : "Audit"}</button>
+          )}
+          {identity.role === "admin" && (
+            <button className="snapshot-button" onClick={() => setShowBackups(true)} aria-label="Backup" title="Backup">{compactDashboard ? "⇩" : "Backup"}</button>
+          )}
+        </div>
       )}
       {creating && <form className="create-form" onSubmit={async (event) => {
         event.preventDefault();
@@ -1536,9 +1576,63 @@ function SessionList({
         </select>
         <button type="submit">Crea sessione</button>
       </form>}
+      {(providerLimits || orchestratorState) && (
+        <div className={`dashboard-service-summary ${compactDashboard ? "compact" : ""}`}>
+      {providerLimits && (
+        <section className={`provider-limits ${compactDashboard ? "compact" : ""}`} aria-label="Quote provider">
+          {providerLimits.providers.map((provider) => (
+            <article key={provider.provider}>
+              <header>
+                <strong>{provider.provider}</strong>
+                {!compactDashboard && <small>{provider.observed_at ? formatDate(provider.observed_at) : "non disponibile"}</small>}
+              </header>
+              {provider.available ? (
+                <div className={`provider-windows ${compactDashboard ? "compact" : ""}`}>
+                  {provider.windows.slice(0, compactDashboard ? 2 : undefined).map((window) => (
+                    <span key={window.label} title={window.detail ?? undefined}>
+                      {!compactDashboard && <small>{window.label}</small>}
+                      <strong style={{ color: rateLimitColor(window.used_percent) }}>
+                        {window.used_percent === null ? "n/d" : `${Math.round(window.used_percent)}%`}
+                      </strong>
+                      {!compactDashboard && window.detail && <em>{window.detail}</em>}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <small className="provider-unavailable">{provider.error ?? "Dati non disponibili"}</small>
+              )}
+            </article>
+          ))}
+        </section>
+      )}
+      {orchestratorState && (
+        <section className={`orchestrator-state ${compactDashboard ? "compact" : ""}`} aria-label="Task orchestratore">
+          <header>
+            <strong>{compactDashboard ? "Task" : "Task schedulati"}</strong>
+            <small>{compactDashboard ? orchestratorState.tasks.length : `${orchestratorState.tasks.length} attivi · aggiornato ${formatDate(orchestratorState.collected_at)}`}</small>
+          </header>
+          {!compactDashboard && (orchestratorState.tasks.length === 0 ? (
+            <small>Nessun task schedulato attivo.</small>
+          ) : (
+            <div className="orchestrator-tasks">
+              {orchestratorState.tasks.map((task) => (
+                <article key={task.task_id}>
+                  <strong>{task.task_kind}</strong>
+                  <small>{task.provider} · {task.status.replace("_", " ")}</small>
+                  {task.phase && <small>Fase {task.phase.index + 1}/{task.phase.total}: {task.phase.name}</small>}
+                  {task.capacity_paused && <em>In pausa per capacità{task.next_attempt_at ? ` · riprova ${formatDate(task.next_attempt_at)}` : ""}</em>}
+                  {!task.capacity_paused && task.fallback_providers.length > 0 && <small>Fallback: {task.fallback_providers.join(" → ")}</small>}
+                </article>
+              ))}
+            </div>
+          ))}
+        </section>
+      )}
+        </div>
+      )}
       {error && <p className="error">{error}</p>}
       {notifyError && <p className="error">{notifyError}</p>}
-      {sessions.length > 0 && (
+      {!compactDashboard && sessions.length > 0 && (
         <input
           type="search"
           className="session-search"
@@ -1549,7 +1643,7 @@ function SessionList({
         />
       )}
       <section className="session-list">
-        {filteredSessions.map((session) => (
+        {visibleSessions.map((session) => (
           <article className="session-item" key={session.id}>
             <div className="session-row">
               <button className="session-card" onClick={() => onOpen(session)}>
@@ -1627,7 +1721,7 @@ function SessionList({
           </article>
         ))}
         {!error && sessions.length === 0 && <p className="empty">Nessuna sessione sul socket configurato.</p>}
-        {!error && sessions.length > 0 && filteredSessions.length === 0 && (
+        {!error && !compactDashboard && sessions.length > 0 && filteredSessions.length === 0 && (
           <p className="empty">Nessuna sessione corrisponde alla ricerca.</p>
         )}
       </section>
@@ -1703,7 +1797,13 @@ function SessionList({
       {showUsers && <UserModal onClose={() => setShowUsers(false)} />}
       {showAudit && <AuditModal onClose={() => setShowAudit(false)} />}
       {showBackups && <BackupModal onClose={() => setShowBackups(false)} />}
-      {showPreferences && <PreferencesModal onClose={() => setShowPreferences(false)} />}
+      {showPreferences && (
+        <PreferencesModal
+          onClose={() => setShowPreferences(false)}
+          dashboardDensity={dashboardDensity}
+          onDashboardDensityChange={chooseDashboardDensity}
+        />
+      )}
       {showArchives && (
         <ArchiveModal
           onClose={() => setShowArchives(false)}
@@ -1718,11 +1818,13 @@ function Console({
   session,
   onBack,
   onSwitch,
+  recentSessions,
   identity,
 }: {
   session: Session;
   onBack: () => void;
   onSwitch: (session: Session) => void;
+  recentSessions: Session[];
   identity: Identity;
 }) {
   const [content, setContent] = useState("");
@@ -2285,7 +2387,19 @@ function Console({
     <main className="console">
       <header className="console-header">
         <button className="icon-button" onClick={onBack} aria-label="Indietro">‹</button>
-        <div><strong>{session.name}</strong><small>{session.current_command}</small></div>
+        <div className="session-header-copy">
+          <strong>{session.name}</strong>
+          <small>{session.current_command}</small>
+          {recentSessions.length > 0 && (
+            <nav className="recent-sessions" aria-label="Sessioni visitate di recente">
+              {recentSessions.map((recent) => (
+                <button key={recent.id} type="button" onClick={() => onSwitch(recent)} title={`Apri ${recent.name}`}>
+                  ↶ {recent.name}
+                </button>
+              ))}
+            </nav>
+          )}
+        </div>
         <button
           type="button"
           className="icon-button session-switcher-toggle"
@@ -2688,13 +2802,30 @@ function Console({
 export default function App() {
   const online = useOnlineStatus();
   const [active, setActive] = useState<Session | null>(null);
+  const [recentSessions, setRecentSessions] = useState<Session[]>(readRecentSessions);
   const [identity, setIdentity] = useState<Identity | null | undefined>(undefined);
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   useEffect(() => {
+    window.localStorage.setItem(RECENT_SESSIONS_KEY, JSON.stringify(recentSessions));
+  }, [recentSessions]);
+  useEffect(() => {
     restoreSession().then(setIdentity).catch(() => setIdentity(null));
   }, []);
+  function rememberSession(session: Session) {
+    setRecentSessions((current) => {
+      return [session, ...current.filter((item) => item.id !== session.id)].slice(0, 2);
+    });
+  }
+  function openSession(next: Session) {
+    if (active && active.id !== next.id) rememberSession(active);
+    setActive(next);
+  }
+  function closeSession() {
+    if (active) rememberSession(active);
+    setActive(null);
+  }
   useEffect(() => {
     // Copre anche Console (WS/polling), non solo la lista sessioni: una
     // sessione scaduta mentre si è dentro una console (es. scheda rimasta
@@ -2741,11 +2872,12 @@ export default function App() {
           key={active.id}
           session={active}
           identity={identity}
-          onBack={() => setActive(null)}
-          onSwitch={setActive}
+          onBack={closeSession}
+          onSwitch={openSession}
+          recentSessions={recentSessions.filter((item) => item.id !== active.id)}
         />
       )
-      : <SessionList identity={identity} onOpen={setActive} />;
+      : <SessionList identity={identity} onOpen={openSession} />;
   }
   return (
     <>
