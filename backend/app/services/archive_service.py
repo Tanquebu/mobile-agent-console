@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from ..models import ArchivedSession
 
-PROFILES = {"shell", "codex", "claude"}
+PROFILES = {"shell", "codex", "claude", "antigravity"}
 
 
 class ArchiveService:

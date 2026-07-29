@@ -726,6 +726,14 @@ def test_create_session_requires_allowed_directory() -> None:
     assert codex.status_code == 201
     assert any(session.name == "Codex Agent" and session.current_command == "codex"
                for session in fake.sessions.values())
+    antigravity = client.post(
+        "/api/v1/sessions",
+        headers=headers,
+        json={"name": "Antigravity Agent", "directory": "/workspace", "profile": "antigravity"},
+    )
+    assert antigravity.status_code == 201
+    assert any(session.name == "Antigravity Agent" and session.current_command == "agy"
+               for session in fake.sessions.values())
     unsupported = client.post(
         "/api/v1/sessions",
         headers=headers,
@@ -1221,7 +1229,7 @@ def test_list_and_download_artifacts(tmp_path) -> None:
     assert client.get("/api/v1/sessions/1/artifacts/missing.pdf").status_code == 404
 
 
-def test_create_session_sends_artifacts_hint_only_for_agent_profiles(tmp_path) -> None:
+def test_create_session_does_not_interrupt_cli_first_run(tmp_path) -> None:
     settings = Settings(
         login_password=PASSWORD,
         session_secret=SECRET,
@@ -1245,9 +1253,49 @@ def test_create_session_sends_artifacts_hint_only_for_agent_profiles(tmp_path) -
         headers=headers,
         json={"name": "claude-one", "directory": "/workspace", "profile": "claude"},
     )
+    assert fake.texts == []
+    assert fake.keys == []
+    client.post(
+        "/api/v1/sessions",
+        headers=headers,
+        json={"name": "antigravity-one", "directory": "/workspace", "profile": "antigravity"},
+    )
+    # Nessun CLI riceve testo automatico: onboarding e richieste di consenso
+    # devono restare integralmente sotto il controllo dell'utente.
+    assert fake.texts == []
+    assert fake.keys == []
+
+
+def test_artifact_prompt_is_explicit_and_uses_the_current_pane(tmp_path) -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        artifacts_root=str(tmp_path),
+    )
+    fake = FakeTmux()
+    client = TestClient(create_app(settings, fake))
+    csrf = login(client)
+    response = client.post(
+        "/api/v1/sessions/1/artifact-prompt",
+        headers={"X-CSRF-Token": csrf},
+        json={"pane_id": "10"},
+    )
+    assert response.status_code == 202
     assert len(fake.texts) == 1
-    assert "salvalo in" in fake.texts[0]
+    assert "salvalo in:" in fake.texts[0]
     assert fake.keys == ["Enter"]
+    assert fake.targets == ["10", "10"]
+    assert (tmp_path / "1").is_dir()
+
+    invalid = client.post(
+        "/api/v1/sessions/not-an-id/artifact-prompt",
+        headers={"X-CSRF-Token": csrf},
+        json={},
+    )
+    assert invalid.status_code == 400
+    assert not (tmp_path / "not-an-id").exists()
 
 
 def test_terminating_session_cleans_up_its_artifacts(tmp_path) -> None:

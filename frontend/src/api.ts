@@ -407,6 +407,13 @@ export async function sendText(
   });
 }
 
+export async function sendArtifactPrompt(id: string, paneId?: string) {
+  await request(`/api/v1/sessions/${encodeURIComponent(id)}/artifact-prompt`, {
+    method: "POST",
+    body: JSON.stringify({ pane_id: paneId }),
+  });
+}
+
 export async function sendEnter(id: string, paneId?: string) {
   await sendKey(id, "Enter", false, paneId);
 }
@@ -434,7 +441,7 @@ export type ArchivedSession = {
   id: string;
   name: string;
   directory: string;
-  profile: "shell" | "codex" | "claude";
+  profile: "shell" | "codex" | "claude" | "antigravity";
   archived_by: string;
   archived_at: string;
 };
@@ -473,7 +480,7 @@ export async function renameSession(id: string, name: string) {
   });
 }
 
-export type SessionProfile = "shell" | "codex" | "claude";
+export type SessionProfile = "shell" | "codex" | "claude" | "antigravity";
 
 export async function createSession(name: string, directory: string, profile: SessionProfile) {
   await request("/api/v1/sessions", {
@@ -482,7 +489,7 @@ export async function createSession(name: string, directory: string, profile: Se
   });
 }
 
-export type SnapshotMode = "shell" | "codex" | "claude" | "manual";
+export type SnapshotMode = "shell" | "codex" | "claude" | "antigravity" | "manual";
 
 export type SessionSnapshot = {
   name: string;

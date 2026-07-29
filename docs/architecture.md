@@ -30,7 +30,8 @@ React PWA ── Nginx same-origin ── FastAPI
 
 Il browser non conosce comandi shell. Gli endpoint ricevono identificatori e
 operazioni tipizzate; directory e profili vengono risolti/validati server-side.
-L’endpoint di creazione espone i profili `shell`, `codex` e `claude`, risolti
+L’endpoint di creazione espone i profili `shell`, `codex`, `claude` e
+`antigravity`, risolti
 in argv costanti server-side.
 
 ## Container e persistenza
@@ -45,8 +46,9 @@ Gli snapshot di riavvio non conservano processi o memoria: il backend stateless
 scrive metadati JSON atomici in `.agent-snapshots` sotto il workspace
 persistente. Il ripristino ricrea shell con nome e directory salvati. I profili
 Codex e Claude possono soltanto aprire i rispettivi selettori nativi di resume
-tramite comandi costanti server-side; nessun comando client arbitrario viene
-persistito o eseguito.
+tramite comandi costanti server-side. Antigravity viene riavviato con il suo
+launcher costante `agy` e conserva la propria cronologia nel CLI; nessun comando
+client arbitrario viene persistito o eseguito.
 
 Il database SQLite vive in `.mobile-agent-console/app.db` nella root
 persistente del workspace. L'avvio applica le migrazioni prima di esporre il
@@ -65,7 +67,8 @@ L'archivio conserva soltanto nome, directory, profilo, autore e data. Archiviare
 tmux; il rilancio usa esclusivamente un profilo server-side e rimuove la voce
 dall'archivio dopo la creazione riuscita.
 Per i profili Codex e Claude il rilancio apre il selettore nativo di resume
-tramite comandi costanti server-side; la shell viene invece ricreata normalmente.
+tramite comandi costanti server-side; Antigravity rilancia `agy` e la shell
+viene invece ricreata normalmente.
 
 L'audit append-only registra attore, operazione tipizzata, target, esito HTTP e
 timestamp delle mutazioni significative. Non registra body, query string, IP,
@@ -171,11 +174,12 @@ container.
 Il download degli artefatti prodotti dall'agente (verso opposto di M2A) non
 usa un adapter provider-specifico: alla creazione di ogni sessione il backend
 crea una cartella di consegna dedicata (stesso pattern di storage/validazione
-by-signature di M2A, invertito) e, per i profili `claude`/`codex`, invia nel
-pane un'unica riga informativa con il path assoluto via lo stesso meccanismo
-`load-buffer`/`paste-buffer` usato per l'input libero — nessuna modifica ai
-CLAUDE.md di progetto, nessun collector host-side, nessun parsing di
-transcript. Qualunque file che l'agente (o l'utente) copia in quella cartella
+by-signature di M2A, invertito). Il percorso di consegna non viene mai inviato
+automaticamente al CLI: l'operatore lo invia esplicitamente dal menu Funzioni,
+via lo stesso meccanismo `load-buffer`/`paste-buffer` usato per l'input libero.
+Questo preserva i flussi di onboarding, consenso e login del CLI — nessuna
+modifica ai CLAUDE.md di progetto, nessun collector host-side, nessun parsing
+di transcript. Qualunque file che l'agente (o l'utente) copia in quella cartella
 diventa per definizione un artefatto scaricabile; il backend non si fida di
 alcun path stampato nel terminale e non apre altre directory. La pulizia è
 legata al ciclo di vita della sessione, come per gli allegati M2A.

@@ -128,6 +128,7 @@ def test_split_pane_uses_constant_login_shell(monkeypatch) -> None:
         ("shell", ("bash", "-l")),
         ("codex", ("bash", "-l", "-c", "exec codex")),
         ("claude", ("bash", "-l", "-c", "exec claude")),
+        ("antigravity", ("bash", "-l", "-c", "exec agy")),
     ],
 )
 def test_create_session_uses_server_side_profile(monkeypatch, profile, expected) -> None:
@@ -142,6 +143,7 @@ def test_create_session_uses_server_side_profile(monkeypatch, profile, expected)
         ("shell", ("bash", "-l")),
         ("codex", ("bash", "-l", "-c", "exec codex resume")),
         ("claude", ("bash", "-l", "-c", "exec claude --resume")),
+        ("antigravity", ("bash", "-l", "-c", "exec agy")),
     ],
 )
 def test_create_session_uses_server_side_resume_profile(

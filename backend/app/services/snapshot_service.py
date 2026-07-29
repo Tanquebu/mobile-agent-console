@@ -6,7 +6,7 @@ from pathlib import Path
 from uuid import uuid4
 
 SNAPSHOT_ID = re.compile(r"^[a-f0-9]{32}$")
-SNAPSHOT_MODES = {"shell", "codex", "claude", "manual"}
+SNAPSHOT_MODES = {"shell", "codex", "claude", "antigravity", "manual"}
 SNAPSHOT_LIMIT = 100
 
 

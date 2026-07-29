@@ -58,7 +58,7 @@ class FakeTmux:
             session_id,
             False,
             1,
-            {"shell": "bash", "codex": "codex", "claude": "claude"}[profile],
+            {"shell": "bash", "codex": "codex", "claude": "claude", "antigravity": "agy"}[profile],
             datetime.now(UTC),
         )
         self.panes[new_id] = [TmuxPane("10", 0, 0, True, "bash", session_id, 80, 24)]

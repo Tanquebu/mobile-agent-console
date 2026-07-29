@@ -58,6 +58,7 @@ import {
   Role,
   resizePane,
   sendEnter,
+  sendArtifactPrompt,
   sendKey,
   sendText,
   Session,
@@ -109,9 +110,9 @@ const MAX_TERMINAL_LINES = 2000;
 const LOAD_MORE_STEP_LINES = 500;
 
 const LATEST_RELEASE = {
-  title: "Richiami rapidi tra sessioni",
+  title: "Istruzioni artefatti su richiesta",
   description:
-    "Nell'header di ogni sessione trovi le ultime due visitate per passare rapidamente dall'una all'altra.",
+    "Nel menu Funzioni puoi inviare all’agente il percorso sicuro per consegnare file scaricabili.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -684,6 +685,7 @@ function suggestedSnapshotMode(session: Session): SnapshotMode {
   const command = session.current_command.toLowerCase();
   if (command.includes("codex")) return "codex";
   if (command.includes("claude")) return "claude";
+  if (command.includes("agy") || command.includes("antigravity")) return "antigravity";
   return "shell";
 }
 
@@ -834,6 +836,7 @@ function SnapshotModal({
                     <option value="shell">Solo shell</option>
                     <option value="codex">Codex: selettore resume</option>
                     <option value="claude">Claude: selettore resume</option>
+                    <option value="antigravity">Antigravity: avvia agy</option>
                     <option value="manual">Rilancio manuale</option>
                   </select>
                 </div>
@@ -1252,7 +1255,7 @@ function SessionList({
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [directory, setDirectory] = useState("");
-  const [profile, setProfile] = useState<"shell" | "codex" | "claude">("shell");
+  const [profile, setProfile] = useState<"shell" | "codex" | "claude" | "antigravity">("shell");
   const [presets, setPresets] = useState<[string, string][]>([]);
   const [customDirectory, setCustomDirectory] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -1568,11 +1571,12 @@ function SessionList({
         <select
           aria-label="Profilo sessione"
           value={profile}
-          onChange={(event) => setProfile(event.target.value as "shell" | "codex" | "claude")}
+          onChange={(event) => setProfile(event.target.value as "shell" | "codex" | "claude" | "antigravity")}
         >
           <option value="shell">Shell</option>
           <option value="codex">Codex</option>
           <option value="claude">Claude</option>
+          <option value="antigravity">Antigravity (agy)</option>
         </select>
         <button type="submit">Crea sessione</button>
       </form>}
@@ -1837,6 +1841,7 @@ function Console({
   const [deletingAttachmentId, setDeletingAttachmentId] = useState("");
   const [followingOutput, setFollowingOutput] = useState(true);
   const [showSpecialKeys, setShowSpecialKeys] = useState(false);
+  const [sendingArtifactPrompt, setSendingArtifactPrompt] = useState(false);
   const [showDirectory, setShowDirectory] = useState(false);
   const [showArtifacts, setShowArtifacts] = useState(false);
   const [fullscreenOutput, setFullscreenOutput] = useState(false);
@@ -2342,6 +2347,18 @@ function Console({
     }
   }
 
+  async function sendArtifactInstructions() {
+    setSendingArtifactPrompt(true);
+    setControlError("");
+    try {
+      await sendArtifactPrompt(session.id, paneId || undefined);
+    } catch (value) {
+      setControlError(errorMessage(value));
+    } finally {
+      setSendingArtifactPrompt(false);
+    }
+  }
+
   async function pressEnter() {
     setControlError("");
     try {
@@ -2695,6 +2712,13 @@ function Console({
               onClick={() => setShowArtifacts(true)}
             >
               Artefatti
+            </button>
+            <button
+              disabled={connection === "closed" || sendingArtifactPrompt}
+              type="button"
+              onClick={() => void sendArtifactInstructions()}
+            >
+              {sendingArtifactPrompt ? "Invio istruzioni…" : "Consegna artefatto"}
             </button>
             <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Up")}>↑ Up</button>
             <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Down")}>↓ Down</button>

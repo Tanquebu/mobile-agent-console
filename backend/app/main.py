@@ -52,6 +52,7 @@ from .schemas import (
     LoginInput,
     LoginResult,
     OutputView,
+    PaneTargetInput,
     PaneList,
     PaneView,
     PushPublicKeyView,
@@ -409,22 +410,16 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         except Exception:
             logger.exception("Unable to clean up artifacts for session %s", session_id)
 
-    async def _announce_artifacts_folder(session_name: str, profile: str) -> None:
-        # Best-effort: la creazione della sessione non deve fallire per un
-        # problema nella cartella di consegna o nell'invio dell'hint nel pane.
+    async def _prepare_artifacts_folder(session_name: str) -> None:
+        # Best-effort: la creazione della sessione non deve fallire se non è
+        # possibile predisporre la cartella di consegna. L'istruzione viene
+        # inviata solo su azione esplicita, per non disturbare l'onboarding dei CLI.
         try:
             items = await gateway.list_sessions()
             created = next((item for item in items if item.name == session_name), None)
             if created is None:
                 return
             await asyncio.to_thread(artifacts.ensure_session_dir, created.id)
-            if profile in ("claude", "codex"):
-                hint = (
-                    "Per rendere un file scaricabile dalla console mobile, "
-                    f"salvalo in: {artifacts.prompt_path(created.id)}"
-                )
-                await gateway.send_text(created.id, hint)
-                await gateway.send_key(created.id, "Enter")
         except Exception:
             logger.exception("Unable to prepare artifacts folder for session %s", session_name)
 
@@ -439,6 +434,8 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             return "codex"
         if "claude" in lowered:
             return "claude"
+        if "agy" in lowered or "antigravity" in lowered:
+            return "antigravity"
         return "shell"
 
     def audit_actor(request: Request) -> str:
@@ -738,7 +735,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         except TmuxError as exc:
             detail = _tmux_mutation_error(exc, "Unable to create session")
             raise HTTPException(409, detail) from exc
-        await _announce_artifacts_folder(payload.name, payload.profile)
+        await _prepare_artifacts_folder(payload.name)
         return Accepted()
 
     @app.get(
@@ -1049,7 +1046,8 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             try:
                 TmuxService.validate_session_id(saved.name)
                 directory, _ = _resolve_within_allowed_roots(saved.directory, roots)
-                await gateway.create_session(saved.name, str(directory), "shell")
+                profile = "antigravity" if saved.mode == "antigravity" else "shell"
+                await gateway.create_session(saved.name, str(directory), profile)
                 existing_names.add(saved.name)
                 if saved.mode in SNAPSHOT_RESUME_COMMANDS:
                     created = next(
@@ -1065,6 +1063,9 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
                 elif saved.mode == "manual":
                     status = "manual"
                     detail = "Shell restored; command must be relaunched manually"
+                elif saved.mode == "antigravity":
+                    status = "restored"
+                    detail = "Antigravity launched; its history is managed by its CLI"
                 else:
                     status = "restored"
                     detail = "Shell restored"
@@ -1338,6 +1339,30 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             if len(text) > 65536:
                 raise AttachmentError("Prompt with attachment references is too large")
             await gateway.send_text(session_id, text, payload.pane_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except SessionNotFound as exc:
+            raise HTTPException(404, "Session not found") from exc
+        return Accepted()
+
+    @app.post(
+        "/api/v1/sessions/{session_id}/artifact-prompt",
+        response_model=Accepted,
+        status_code=202,
+        dependencies=[Depends(require_operator)],
+    )
+    async def send_artifact_prompt(session_id: str, payload: PaneTargetInput) -> Accepted:
+        try:
+            # Valida prima del filesystem: l'id della route non può diventare
+            # un segmento di path controllato dal client.
+            TmuxService.validate_target(session_id)
+            await asyncio.to_thread(artifacts.ensure_session_dir, session_id)
+            hint = (
+                "Quando hai un file da consegnare nella console mobile, "
+                f"salvalo in: {artifacts.prompt_path(session_id)}"
+            )
+            await gateway.send_text(session_id, hint, payload.pane_id)
+            await gateway.send_key(session_id, "Enter", payload.pane_id)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except SessionNotFound as exc:
