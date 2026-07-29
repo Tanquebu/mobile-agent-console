@@ -109,9 +109,9 @@ const MAX_TERMINAL_LINES = 2000;
 const LOAD_MORE_STEP_LINES = 500;
 
 const LATEST_RELEASE = {
-  title: "Nuova identità per Agent Console",
+  title: "Apertura immediata delle nuove sessioni",
   description:
-    "Una nuova favicon robotica identifica Agent Console nel browser, nelle scorciatoie e nell'installazione PWA.",
+    "Dopo la creazione, la console apre automaticamente la nuova sessione tmux.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1475,8 +1475,11 @@ function SessionList({
         event.preventDefault();
         try {
           await createSession(name, directory, profile);
+          const updatedSessions = await listSessions();
           setCreating(false); setName(""); setProfile("shell"); setError("");
-          setSessions(await listSessions());
+          setSessions(updatedSessions);
+          const createdSession = updatedSessions.find((session) => session.name === name.trim());
+          if (createdSession) onOpen(createdSession);
         } catch (value) {
           setError(errorMessage(value));
         }
