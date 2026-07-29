@@ -218,10 +218,15 @@ function chatBlocks(content: string, provider: string): ChatBlock[] {
   const blocks: ChatBlock[] = [];
   let current: ChatBlock | undefined;
   let afterUserBreak = false;
+  const codex = /codex/i.test(provider);
   for (const line of chatLines(content, provider)) {
     const visible = line.replace(ANSI_SEQUENCE, "");
     let kind = current?.kind ?? "activity";
-    if (/^\s*[›❯>]\s*/.test(visible)) kind = "user";
+    // Codex continua spesso una risposta con ">" dopo il marker iniziale
+    // "•". Se il blocco corrente è dell'agente, non deve quindi diventare
+    // un finto messaggio dell'utente; il prompt Codex usa invece "›".
+    if (/^\s*[›❯]\s*/.test(visible) || (!codex && /^\s*>\s*/.test(visible))) kind = "user";
+    else if (/^\s*>\s*/.test(visible) && current?.kind !== "agent") kind = "user";
     else if (/^\s*[•●]\s+/.test(visible)) kind = "agent";
     else if (
       /^\s*(?:✔|✘|✱|✻|✽|⏺|─{3,}|Ran\b|Explored\b|Read\b|Edited\b)/.test(visible)
@@ -293,6 +298,16 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
   document.body.removeChild(textarea);
   return copied;
+}
+
+function cleanShareableOutput(text: string): string {
+  return text
+    .replace(ANSI_SEQUENCE, "")
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.replace(/^\s*(?:[•●][ \t]*)?[›❯>][ \t]*/, ""))
+    .join("\n")
+    .trim();
 }
 
 function joinPath(base: string, name: string): string {
@@ -1729,6 +1744,7 @@ function Console({
   const [historyEnabled, setHistoryEnabled] = useState(false);
   const [history, setHistory] = useState<ClaudeHistory | null>(null);
   const [historyError, setHistoryError] = useState("");
+  const [copiedAgentBlock, setCopiedAgentBlock] = useState("");
   const [outputMode, setOutputMode] = useState<"terminal" | "blocks" | "history">(
     agentic ? readDefaultAgentView() : "terminal",
   );
@@ -1755,6 +1771,12 @@ function Console({
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [fullscreenOutput]);
+
+  async function copyAgentBlock(blockKey: string, text: string) {
+    if (!await copyToClipboard(cleanShareableOutput(text))) return;
+    setCopiedAgentBlock(blockKey);
+    window.setTimeout(() => setCopiedAgentBlock((value) => value === blockKey ? "" : value), 2_000);
+  }
   const fileInputRef = useRef<HTMLInputElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -2451,18 +2473,32 @@ function Console({
             className="output chat-blocks"
             onScroll={updateScrollMode}
           >
-            {content ? chatBlocks(content, session.current_command).map((block, index) => (
-              <article className={`chat-block ${block.kind}`} key={`${index}-${block.content.slice(0, 20)}`}>
-                <small>
-                  {block.kind === "user"
-                    ? "Tu"
-                    : block.kind === "agent"
-                      ? session.current_command
-                      : "Attività"}
-                </small>
-                <pre>{block.content}</pre>
-              </article>
-            )) : (
+            {content ? chatBlocks(content, session.current_command).map((block, index) => {
+              const blockKey = `${index}-${block.content.slice(0, 20)}`;
+              return (
+                <article className={`chat-block ${block.kind}`} key={blockKey}>
+                  <div className="chat-block-header">
+                    <small>
+                      {block.kind === "user"
+                        ? "Tu"
+                        : block.kind === "agent"
+                          ? session.current_command
+                          : "Attività"}
+                    </small>
+                    {block.kind === "agent" && (
+                      <button
+                        type="button"
+                        className="chat-copy"
+                        onClick={() => void copyAgentBlock(blockKey, block.content)}
+                      >
+                        {copiedAgentBlock === blockKey ? "Copiato" : "Copia pulito"}
+                      </button>
+                    )}
+                  </div>
+                  <pre>{block.content}</pre>
+                </article>
+              );
+            }) : (
               <p className="output-waiting">In attesa dell'output…</p>
             )}
           </div>
