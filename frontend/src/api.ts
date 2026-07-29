@@ -596,6 +596,11 @@ export function artifactDownloadUrl(sessionId: string, name: string): string {
   return `/api/v1/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(name)}`;
 }
 
+export async function fetchArtifactContent(sessionId: string, name: string): Promise<string> {
+  const response = await request(artifactDownloadUrl(sessionId, name));
+  return response.text();
+}
+
 export function streamUrl(id: string, paneId?: string, ansi?: boolean, lines?: number): string {
   const url = new URL(window.location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";

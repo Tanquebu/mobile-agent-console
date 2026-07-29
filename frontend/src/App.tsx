@@ -13,6 +13,7 @@ import {
   archiveSession,
   artifactDownloadUrl,
   attachmentPreviewUrl,
+  fetchArtifactContent,
   backupDownloadUrl,
   createBackup,
   createUser,
@@ -483,11 +484,45 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   );
 }
 
+const PREVIEWABLE_TEXT_TYPES = new Set([
+  "text/plain",
+  "text/markdown",
+  "application/json",
+  "text/csv",
+  "text/xml",
+  "application/xml",
+]);
+
 function isPreviewableImage(mediaType: string): boolean {
   return mediaType.startsWith("image/");
 }
 
+function isPreviewableText(mediaType: string): boolean {
+  return PREVIEWABLE_TEXT_TYPES.has(mediaType);
+}
+
+function isPreviewableArtifact(mediaType: string): boolean {
+  return isPreviewableImage(mediaType) || isPreviewableText(mediaType);
+}
+
 function ArtifactPreview({ sessionId, item, onBack }: { sessionId: string; item: Artifact; onBack: () => void }) {
+  const isImage = isPreviewableImage(item.media_type);
+  const [content, setContent] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(!isImage);
+
+  useEffect(() => {
+    if (isImage) return;
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    fetchArtifactContent(sessionId, item.name)
+      .then((text) => { if (!cancelled) setContent(text); })
+      .catch((value) => { if (!cancelled) setError(errorMessage(value)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [sessionId, item.name, isImage]);
+
   return (
     <>
       <header>
@@ -497,9 +532,17 @@ function ArtifactPreview({ sessionId, item, onBack }: { sessionId: string; item:
         </div>
         <button className="modal-close" onClick={onBack} aria-label="Torna all'elenco">‹</button>
       </header>
-      <div className="artifact-preview">
-        <img src={artifactDownloadUrl(sessionId, item.name)} alt={item.name} />
-      </div>
+      {isImage ? (
+        <div className="artifact-preview">
+          <img src={artifactDownloadUrl(sessionId, item.name)} alt={item.name} />
+        </div>
+      ) : (
+        <>
+          {loading && <p className="empty">Caricamento…</p>}
+          {error && <p className="error">{error}</p>}
+          {!loading && !error && <pre className="file-preview">{content || "(file vuoto)"}</pre>}
+        </>
+      )}
     </>
   );
 }
@@ -569,7 +612,7 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                     <button
                       type="button"
                       className="directory-open"
-                      disabled={!isPreviewableImage(item.media_type)}
+                      disabled={!isPreviewableArtifact(item.media_type)}
                       onClick={() => setPreviewItem(item)}
                     >
                       <span className="directory-type file">FILE</span>
