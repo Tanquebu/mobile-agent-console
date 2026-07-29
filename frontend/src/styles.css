@@ -120,8 +120,11 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .status.offline { background: #48241f; color: #ffaaa0; }
 .status.closed { background: #48241f; color: #ffaaa0; }
 .output-wrap { grid-row: 3; position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; overflow: hidden; padding: 10px 12px 0; }
+.output-wrap.fullscreen { position: fixed; z-index: 30; inset: 0; grid-row: auto; padding: max(10px, env(safe-area-inset-top)) 12px max(10px, env(safe-area-inset-bottom)); background: #101713; }
 .output-label { display: flex; justify-content: flex-end; gap: 8px; padding: 0 4px 8px; }
 .output-controls { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+.fullscreen-toggle { min-height: 26px; min-width: 26px; border: 1px solid #344b3b; border-radius: 8px; padding: 0 6px; background: #101713; color: #91a397; font-size: .85rem; line-height: 1; }
+.fullscreen-toggle[aria-pressed="true"] { background: #25382b; color: #9be5b3; }
 .output-mode { display: inline-flex; border: 1px solid #344b3b; border-radius: 8px; padding: 2px; background: #101713; }
 .output-mode button { min-height: 26px; border: 0; border-radius: 5px; padding: 2px 7px; background: transparent; color: #91a397; font-size: .62rem; font-weight: 750; }
 .output-mode button[aria-pressed="true"] { background: #25382b; color: #9be5b3; }
@@ -143,19 +146,19 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .history-loading { position: absolute; z-index: 2; top: 18px; left: 50%; transform: translateX(-50%); border: 1px solid #4f7a5c; border-radius: 999px; padding: 5px 14px; background: #1b2820ee; color: #9be5b3; font-size: .72rem; font-weight: 700; box-shadow: 0 4px 16px #0008; }
 .terminal-loading { position: absolute; z-index: 2; top: 50%; left: 50%; transform: translate(-50%, -50%); margin: 0; }
 .composer { grid-row: 4; padding: 10px 12px max(12px, env(safe-area-inset-bottom)); background: #101713; }
-.composer.viewer textarea, .composer.viewer .actions, .composer.viewer .attachments,
-.composer.viewer .file-input, .composer.viewer .utility-actions button:first-child,
+.composer.viewer textarea, .composer.viewer .attachments,
+.composer.viewer .file-input, .composer.viewer .attach-button,
+.composer.viewer .enter-button, .composer.viewer button[type="submit"],
 .composer.viewer > small { display: none; }
 textarea { width: 100%; resize: none; border: 1px solid #344b3b; border-radius: 14px; padding: 12px; outline: none; background: #18231c; color: white; }
 textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
-.actions { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 8px; margin-top: 8px; }
+.actions { display: grid; grid-template-columns: .8fr 1fr 1fr 1.3fr; gap: 8px; margin-top: 8px; }
 .actions button { border: 0; border-radius: 12px; padding: 0 14px; background: #75d493; color: #092111; font-weight: 750; }
 .actions button.secondary { border: 1px solid #3a5142; background: #1b2820; color: #d2e3d7; }
 .actions button:disabled { opacity: .45; cursor: default; }
-.utility-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
-.utility-actions button, .special-actions button { min-height: 40px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .78rem; font-weight: 700; }
-.special-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 6px; margin-top: 6px; }
-.utility-actions button.danger, .special-actions button.danger { border-color: #704039; color: #ffaaa0; }
+.special-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(76px, 1fr)); gap: 6px; margin-top: 8px; }
+.special-actions button { min-height: 40px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .78rem; font-weight: 700; }
+.special-actions button.danger { border-color: #704039; color: #ffaaa0; }
 .file-input { display: none; }
 .attachments { display: flex; gap: 6px; overflow-x: auto; padding: 0 0 8px; }
 .attachment-chip { display: inline-flex; align-items: center; flex: 0 0 auto; max-width: 240px; min-height: 36px; border: 1px solid #344b3b; border-radius: 999px; padding-left: 11px; background: #18231c; color: #d2e3d7; font-size: .78rem; }

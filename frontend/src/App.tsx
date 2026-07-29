@@ -1713,6 +1713,7 @@ function Console({
   const [showSpecialKeys, setShowSpecialKeys] = useState(false);
   const [showDirectory, setShowDirectory] = useState(false);
   const [showArtifacts, setShowArtifacts] = useState(false);
+  const [fullscreenOutput, setFullscreenOutput] = useState(false);
   const [controlError, setControlError] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
@@ -1743,6 +1744,14 @@ function Console({
   useEffect(() => { terminalLinesRef.current = terminalLines; }, [terminalLines]);
   useEffect(() => { loadingMoreHistoryRef.current = loadingMoreHistory; }, [loadingMoreHistory]);
   useEffect(() => { historyExhaustedRef.current = historyExhausted; }, [historyExhausted]);
+  useEffect(() => {
+    if (!fullscreenOutput) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFullscreenOutput(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [fullscreenOutput]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -2330,9 +2339,18 @@ function Console({
           </section>
         </div>
       )}
-      <section className="output-wrap">
+      <section className={`output-wrap ${fullscreenOutput ? "fullscreen" : ""}`}>
         <div className="output-label">
           <div className="output-controls">
+            <button
+              type="button"
+              className="fullscreen-toggle"
+              aria-pressed={fullscreenOutput}
+              aria-label={fullscreenOutput ? "Riduci output" : "Espandi output a schermo intero"}
+              onClick={() => setFullscreenOutput((value) => !value)}
+            >
+              {fullscreenOutput ? "⤡" : "⤢"}
+            </button>
             {agentic && (
               <span className="output-mode" role="group" aria-label="Vista output">
                 <button
@@ -2503,35 +2521,22 @@ function Console({
           accept=".csv,.json,.md,.markdown,.pdf,.txt,.xml,image/jpeg,image/png,image/webp"
           onChange={(event) => void selectFiles(event.target.files)}
         />
-        <div className="utility-actions">
-          <button
-            type="button"
-            className="secondary"
-            disabled={connection === "closed"}
-            aria-expanded={showSpecialKeys}
-            onClick={() => setShowSpecialKeys((value) => !value)}
-          >
-            Funzioni speciali
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            disabled={connection === "closed"}
-            onClick={() => setShowDirectory(true)}
-          >
-            Contenuto directory
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            disabled={connection === "closed"}
-            onClick={() => setShowArtifacts(true)}
-          >
-            Artefatti
-          </button>
-        </div>
         {showSpecialKeys && (
           <div className="special-actions" aria-label="Funzioni speciali">
+            <button
+              disabled={connection === "closed"}
+              type="button"
+              onClick={() => setShowDirectory(true)}
+            >
+              Contenuto directory
+            </button>
+            <button
+              disabled={connection === "closed"}
+              type="button"
+              onClick={() => setShowArtifacts(true)}
+            >
+              Artefatti
+            </button>
             <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Up")}>↑ Up</button>
             <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Down")}>↓ Down</button>
             <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Escape")}>Esc</button>
@@ -2591,6 +2596,16 @@ function Console({
         <div className="actions">
           <button
             type="button"
+            className="secondary special-toggle"
+            disabled={connection === "closed"}
+            aria-expanded={showSpecialKeys}
+            aria-label="Funzioni speciali"
+            onClick={() => setShowSpecialKeys((value) => !value)}
+          >
+            Funzioni
+          </button>
+          <button
+            type="button"
             className="secondary attach-button"
             disabled={connection === "closed" || uploading || attachments.length >= 5}
             onClick={() => fileInputRef.current?.click()}
@@ -2599,7 +2614,7 @@ function Console({
           </button>
           <button
             type="button"
-            className="secondary"
+            className="secondary enter-button"
             disabled={connection === "closed"}
             onClick={() => void pressEnter()}
           >
