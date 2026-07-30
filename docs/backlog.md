@@ -111,3 +111,92 @@ il fallback live. Il terminal mode xterm.js è stato implementato ma, come
 previsto, non risolve lo scrollback delle app a schermo alternato (limite
 tmux); la soluzione generica resta un adapter separato con le stesse
 proprietà di isolamento, sul modello di ADR 007.
+
+---
+
+## Modulo di osservabilità dell'host
+
+**Stato: da validare, non avviato.** Discusso il 30/07/2026, nato da un
+incidente reale: nove dev server Astro lasciati vivi da riavvii ripetuti,
+~258 MB l'uno, 2,3 GB su una macchina da 3,7. Nessuno se n'è accorto finché
+la RAM non è andata in sofferenza.
+
+L'idea è aggiungere a MAC una vista sullo stato dell'host invece di far
+partire l'ennesimo servizio dedicato. Prima di scrivere codice vanno chiuse
+tre questioni, e la prima non è quella che sembra.
+
+### 1. Il repo pubblico non è il rischio che sembra
+
+MAC è già un accesso shell remoto: crea sessioni, manda input, termina
+processi, dal telefono. Il raggio d'azione pericoloso esiste già, e un modulo
+di osservabilità non lo allarga in modo sostanziale.
+
+**Il problema non è il codice pubblico, è la configurazione.** Nel repo non
+devono entrare: inventario degli host, nomi dei servizi, mappa delle porte,
+soglie legate all'infrastruttura reale, credenziali. Il modulo legge *cosa*
+sorvegliare da configurazione e non lo sa per conto suo.
+
+Il codice che dice «leggi la memoria disponibile» è banale e pubblicabile. Il
+file che dice «su forge girano questi servizi su queste porte» è una mappa
+per chi volesse provarci. Nel repo va solo l'esempio con valori finti.
+
+### 2. Non costruirlo attorno a Docker
+
+Trappola concreta, perché è la direzione naturale: i comandi già messi nel
+bashrc sono su Docker, ma **l'incidente del 30/07 non riguardava Docker**.
+Erano processi node nudi, fuori da qualunque container. Una dashboard centrata
+sui container non avrebbe mostrato nulla, e mancherebbe il prossimo incidente
+allo stesso modo.
+
+Il livello giusto è il processo e la memoria, con i container come una delle
+viste e non come l'impianto.
+
+### 3. Istantanea o tendenze: decide la forma, e il costo
+
+MAC è costruito attorno alla sessione terminale con il suo flusso di output.
+Il monitoraggio è un'altra forma, dati strutturati campionati nel tempo.
+
+- **Tendenze** → serve un campionatore che gira e una memoria dove scrivere.
+  A quel punto il servizio nuovo lo hai fatto partire comunque, che è
+  esattamente ciò che si voleva evitare.
+- **Stato adesso** → una chiamata su richiesta che restituisce un'istantanea.
+  Niente campionamento, niente base dati, niente processo aggiuntivo.
+
+**Raccomandazione: partire dall'istantanea.** Copre la gran parte del bisogno,
+e dopo qualche settimana d'uso si sa quali metriche vale la pena conservare
+invece di indovinarlo adesso.
+
+### Contenuto minimo della schermata
+
+Deve rispondere a una domanda sola: *c'è qualcosa che non va in questo
+momento?*
+
+- memoria disponibile e swap;
+- primi dieci processi per RSS, con età del processo (avrebbe fatto vedere i
+  nove Astro dev in un colpo d'occhio);
+- porte in ascolto, con evidenza di quelle non attese (un dev server che
+  slitta di porta in porta è il sintomo);
+- container non sani;
+- spazio disco;
+- carico.
+
+### Vincoli da rispettare
+
+- La postura di sicurezza della VPS è documentata in
+  `handbooks/vps-security.md` del workspace di crescita professionale:
+  port binding su `BIND_HOST` e mai `0.0.0.0`, firewall solo inbound. Qualsiasi
+  endpoint nuovo la rispetta.
+- Azioni distruttive (kill, restart) vanno trattate diversamente dalla sola
+  lettura: la lettura può stare dietro l'autenticazione esistente, l'azione
+  merita una conferma esplicita come già avviene per interrupt e terminazione
+  di sessione.
+
+### Prossimo passo
+
+Far passare l'idea dalla skill `valida-progetto` del workspace di crescita
+professionale, prima di scrivere codice: verifica fit col posizionamento,
+rischio di dispersione e valenza dual-use. Il dual-use qui c'è (MAC è già nel
+portfolio, e un modulo di osservabilità è materiale spendibile in colloquio da
+IT Manager), ma la validazione va fatta prima e non dopo.
+
+**Rimandato al 2 agosto 2026**, dopo il reset del budget mensile.
