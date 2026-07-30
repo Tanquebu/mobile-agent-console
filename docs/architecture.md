@@ -70,6 +70,12 @@ Per i profili Codex e Claude il rilancio apre il selettore nativo di resume
 tramite comandi costanti server-side; Antigravity rilancia `agy` e la shell
 viene invece ricreata normalmente.
 
+Nascondere una sessione è distinto dall'archiviazione: conserva la sessione
+tmux in esecuzione e memorizza solamente il suo identificatore numerico nella
+tabella `hidden_sessions`. L'elenco API continua a riportarla con il flag
+`hidden`, così il client la esclude dalla dashboard ma può riaprirla o
+renderla di nuovo visibile senza interrompere il processo.
+
 L'audit append-only registra attore, operazione tipizzata, target, esito HTTP e
 timestamp delle mutazioni significative. Non registra body, query string, IP,
 prompt, output, nomi file o segreti; input, tasti e resize ad alta frequenza

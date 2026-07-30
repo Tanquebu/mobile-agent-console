@@ -53,6 +53,7 @@ import {
   renameSession,
   restoreSession,
   setUnauthorizedHandler,
+  setSessionVisibility,
   restoreArchive,
   restoreSnapshot,
   Role,
@@ -110,9 +111,9 @@ const MAX_TERMINAL_LINES = 2000;
 const LOAD_MORE_STEP_LINES = 500;
 
 const LATEST_RELEASE = {
-  title: "Quote Claude e Codex affidabili",
+  title: "Sessioni nascoste in dashboard",
   description:
-    "Le quote restano visibili anche quando il provider arrotonda l’utilizzo oltre il 100%.",
+    "Puoi nascondere sessioni attive senza archiviarle e riaprirle dalle altre azioni.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -972,6 +973,64 @@ function ArchiveModal({
   );
 }
 
+function HiddenSessionsModal({
+  sessions,
+  canManage,
+  onClose,
+  onOpen,
+  onRestore,
+}: {
+  sessions: Session[];
+  canManage: boolean;
+  onClose: () => void;
+  onOpen: (session: Session) => void;
+  onRestore: (session: Session) => Promise<void>;
+}) {
+  const [busyId, setBusyId] = useState("");
+  const [error, setError] = useState("");
+
+  async function restore(session: Session) {
+    setBusyId(session.id);
+    setError("");
+    try {
+      await onRestore(session);
+    } catch (value) {
+      setError(errorMessage(value));
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section className="help-modal snapshot-modal" role="dialog" aria-modal="true" aria-labelledby="hidden-sessions-title">
+        <header>
+          <div><span className="eyebrow">DASHBOARD</span><h2 id="hidden-sessions-title">Sessioni nascoste</h2></div>
+          <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+        </header>
+        <div className="snapshot-existing">
+          {sessions.map((session) => (
+            <article className="snapshot-card" key={session.id}>
+              <div>
+                <strong>{session.name}</strong>
+                <small>{session.current_command} · {session.windows} window</small>
+              </div>
+              <div className="snapshot-actions">
+                <button onClick={() => { onOpen(session); onClose(); }}>Apri</button>
+                {canManage && <button disabled={busyId === session.id} onClick={() => void restore(session)}>Mostra</button>}
+              </div>
+            </article>
+          ))}
+          {sessions.length === 0 && <p className="empty">Nessuna sessione nascosta.</p>}
+        </div>
+        {error && <p className="error">{error}</p>}
+      </section>
+    </div>
+  );
+}
+
 function PreferencesModal({
   onClose,
   dashboardDensity,
@@ -1266,6 +1325,7 @@ function SessionList({
   const [showUsers, setShowUsers] = useState(false);
   const [showPreferences, setShowPreferences] = useState(false);
   const [showDashboardActions, setShowDashboardActions] = useState(false);
+  const [showHiddenSessions, setShowHiddenSessions] = useState(false);
   const [dashboardDensity, setDashboardDensity] = useState<DashboardDensity>(readDashboardDensity);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
   const [providerLimits, setProviderLimits] = useState<ProviderRateLimits | null>(null);
@@ -1278,10 +1338,13 @@ function SessionList({
 
   const compactDashboard = dashboardDensity === "compact";
 
+  const dashboardSessions = useMemo(() => sessions.filter((session) => !session.hidden), [sessions]);
+  const hiddenSessions = useMemo(() => sessions.filter((session) => session.hidden), [sessions]);
+
   const filteredSessions = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return sessions;
-    return sessions.filter((session) => {
+    if (!query) return dashboardSessions;
+    return dashboardSessions.filter((session) => {
       const status = agentStatusBySession[session.id];
       const stateLabel = status
         ? AGENT_STATE_LEGEND.find(([state]) => state === status.state)?.[1]
@@ -1298,8 +1361,8 @@ function SessionList({
         .toLowerCase();
       return haystack.includes(query);
     });
-  }, [sessions, searchQuery, agentStatusBySession]);
-  const visibleSessions = compactDashboard ? sessions : filteredSessions;
+  }, [dashboardSessions, searchQuery, agentStatusBySession]);
+  const visibleSessions = compactDashboard ? dashboardSessions : filteredSessions;
 
   function chooseDashboardDensity(density: DashboardDensity) {
     window.localStorage.setItem(DASHBOARD_DENSITY_KEY, density);
@@ -1439,6 +1502,26 @@ function SessionList({
     }
   }
 
+  async function hideListedSession(session: Session) {
+    setError("");
+    try {
+      await setSessionVisibility(session.id, true);
+      setSessions((items) => items.map((item) => (
+        item.id === session.id ? { ...item, hidden: true } : item
+      )));
+      setOpenActionsId(null);
+    } catch (value) {
+      setError(errorMessage(value));
+    }
+  }
+
+  async function restoreHiddenSession(session: Session) {
+    await setSessionVisibility(session.id, false);
+    setSessions((items) => items.map((item) => (
+      item.id === session.id ? { ...item, hidden: false } : item
+    )));
+  }
+
   async function toggleNotifications() {
     setNotifyError("");
     try {
@@ -1524,6 +1607,7 @@ function SessionList({
           {identity.role !== "viewer" && (
             <button className="snapshot-button" onClick={() => setShowArchives(true)} aria-label="Archivio" title="Archivio">{compactDashboard ? "▣" : "Archivio"}</button>
           )}
+          <button className="snapshot-button" onClick={() => setShowHiddenSessions(true)} aria-label="Sessioni nascoste" title="Sessioni nascoste">{compactDashboard ? "◌" : "Sessioni nascoste"}</button>
           {identity.role === "admin" && (
             <button className="snapshot-button" onClick={() => setShowUsers(true)} aria-label="Utenti" title="Utenti">{compactDashboard ? "♟" : "Utenti"}</button>
           )}
@@ -1636,7 +1720,7 @@ function SessionList({
       )}
       {error && <p className="error">{error}</p>}
       {notifyError && <p className="error">{notifyError}</p>}
-      {!compactDashboard && sessions.length > 0 && (
+      {!compactDashboard && dashboardSessions.length > 0 && (
         <input
           type="search"
           className="session-search"
@@ -1717,6 +1801,9 @@ function SessionList({
                 <button type="button" onClick={() => void archiveListedSession(session)}>
                   Archivia
                 </button>
+                <button type="button" onClick={() => void hideListedSession(session)}>
+                  Nascondi
+                </button>
                 <button type="button" className="danger" onClick={() => void terminateListedSession(session)}>
                   Termina
                 </button>
@@ -1724,8 +1811,8 @@ function SessionList({
             )}
           </article>
         ))}
-        {!error && sessions.length === 0 && <p className="empty">Nessuna sessione sul socket configurato.</p>}
-        {!error && !compactDashboard && sessions.length > 0 && filteredSessions.length === 0 && (
+        {!error && dashboardSessions.length === 0 && <p className="empty">Nessuna sessione visibile sulla dashboard.</p>}
+        {!error && !compactDashboard && dashboardSessions.length > 0 && filteredSessions.length === 0 && (
           <p className="empty">Nessuna sessione corrisponde alla ricerca.</p>
         )}
       </section>
@@ -1801,6 +1888,15 @@ function SessionList({
       {showUsers && <UserModal onClose={() => setShowUsers(false)} />}
       {showAudit && <AuditModal onClose={() => setShowAudit(false)} />}
       {showBackups && <BackupModal onClose={() => setShowBackups(false)} />}
+      {showHiddenSessions && (
+        <HiddenSessionsModal
+          sessions={hiddenSessions}
+          canManage={identity.role !== "viewer"}
+          onClose={() => setShowHiddenSessions(false)}
+          onOpen={onOpen}
+          onRestore={restoreHiddenSession}
+        />
+      )}
       {showPreferences && (
         <PreferencesModal
           onClose={() => setShowPreferences(false)}

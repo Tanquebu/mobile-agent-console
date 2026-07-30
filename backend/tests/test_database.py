@@ -27,6 +27,7 @@ def test_database_migrates_to_head_and_is_reentrant(tmp_path: Path) -> None:
         "archived_sessions",
         "attachments",
         "audit_events",
+        "hidden_sessions",
         "push_subscriptions",
         "users",
     }
@@ -142,6 +143,21 @@ def test_database_auth_bootstrap_and_login(tmp_path: Path) -> None:
     assert restored.status_code == 201
     assert fake.created[-1] == ("demo", "/workspace", "shell", True)
     assert client.get("/api/v1/archives").json() == {"archives": []}
+
+    visible_session_id = next(iter(fake.sessions))
+    hidden = client.post(
+        f"/api/v1/sessions/{visible_session_id}/visibility", headers=headers, json={"hidden": True}
+    )
+    assert hidden.status_code == 200
+    assert client.get("/api/v1/sessions").json()["sessions"][0]["hidden"] is True
+    assert viewer.post(
+        f"/api/v1/sessions/{visible_session_id}/visibility", headers=viewer_headers, json={"hidden": False}
+    ).status_code == 403
+    restored_visibility = client.post(
+        f"/api/v1/sessions/{visible_session_id}/visibility", headers=headers, json={"hidden": False}
+    )
+    assert restored_visibility.status_code == 200
+    assert client.get("/api/v1/sessions").json()["sessions"][0]["hidden"] is False
     assert any(item.name == "demo" for item in fake.sessions.values())
 
     live_id = next(item.id for item in fake.sessions.values() if item.name == "demo")

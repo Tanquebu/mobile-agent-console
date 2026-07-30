@@ -49,6 +49,16 @@ class ArchivedSession(Base):
     )
 
 
+class HiddenSession(Base):
+    __tablename__ = "hidden_sessions"
+
+    session_id: Mapped[str] = mapped_column(String(10), primary_key=True)
+    hidden_by: Mapped[str] = mapped_column(String(64))
+    hidden_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
 class Attachment(Base):
     __tablename__ = "attachments"
 

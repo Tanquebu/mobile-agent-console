@@ -62,6 +62,7 @@ from .schemas import (
     ResizePaneInput,
     RestoreItemView,
     RestoreResult,
+    SessionVisibilityInput,
     SessionList,
     SessionView,
     SnapshotList,
@@ -86,6 +87,7 @@ from .services.provider_session_state_service import ProviderSessionStateService
 from .services.push_service import PushService
 from .services.rate_limit import FixedWindowRateLimiter
 from .services.rate_limit_status_service import RateLimitStatus, RateLimitStatusService
+from .services.session_visibility_service import SessionVisibilityService
 from .services.snapshot_service import (
     SnapshotError,
     SnapshotService,
@@ -213,6 +215,7 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     database = Database(settings.database_path) if settings.database_auth_enabled else None
     users = UserService(database.engine) if database else None
     archives = ArchiveService(database.engine) if database else None
+    session_visibility = SessionVisibilityService(database.engine) if database else None
     audit = AuditService(database.engine) if database else None
     attachments = (
         AttachmentService(
@@ -427,6 +430,11 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
         if not archives:
             raise HTTPException(503, "Archive requires the metadata database")
         return archives
+
+    def session_visibility_service() -> SessionVisibilityService:
+        if not session_visibility:
+            raise HTTPException(503, "Session visibility requires the metadata database")
+        return session_visibility
 
     def session_profile(command: str) -> str:
         lowered = command.lower()
@@ -748,7 +756,38 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
             items = await gateway.list_sessions()
         except TmuxError as exc:
             raise HTTPException(503, "tmux unavailable") from exc
-        return SessionList(sessions=[SessionView(**item.__dict__) for item in items])
+        hidden_ids = (
+            await asyncio.to_thread(session_visibility.hidden_ids, {item.id for item in items})
+            if session_visibility
+            else set()
+        )
+        return SessionList(
+            sessions=[SessionView(**item.__dict__, hidden=item.id in hidden_ids) for item in items]
+        )
+
+    @app.post(
+        "/api/v1/sessions/{session_id}/visibility",
+        response_model=Accepted,
+    )
+    async def set_session_visibility(
+        session_id: str, payload: SessionVisibilityInput, cookie: str = Depends(require_operator)
+    ) -> Accepted:
+        try:
+            live = next(
+                (item for item in await gateway.list_sessions() if item.id == session_id), None
+            )
+        except TmuxError as exc:
+            raise HTTPException(503, "tmux unavailable") from exc
+        if live is None:
+            raise HTTPException(404, "Session not found")
+        user = active_user(cookie)
+        await asyncio.to_thread(
+            session_visibility_service().set_hidden,
+            session_id,
+            payload.hidden,
+            user.username if user is not None else "legacy",
+        )
+        return Accepted()
 
     @app.get(
         "/api/v1/sessions/{session_id}/claude-history",

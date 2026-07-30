@@ -18,10 +18,15 @@ class SessionView(BaseModel):
     windows: int
     current_command: str
     activity_at: datetime
+    hidden: bool = False
 
 
 class SessionList(BaseModel):
     sessions: list[SessionView]
+
+
+class SessionVisibilityInput(BaseModel):
+    hidden: bool
 
 
 class AgentStatusView(BaseModel):

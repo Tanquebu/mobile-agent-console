@@ -5,6 +5,7 @@ export type Session = {
   windows: number;
   current_command: string;
   activity_at: string;
+  hidden: boolean;
 };
 
 let csrfToken = "";
@@ -434,6 +435,13 @@ export async function terminateSession(id: string) {
   await request(`/api/v1/sessions/${encodeURIComponent(id)}`, {
     method: "DELETE",
     body: JSON.stringify({ confirmed: true }),
+  });
+}
+
+export async function setSessionVisibility(id: string, hidden: boolean) {
+  await request(`/api/v1/sessions/${encodeURIComponent(id)}/visibility`, {
+    method: "POST",
+    body: JSON.stringify({ hidden }),
   });
 }
 
