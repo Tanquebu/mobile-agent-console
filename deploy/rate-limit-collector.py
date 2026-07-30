@@ -17,6 +17,11 @@ WINDOW = re.compile(
 REACHED = re.compile(r"^rate_limit_reached_type:\s+(.*)$")
 
 
+def normalized_percent(value: str) -> float:
+    """Keep provider rounding quirks within the API contract's 0-100 range."""
+    return min(float(value), 100.0)
+
+
 def collect(name: str, script: str) -> dict[str, object]:
     try:
         result = subprocess.run(
@@ -41,7 +46,9 @@ def collect(name: str, script: str) -> dict[str, object]:
                 {
                     "label": match.group("label"),
                     "used_percent": (
-                        float(match.group("used")) if match.group("used") is not None else None
+                        normalized_percent(match.group("used"))
+                        if match.group("used") is not None
+                        else None
                     ),
                     "detail": match.group("detail"),
                 }

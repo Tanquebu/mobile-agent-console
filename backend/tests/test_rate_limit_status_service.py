@@ -47,3 +47,15 @@ def test_rate_limit_status_ignores_missing_or_invalid_payload(tmp_path: Path) ->
         encoding="utf-8",
     )
     assert service.read() is None
+
+
+def test_rate_limit_status_accepts_provider_usage_capped_at_one_hundred(tmp_path: Path) -> None:
+    path = tmp_path / "provider-rate-limits.json"
+    path.write_text(
+        '{"collected_at":"now","providers":[{"provider":"claude","available":true,'
+        '"windows":[{"label":"7d","used_percent":100}]}]}',
+        encoding="utf-8",
+    )
+    status = RateLimitStatusService(str(path)).read()
+    assert status is not None
+    assert status.providers[0].windows[0].used_percent == 100

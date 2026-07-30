@@ -110,9 +110,9 @@ const MAX_TERMINAL_LINES = 2000;
 const LOAD_MORE_STEP_LINES = 500;
 
 const LATEST_RELEASE = {
-  title: "Istruzioni artefatti su richiesta",
+  title: "Quote Claude e Codex affidabili",
   description:
-    "Nel menu Funzioni puoi inviare all’agente il percorso sicuro per consegnare file scaricabili.",
+    "Le quote restano visibili anche quando il provider arrotonda l’utilizzo oltre il 100%.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
