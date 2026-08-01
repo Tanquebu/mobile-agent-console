@@ -1,0 +1,19 @@
+[Unit]
+Description=Mobile Agent Console host observability socket
+Documentation=https://github.com/Tanquebu/mobile-agent-console
+Requires=mobile-agent-console-host-observability-prepare.service
+After=mobile-agent-console-host-observability-prepare.service
+
+[Socket]
+ListenStream=%t/mobile-agent-console/host-observability.sock
+Accept=yes
+SocketMode=0660
+DirectoryMode=0750
+RemoveOnStop=yes
+Backlog=16
+MaxConnections=16
+TriggerLimitIntervalSec=60
+TriggerLimitBurst=30
+
+[Install]
+WantedBy=sockets.target

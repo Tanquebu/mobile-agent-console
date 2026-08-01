@@ -81,6 +81,14 @@ from .services.attachment_service import AttachmentError, AttachmentService
 from .services.audit_service import AuditService
 from .services.backup_service import BackupError, BackupService
 from .services.claude_history_service import ClaudeHistoryService
+from .services.host_observability_contract import HostObservabilitySnapshot
+from .services.host_observability_service import (
+    HostObservabilityInvalidResponse,
+    HostObservabilityService,
+    HostObservabilityTimeout,
+    HostObservabilityUnavailable,
+)
+from .services.host_observability_socket_client import HostObservabilitySocketClient
 from .services.orchestrator_state_service import OrchestratorState, OrchestratorStateService
 from .services.output_delta import line_delta
 from .services.provider_session_state_service import ProviderSessionStateService
@@ -185,7 +193,11 @@ def _read_text_file(file_path: Path) -> tuple[str, int, bool]:
     return text, size, truncated
 
 
-def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    tmux: TmuxGateway | None = None,
+    host_observability_client: HostObservabilitySocketClient | None = None,
+) -> FastAPI:
     settings = settings or get_settings()
     gateway = tmux or TmuxService(
         settings.tmux_socket,
@@ -203,6 +215,14 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     )
     rate_limiter = FixedWindowRateLimiter()
     provider_rate_limits = RateLimitStatusService(settings.provider_rate_limits_path)
+    host_observability = HostObservabilityService(
+        host_observability_client
+        or HostObservabilitySocketClient(
+            settings.host_observability_socket_file,
+            timeout_seconds=settings.host_observability_socket_timeout_seconds,
+            max_response_bytes=settings.host_observability_max_response_bytes,
+        )
+    )
     provider_session_states = ProviderSessionStateService(
         settings.provider_session_states_path
     )
@@ -702,14 +722,71 @@ def create_app(settings: Settings | None = None, tmux: TmuxGateway | None = None
     @app.get(
         "/api/v1/config",
         response_model=ConfigView,
-        dependencies=[Depends(require_active_session)],
     )
-    async def client_config() -> ConfigView:
+    async def client_config(
+        cookie: str = Depends(require_active_session),
+    ) -> ConfigView:
+        # L'endpoint Host è admin-only: non suggerire la futura UI agli altri ruoli.
+        # In modalità legacy l'unico utente autenticato equivale all'admin.
+        user = active_user(cookie)
         return ConfigView(
             allowed_roots=settings.allowed_roots,
             workspace_presets=settings.workspace_presets,
             claude_history_enabled=settings.claude_history_enabled,
+            host_observability_enabled=settings.host_observability_enabled
+            and (user is None or user.role == "admin"),
         )
+
+    @app.get(
+        "/api/v1/host-observability",
+        response_model=HostObservabilitySnapshot,
+    )
+    async def get_host_observability(
+        request: Request,
+        _cookie: str = Depends(require_admin_session),
+    ) -> HostObservabilitySnapshot | JSONResponse:
+        if not settings.host_observability_enabled:
+            raise HTTPException(404, "Not Found")
+        retry_after = rate_limiter.check(
+            f"host-observability:{client_key(request)}",
+            settings.host_observability_rate_limit,
+            settings.host_observability_rate_window_seconds,
+        )
+        if retry_after is not None:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "code": "host_observability_rate_limited",
+                    "detail": "Too many host observability requests",
+                },
+                headers={"Retry-After": str(retry_after)},
+            )
+        try:
+            return await host_observability.read()
+        except HostObservabilityTimeout:
+            return JSONResponse(
+                status_code=504,
+                content={
+                    "code": "host_observability_timeout",
+                    "detail": "Host observability collector timed out",
+                },
+            )
+        except HostObservabilityUnavailable:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "code": "host_observability_unavailable",
+                    "detail": "Host observability collector unavailable",
+                },
+            )
+        except HostObservabilityInvalidResponse:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "code": "host_observability_invalid_response",
+                    "detail": "Host observability collector returned an invalid response",
+                },
+            )
 
     @app.get(
         "/api/v1/provider-rate-limits",

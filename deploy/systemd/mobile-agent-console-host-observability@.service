@@ -1,0 +1,30 @@
+[Unit]
+Description=Mobile Agent Console host observability one-shot collector
+Documentation=https://github.com/Tanquebu/mobile-agent-console
+Requires=mobile-agent-console-host-observability.socket
+After=mobile-agent-console-host-observability.socket
+
+[Service]
+Type=exec
+Environment=MAC_INSTALL_DIR=%h/.local/share/mobile-agent-console
+EnvironmentFile=-%h/.config/mobile-agent-console/environment
+ExecStart=/usr/bin/python3 ${MAC_INSTALL_DIR}/deploy/host-observability-collector.py
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RemoveIPC=yes
+SystemCallArchitectures=native
+UMask=0077
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RuntimeMaxSec=5

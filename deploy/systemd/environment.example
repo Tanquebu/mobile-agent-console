@@ -3,6 +3,15 @@
 MAC_INSTALL_DIR=/home/example/.local/share/mobile-agent-console
 # Root persistente condivisa con il backend.
 MAC_WORKSPACE_ROOT=/home/example/projects
+# Opzionale, solo con compose.host-observability.yaml. Il path è la directory
+# della user socket unit, mai il file socket.
+MAC_HOST_OBSERVABILITY_SOCKET_DIR=/run/user/UID_DA_SOSTITUIRE/mobile-agent-console
+# Copiare l'esempio fuori dal repository, sostituire soltanto con valori reali
+# host-side e mantenere il file 0600.
+MAC_HOST_OBSERVABILITY_CONFIG_FILE=/home/example/.config/mobile-agent-console/host-observability.json
+# Solo Docker rootless/userns-remap: UID host a cui è mappato l'UID 10001 del
+# backend. Ricavarlo con il probe documentato nel gate, non indovinarlo.
+MAC_HOST_OBSERVABILITY_ROOTLESS_UID=
 # Nome MagicDNS del nodo Tailscale (tailscale status --self), usato da
 # mobile-agent-console-tls-renew per rinnovare il certificato nginx.
 MAC_TAILNET_HOSTNAME=example-host.example-tailnet.ts.net

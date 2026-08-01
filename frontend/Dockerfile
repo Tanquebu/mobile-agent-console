@@ -5,6 +5,8 @@ RUN npm ci
 COPY tsconfig*.json index.html ./
 COPY public ./public
 COPY src ./src
+COPY tests ./tests
+RUN npm run test:host
 RUN npm run build
 
 FROM nginx:1.29-alpine

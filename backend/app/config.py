@@ -23,6 +23,18 @@ class Settings(BaseSettings):
     tmux_socket_path: str | None = None
     tmux_socket_file: str | None = None
     tmux_mode: str = Field(default="docker", pattern=r"^(docker|host)$")
+    host_observability_enabled: bool = False
+    host_observability_socket_file: str = (
+        "/host-observability/host-observability.sock"
+    )
+    host_observability_socket_timeout_seconds: float = Field(
+        default=3.0, ge=0.1, le=10.0
+    )
+    host_observability_max_response_bytes: int = Field(
+        default=128 * 1024, ge=1024, le=128 * 1024
+    )
+    host_observability_rate_limit: int = Field(default=6, ge=1, le=1000)
+    host_observability_rate_window_seconds: int = Field(default=60, ge=1, le=3600)
     allowed_roots: list[str] = ["/workspace"]
     cors_origins: list[str] = ["http://localhost:5173"]
     workspace_presets: dict[str, str] = {}
@@ -97,6 +109,20 @@ class Settings(BaseSettings):
                     raise ValueError(f"Invalid workspace preset '{pair}' (expected label=path)")
                 presets[label.strip()] = path.strip()
             return presets
+        return value
+
+    @field_validator("host_observability_socket_file")
+    @classmethod
+    def validate_host_observability_socket_file(cls, value: str) -> str:
+        if "\x00" in value:
+            raise ValueError("host observability socket file must be an absolute path")
+        path = Path(value)
+        if (
+            not path.is_absolute()
+            or str(path) != value
+            or any(part in {".", ".."} for part in value.split("/"))
+        ):
+            raise ValueError("host observability socket file must be an absolute path")
         return value
 
     def read_secret(self, direct: str | None, file_path: str | None, label: str) -> str:

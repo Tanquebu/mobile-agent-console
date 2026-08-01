@@ -29,6 +29,7 @@ import {
   fetchClaudeHistory,
   fetchDirectory,
   fetchFile,
+  fetchHostObservability,
   fetchOrchestratorState,
   fetchProviderRateLimits,
   fetchPushPublicKey,
@@ -37,6 +38,8 @@ import {
   errorMessage,
   login,
   Identity,
+  HostComponent,
+  HostObservabilitySnapshot,
   killPane,
   listSessions,
   listArchives,
@@ -111,9 +114,9 @@ const MAX_TERMINAL_LINES = 2000;
 const LOAD_MORE_STEP_LINES = 500;
 
 const LATEST_RELEASE = {
-  title: "Scorciatoia Compact per agenti",
+  title: "Osservabilità host + export JSON",
   description:
-    "Nelle sessioni Codex e Claude puoi inviare /compact con un solo tocco.",
+    "Vista admin on-demand con copia dello snapshot JSON sanitizzato, ora rilasciata e validata.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -287,6 +290,17 @@ function formatSize(size: number | null): string {
 function formatDate(value: string | null): string {
   if (!value) return "—";
   return new Date(value).toLocaleString();
+}
+
+function formatPercent(value: number | null): string {
+  return value === null ? "—" : `${value.toFixed(1)}%`;
+}
+
+function formatAge(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86400)}g`;
 }
 
 function rateLimitColor(usedPercent: number | null): string | undefined {
@@ -1302,6 +1316,335 @@ function UserModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+const HOST_STATUS_LABEL: Record<HostComponent["status"], string> = {
+  ok: "Regolare",
+  warning: "Attenzione",
+  critical: "Critico",
+  unknown: "Parziale",
+};
+
+const HOST_REASON_LABEL: Record<string, string> = {
+  memory_unavailable: "Memoria non disponibile",
+  memory_available_critical: "Memoria disponibile critica",
+  memory_available_low: "Memoria disponibile bassa",
+  swap_used_critical: "Swap critica",
+  swap_used_high: "Swap elevata",
+  load_unavailable: "Carico non disponibile",
+  load_critical: "Carico critico",
+  load_high: "Carico elevato",
+  filesystems_not_configured: "Filesystem non configurati",
+  filesystem_used_critical: "Spazio disco critico",
+  filesystem_used_high: "Spazio disco in esaurimento",
+  filesystem_unavailable: "Filesystem non disponibile",
+  processes_unavailable: "Processi non disponibili",
+  processes_partial: "Elenco processi parziale",
+  process_group_count_critical: "Troppi processi omonimi",
+  process_group_count_high: "Molti processi omonimi",
+  listeners_unavailable: "Porte in ascolto non disponibili",
+  listeners_partial: "Elenco porte parziale",
+  wildcard_listener_unexpected: "Porta wildcard inattesa",
+  tcp_listener_unexpected: "Porta TCP inattesa",
+  docker_disabled: "Docker disabilitato",
+  docker_unavailable: "Docker non disponibile",
+  docker_output_excessive: "Risposta Docker troppo grande",
+  docker_output_invalid: "Risposta Docker non valida",
+  containers_problematic: "Container con problemi",
+};
+
+function HostStatusBadge({ status }: { status: HostComponent["status"] }) {
+  return <span className={`host-status ${status}`}>{HOST_STATUS_LABEL[status]}</span>;
+}
+
+function HostReasons({ reasons }: { reasons: string[] }) {
+  if (reasons.length === 0) return null;
+  return (
+    <ul className="host-reasons" aria-label="Dettagli stato">
+      {reasons.map((reason) => (
+        <li key={reason}>{HOST_REASON_LABEL[reason] ?? reason.replaceAll("_", " ")}</li>
+      ))}
+    </ul>
+  );
+}
+
+function HostCard({
+  title,
+  component,
+  children,
+}: {
+  title: string;
+  component: HostComponent;
+  children: ReactNode;
+}) {
+  return (
+    <section className={`host-card status-${component.status}`}>
+      <header>
+        <h2>{title}</h2>
+        <HostStatusBadge status={component.status} />
+      </header>
+      <HostReasons reasons={component.reasons} />
+      {children}
+    </section>
+  );
+}
+
+function HostMetric({ label, value }: { label: string; value: string }) {
+  return <div><dt>{label}</dt><dd>{value}</dd></div>;
+}
+
+function HostView({ onBack }: { onBack: () => void }) {
+  const [snapshot, setSnapshot] = useState<HostObservabilitySnapshot | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [copyFeedback, setCopyFeedback] = useState("");
+  const mounted = useRef(false);
+  const requestVersion = useRef(0);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const jsonTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  async function refresh() {
+    const version = ++requestVersion.current;
+    if (mounted.current) {
+      setLoading(true);
+      setError("");
+    }
+    try {
+      const next = await fetchHostObservability();
+      if (mounted.current && version === requestVersion.current) {
+        setSnapshot(next);
+        setCopyFeedback("");
+      }
+    } catch (value) {
+      if (mounted.current && version === requestVersion.current) setError(errorMessage(value));
+    } finally {
+      if (mounted.current && version === requestVersion.current) setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    mounted.current = true;
+    void refresh();
+    return () => {
+      mounted.current = false;
+      requestVersion.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      headingRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  const unexpectedListeners = snapshot?.listeners.items.filter((item) => !item.expected) ?? [];
+  const collectedAt = snapshot ? new Date(snapshot.collected_at).getTime() : 0;
+  const stale = snapshot !== null && (
+    Boolean(error) || !Number.isFinite(collectedAt) || Date.now() - collectedAt > 2 * 60_000
+  );
+  const snapshotJson = snapshot ? JSON.stringify(snapshot, null, 2) : "";
+
+  function selectJsonForManualCopy() {
+    const textarea = jsonTextareaRef.current;
+    if (!textarea) return;
+    textarea.focus({ preventScroll: true });
+    textarea.select();
+    setCopyFeedback("Copia automatica non disponibile. JSON selezionato: usa il comando Copia del dispositivo.");
+  }
+
+  async function copySnapshotJson() {
+    if (!navigator.clipboard?.writeText) {
+      selectJsonForManualCopy();
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(snapshotJson);
+      if (mounted.current) setCopyFeedback("JSON copiato negli appunti.");
+    } catch {
+      if (mounted.current) selectJsonForManualCopy();
+    }
+  }
+
+  return (
+    <main className="shell host-view">
+      <header className="host-topbar">
+        <button className="icon-button" onClick={onBack} aria-label="Torna alle sessioni">‹</button>
+        <div>
+          <span className="eyebrow">OSSERVABILITÀ HOST</span>
+          <h1 ref={headingRef} className="host-focus-target" tabIndex={-1}>Host</h1>
+          <small>{snapshot ? `Fotografia ${formatDate(snapshot.collected_at)}` : "Fotografia su richiesta"}</small>
+        </div>
+        <button
+          className="host-refresh"
+          onClick={() => void refresh()}
+          disabled={loading}
+          aria-label="Aggiorna osservabilità host"
+        >
+          {loading ? "Aggiorno…" : "Aggiorna"}
+        </button>
+      </header>
+
+      <div className="host-live" aria-live="polite" aria-atomic="true">
+        {loading && !snapshot && <p role="status">Caricamento fotografia host…</p>}
+        {loading && snapshot && <p role="status">Aggiornamento in corso; i dati correnti restano visibili.</p>}
+        {error && (
+          <div className="host-fetch-error" role="alert">
+            <strong>Aggiornamento non riuscito.</strong>
+            <span>{error}</span>
+            {snapshot && <small>Mostro l’ultima fotografia valida.</small>}
+            {!snapshot && <button onClick={() => void refresh()}>Riprova</button>}
+          </div>
+        )}
+        {stale && <p className="host-stale">Dati non recenti: aggiorna prima di prendere decisioni operative.</p>}
+      </div>
+
+      {snapshot && (
+        <div className="host-content">
+          <section className={`host-summary status-${snapshot.status}`} aria-labelledby="host-summary-title">
+            <div>
+              <span className="eyebrow">STATO COMPLESSIVO</span>
+              <h2 id="host-summary-title">{HOST_STATUS_LABEL[snapshot.status]}</h2>
+              <small>Raccolta in {snapshot.duration_ms} ms</small>
+            </div>
+            <HostStatusBadge status={snapshot.status} />
+            <HostReasons reasons={snapshot.reasons} />
+            <div className="host-component-statuses" aria-label="Stato componenti">
+              {([
+                ["Memoria", snapshot.memory],
+                ["Carico", snapshot.load],
+                ["Dischi", snapshot.filesystems],
+                ["Processi", snapshot.processes],
+                ["Porte", snapshot.listeners],
+                ["Docker", snapshot.docker],
+              ] as Array<[string, HostComponent]>).map(([label, component]) => (
+                <span key={label}><i className={component.status} aria-hidden="true" />{label}: {HOST_STATUS_LABEL[component.status]}</span>
+              ))}
+            </div>
+          </section>
+
+          <details
+            className={`host-json-export${snapshot.status === "critical" ? " status-critical" : ""}`}
+          >
+            <summary>
+              <span>Esporta snapshot JSON</span>
+              {snapshot.status === "critical" && <strong>Stato critico</strong>}
+            </summary>
+            <div className="host-json-export-body">
+              <p>È lo stesso snapshot sanitizzato mostrato in questa vista.</p>
+              <textarea
+                ref={jsonTextareaRef}
+                value={snapshotJson}
+                readOnly
+                spellCheck={false}
+                aria-label="JSON snapshot osservabilità host"
+              />
+              <button type="button" onClick={() => void copySnapshotJson()}>Copia JSON</button>
+              <p className="host-copy-feedback" aria-live="polite" aria-atomic="true">{copyFeedback}</p>
+            </div>
+          </details>
+
+          <div className="host-grid">
+            <HostCard title="Memoria e swap" component={snapshot.memory}>
+              <dl className="host-metrics">
+                <HostMetric label="Disponibile" value={`${formatSize(snapshot.memory.available_bytes)} · ${formatPercent(snapshot.memory.available_percent)}`} />
+                <HostMetric label="Totale" value={formatSize(snapshot.memory.total_bytes)} />
+                <HostMetric label="Swap usata" value={`${formatSize(snapshot.memory.swap_used_bytes)} · ${formatPercent(snapshot.memory.swap_used_percent)}`} />
+                <HostMetric label="Swap totale" value={formatSize(snapshot.memory.swap_total_bytes)} />
+              </dl>
+            </HostCard>
+
+            <HostCard title="Carico" component={snapshot.load}>
+              <dl className="host-metrics">
+                <HostMetric label="1 minuto" value={snapshot.load.one?.toFixed(2) ?? "—"} />
+                <HostMetric label="5 minuti" value={snapshot.load.five?.toFixed(2) ?? "—"} />
+                <HostMetric label="15 minuti" value={snapshot.load.fifteen?.toFixed(2) ?? "—"} />
+                <HostMetric label="1 min / CPU" value={snapshot.load.normalized_one?.toFixed(2) ?? "—"} />
+              </dl>
+              <p className="host-note">{snapshot.load.cpu_count === null ? "CPU non disponibile" : `${snapshot.load.cpu_count} CPU logiche`}</p>
+            </HostCard>
+          </div>
+
+          <HostCard title="Filesystem" component={snapshot.filesystems}>
+            {snapshot.filesystems.items.length === 0 ? <p className="host-empty">Nessun filesystem configurato.</p> : (
+              <div className="host-item-grid">
+                {snapshot.filesystems.items.map((item) => (
+                  <article key={item.label} className={`host-item status-${item.status}`}>
+                    <header><strong>{item.label}</strong><HostStatusBadge status={item.status} /></header>
+                    <span>{formatPercent(item.used_percent)} usato</span>
+                    <small>{formatSize(item.available_bytes)} disponibili su {formatSize(item.total_bytes)}</small>
+                    <HostReasons reasons={item.reasons} />
+                  </article>
+                ))}
+              </div>
+            )}
+          </HostCard>
+
+          <HostCard title="Gruppi di processi" component={snapshot.processes}>
+            <p className="host-note">{snapshot.processes.scanned} processi analizzati{snapshot.processes.truncated ? " · elenco troncato" : ""}</p>
+            {snapshot.processes.groups.length === 0 ? <p className="host-empty">Nessun gruppo disponibile.</p> : (
+              <div className="host-process-list">
+                {snapshot.processes.groups.map((group) => (
+                  <article key={group.name}>
+                    <span><strong>{group.label ?? group.name}</strong><small>{group.label ? group.name : null}</small></span>
+                    <span><strong>{group.count}×</strong><small>{formatSize(group.rss_bytes)} · più vecchio {formatAge(group.oldest_age_seconds)}</small></span>
+                  </article>
+                ))}
+              </div>
+            )}
+          </HostCard>
+
+          <HostCard title="Processi con più memoria" component={snapshot.processes}>
+            {snapshot.processes.top.length === 0 ? <p className="host-empty">Nessun processo disponibile.</p> : (
+              <div className="host-process-list">
+                {snapshot.processes.top.map((process) => (
+                  <article key={process.pid}>
+                    <span><strong>{process.label ?? process.name}</strong><small>{process.label ? process.name : `PID ${process.pid}`}</small></span>
+                    <span><strong>{formatSize(process.rss_bytes)}</strong><small>attivo da {formatAge(process.age_seconds)}</small></span>
+                  </article>
+                ))}
+              </div>
+            )}
+          </HostCard>
+
+          <HostCard title="Porte inattese" component={snapshot.listeners}>
+            {unexpectedListeners.length === 0 ? <p className="host-empty">Nessuna porta inattesa rilevata.</p> : (
+              <div className="host-item-grid">
+                {unexpectedListeners.map((listener) => (
+                  <article key={`${listener.port}-${listener.address_scope}-${listener.process_name ?? "unknown"}`} className={`host-item status-${listener.status}`}>
+                    <header><strong>TCP {listener.port}</strong><HostStatusBadge status={listener.status} /></header>
+                    <span>{listener.address_scope}</span>
+                    <small>{listener.process_label ?? listener.process_name ?? "Processo non identificato"}</small>
+                  </article>
+                ))}
+              </div>
+            )}
+            {snapshot.listeners.truncated && <p className="host-note">Elenco listener troncato: potrebbero mancare altre porte.</p>}
+          </HostCard>
+
+          <HostCard title="Container problematici" component={snapshot.docker}>
+            {!snapshot.docker.available && <p className="host-empty">Stato Docker non disponibile.</p>}
+            {snapshot.docker.available && snapshot.docker.problematic.length === 0 && snapshot.docker.unmapped_problematic_count === 0 && (
+              <p className="host-empty">Nessun container problematico.</p>
+            )}
+            {snapshot.docker.problematic.length > 0 && (
+              <div className="host-item-grid">
+                {snapshot.docker.problematic.map((container) => (
+                  <article key={container.label} className={`host-item status-${container.status}`}>
+                    <header><strong>{container.label}</strong><HostStatusBadge status={container.status} /></header>
+                    <small>{HOST_REASON_LABEL[container.reason] ?? container.reason.replaceAll("_", " ")}</small>
+                  </article>
+                ))}
+              </div>
+            )}
+            {snapshot.docker.unmapped_problematic_count > 0 && (
+              <p className="host-note">Altri container problematici senza label: {snapshot.docker.unmapped_problematic_count}</p>
+            )}
+          </HostCard>
+        </div>
+      )}
+    </main>
+  );
+}
+
 function SessionList({
   onOpen,
   identity,
@@ -1326,6 +1669,10 @@ function SessionList({
   const [showPreferences, setShowPreferences] = useState(false);
   const [showDashboardActions, setShowDashboardActions] = useState(false);
   const [showHiddenSessions, setShowHiddenSessions] = useState(false);
+  const [showHost, setShowHost] = useState(false);
+  const [restoreHostFocus, setRestoreHostFocus] = useState(false);
+  const [hostObservabilityEnabled, setHostObservabilityEnabled] = useState(false);
+  const hostTriggerRef = useRef<HTMLButtonElement>(null);
   const [dashboardDensity, setDashboardDensity] = useState<DashboardDensity>(readDashboardDensity);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
   const [providerLimits, setProviderLimits] = useState<ProviderRateLimits | null>(null);
@@ -1388,11 +1735,15 @@ function SessionList({
         const entries = Object.entries(config.workspace_presets);
         setPresets(entries);
         setDirectory((value) => value || entries[0]?.[1] || config.allowed_roots[0] || "");
+        setHostObservabilityEnabled(
+          identity.role === "admin" && config.host_observability_enabled,
+        );
       })
       .catch(() => { /* il campo resta vuoto, l'utente può digitare */ });
-  }, []);
+  }, [identity.role]);
 
   useEffect(() => {
+    if (showHost) return;
     let active = true;
     const refresh = () => {
       listAgentStatuses()
@@ -1410,9 +1761,19 @@ function SessionList({
       active = false;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [showHost]);
 
   useEffect(() => {
+    if (showHost || !restoreHostFocus) return;
+    const frame = window.requestAnimationFrame(() => {
+      hostTriggerRef.current?.focus({ preventScroll: true });
+      setRestoreHostFocus(false);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [restoreHostFocus, showHost]);
+
+  useEffect(() => {
+    if (showHost) return;
     let active = true;
     const refresh = () => {
       fetchOrchestratorState()
@@ -1425,9 +1786,10 @@ function SessionList({
       active = false;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [showHost]);
 
   useEffect(() => {
+    if (showHost) return;
     let active = true;
     const refresh = () => {
       fetchProviderRateLimits()
@@ -1442,7 +1804,7 @@ function SessionList({
       active = false;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [showHost]);
 
   useEffect(() => {
     if (!showHelp) return;
@@ -1549,6 +1911,13 @@ function SessionList({
     }
   }
 
+  if (showHost && identity.role === "admin" && hostObservabilityEnabled) {
+    return <HostView onBack={() => {
+      setRestoreHostFocus(true);
+      setShowHost(false);
+    }} />;
+  }
+
   return (
     <main className={`shell ${compactDashboard ? "compact-dashboard" : ""}`}>
       <header className="topbar">
@@ -1616,6 +1985,9 @@ function SessionList({
           )}
           {identity.role === "admin" && (
             <button className="snapshot-button" onClick={() => setShowBackups(true)} aria-label="Backup" title="Backup">{compactDashboard ? "⇩" : "Backup"}</button>
+          )}
+          {identity.role === "admin" && hostObservabilityEnabled && (
+            <button ref={hostTriggerRef} className="snapshot-button" onClick={() => setShowHost(true)} aria-label="Osservabilità host" title="Osservabilità host">{compactDashboard ? "▥" : "Host"}</button>
           )}
         </div>
       )}

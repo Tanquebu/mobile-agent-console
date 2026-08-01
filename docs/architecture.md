@@ -126,6 +126,37 @@ numerica senza `$`): i nomi — anche quelli arbitrari delle sessioni host
 preesistenti — servono solo per il display e per la creazione. Capture e
 input hanno come target il pane attivo della sessione, non `0.0`.
 
+L'osservabilità host usa un boundary separato descritto in ADR 009. Una user
+socket unit systemd `AF_UNIX` attiva un collector one-shot soltanto quando il
+backend si collega; non esiste un listener TCP né un demone residente. Il
+backend monta in sola lettura esclusivamente la directory del socket e non
+riceve `/proc`, `/sys` o il socket Docker. Una unit preparatoria applica ACL
+POSIX ristrette all'UID host effettivo del backend: `10001` in Docker rootful o
+l'UID mappato esplicitamente in rootless/`userns-remap`; la modalità host usa
+invece l'owner. Le ACL predefinite sulla directory vengono ereditate dal socket
+ricreato da systemd, senza ricorrere a permessi world-writable. Il collector
+HO-02 legge `/proc` e filesystem esclusivamente sull'host e restituisce il
+contratto v1 limitato; Docker è opzionale e usa un solo comando ad argv fisso.
+Path, inventario e soglie restano nella configurazione host privata. API e UI
+sono separate: HO-03 aggiunge un `GET /api/v1/host-observability` opt-in,
+riservato agli admin e con rate limit dedicato; HO-04 aggiunge la vista mobile
+separata. Il backend valida nuovamente l'intero contratto Pydantic e non persiste,
+audita o logga la fotografia. Il client config espone il flag soltanto agli
+admin, così i ruoli non autorizzati non preparano la futura vista.
+
+HO-04 consuma l'endpoint in una vista mobile separata, montata soltanto quando
+ruolo e flag sono entrambi validi. La fotografia viene richiesta una volta
+all'apertura e soltanto con refresh manuale; mentre la vista è aperta vengono
+sospesi anche i polling della dashboard. Un contatore di richiesta e un guard
+di mount scartano risposte concorrenti obsolete o successive all'unmount. Un
+refresh fallito conserva l'ultima fotografia valida e ne segnala esplicitamente
+lo stato stale, senza nascondere componenti validi per un errore parziale.
+L'export JSON è una vista derivata con `JSON.stringify(snapshot, null, 2)` dallo
+stesso ultimo snapshot valido: non richiama nuovamente l'API, non introduce un
+wrapper o metadati UI e cambia soltanto dopo un refresh riuscito. Il fallback
+clipboard seleziona la `textarea` read-only per una copia manuale, senza
+`execCommand` o trasformazioni del contenuto.
+
 Le unit systemd sono user unit separate per modalità Docker e host. Entrambe
 delegano l'avvio a Compose; allo stop e al reload agiscono soltanto su `backend`
 e `web`, preservando il runtime tmux. In modalità host la unit applicativa

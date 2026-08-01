@@ -28,6 +28,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Database locale | path privato nel workspace, nessun prompt/output/segreto, migrazioni versionate |
 | Backup manipolati | checksum archivio e file, manifest con path chiusi, restore offline e riservato all'operatore host |
 | Quote provider sensibili | collector host-side, output JSON sanitizzato; credenziali e transcript non montati nel backend |
+| Ricognizione host | collector one-shot via socket Unix 0660; nessun mount di `/proc`, `/sys` o Docker, nessuna porta TCP e nessuna API nello spike |
 | Cronologia Claude | opt-in esplicito, derivato `0600`, soli messaggi testuali, limiti/staleness e endpoint autenticato |
 | Classificazione agenti | sole ultime righe in memoria, risposta con stato tipizzato; nessun output persistito, restituito o inserito nell'audit |
 | Password account | solo hash Argon2id nel database; secret usato esclusivamente per bootstrap iniziale |
@@ -105,6 +106,76 @@ Il collector quote invoca soltanto i due path di script fissati nella user unit,
 con argv e timeout, senza `shell=True` e senza `--fresh`. Nel file condiviso
 finiscono provider, percentuali, reset, timestamp ed eventuali errori troncati:
 mai token, header HTTP o contenuti dei transcript. Il file usa permessi `0600`.
+
+Il boundary di osservabilità host (ADR 009) è opt-in e usa socket activation
+systemd con `Accept=yes`: ogni richiesta crea un processo one-shot confinato a
+`AF_UNIX`. La directory del socket è `0750`, il socket è `0660` e l'accesso del
+backend usa ACL POSIX nominali per i soli UID host autorizzati, mai permessi
+world-writable. Il gruppo proprietario non ha accesso effettivo. L'overlay
+monta soltanto quella directory in read-only;
+vietati `/proc`, `/sys` e `/var/run/docker.sock`. Il client impone timeout,
+limite di risposta e JSON object envelope senza propagare errori grezzi. HO-02
+raccoglie solo su richiesta. HO-03 espone la fotografia solo con feature flag
+opt-in, tramite GET admin-only e rate limit in memoria separato: viewer e
+operator ricevono `403`, socket/risposta invalida `503` e timeout `504` con
+codici stabili che non includono dettagli del collector. Il payload viene
+validato integralmente con il contratto v1 e non entra in log, audit, database,
+`/health` o metriche. La vista HO-04 è montata soltanto per admin+flag, non
+effettua polling, sospende i polling dashboard mentre è aperta e scarta
+risposte obsolete o successive all'unmount; un errore di refresh conserva i
+dati validi marcandoli stale. L'export della vista serializza esattamente quel
+payload già validato e sanitizzato, senza fetch, arricchimenti o persistenza
+aggiuntivi. La copia negli appunti o la selezione manuale sono azioni esplicite
+dell'admin. Resta il rischio residuo di condividere volontariamente anche dati
+operativi minimizzati con destinatari o applicazioni non fidati: la UI lo
+descrive come snapshot sanitizzato, ma non può controllarne l'uso dopo la copia.
+In rootless Docker o
+con user namespace remapping l'UID host mappato viene rilevato con un file probe
+isolato e salvato solo nell'environment privato; un mapping errato deve fallire
+chiuso. Il gate verifica ACL e connect reale in ogni modalità.
+
+La unit collector viene eseguita dal manager user, parte con capability
+effettive/permesse/ambienti nulle e abilita filesystem/home protetti in
+lettura, protezioni cgroup e tunable kernel, restrizioni namespace, realtime,
+SUID/SGID e IPC, architettura syscall nativa, sola `AF_UNIX` e umask `0077`. Non usa
+`ProtectProc`/`ProcSubset` perché il suo compito richiede le viste host
+minimizzate di `/proc`; il backend continua a non montarle. Non vengono
+impostate `CapabilityBoundingSet`, `AmbientCapabilities` o `IPAddressDeny`:
+nei manager user rootless le prime possono fallire con `218/CAPABILITIES` e
+l'ultima è ignorata. Per lo stesso motivo non vengono dichiarate
+`PrivateDevices`, `ProtectClock`, `ProtectKernelLogs` o
+`ProtectKernelModules`; `ProtectHostname` richiederebbe un namespace UTS che
+il manager può ignorare. La prepare mantiene sola `AF_UNIX` e le restrizioni non
+basate su mount namespace. Socket e directory usano `0660`/`0750`, massimo 16 connessioni
+e trigger limitato; nessuna unit imposta o richiede root.
+
+La oneshot che prepara le ACL usa `DefaultDependencies=no` per essere completata
+prima del bind della user socket senza introdurre un ciclo attraverso
+`basic.target`/`sockets.target`. Non applica un mount namespace filesystem:
+nelle user unit questo renderebbe non rappresentabili gli UID subordinati e
+farebbe fallire `setfacl`. Per lo stesso motivo non usa `PrivateTmp`. Il rischio
+residuo è che la breve oneshot conservi la visibilità di filesystem e home
+dell'utente; viene contenuto usando un path costante sotto `%t`, uno script di
+installazione fidato, ACL dichiarative, timeout dei subprocess e un gate
+runtime fail-closed. Restano `NoNewPrivileges`, `RestrictNamespaces`,
+`RestrictSUIDSGID`, `RestrictAddressFamilies=AF_UNIX`, umask `0077` e nessuna
+identità privilegiata. Collector e socket conservano l'hardening filesystem.
+
+Il collector v1 legge soltanto `meminfo`, `loadavg`, `uptime`, statistiche e fd
+dei processi, tabelle TCP e filesystem configurati. Non legge cmdline,
+environment o working directory. IP e indirizzi diventano scope tipizzati;
+path e nomi reali dei container restano nella configurazione privata `0600`.
+Docker è opt-in e invocato con `/usr/bin/docker ps -a --format ...`, argv fisso,
+`shell=False`, timeout due secondi, `stderr` scartato e output massimo 64 KiB
+applicato mentre il subprocess è in esecuzione; record malformati falliscono
+chiuso. Il timeout copre anche l'attesa dopo EOF di stdout: il processo viene
+terminato e reaped, evitando sia attese fuori bound sia zombie. La configurazione è aperta componente per componente senza seguire
+symlink, richiede mode esatto `0600` e viene letta dallo stesso file descriptor
+con limite e confronto dei metadati pre/post per rilevare sostituzioni in race.
+La risposta è limitata a 128 KiB e la unit a cinque secondi. Un errore parziale
+produce `unknown` nel solo componente coinvolto e non viene trasformato in
+`ok`; il contratto completo e i limiti sono in
+`docs/contracts/host-observability-v1.md`.
 
 Il collector dello stato sessioni legge processi e transcript esclusivamente
 sull'host. Il file atomico risultante contiene solo identificatore numerico

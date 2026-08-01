@@ -9,6 +9,7 @@ class ConfigView(BaseModel):
     allowed_roots: list[str]
     workspace_presets: dict[str, str]
     claude_history_enabled: bool = False
+    host_observability_enabled: bool = False
 
 
 class SessionView(BaseModel):

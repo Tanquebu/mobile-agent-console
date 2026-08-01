@@ -1,0 +1,13 @@
+# Overlay opt-in, componibile sia con compose.yaml sia con compose.host.yaml.
+# Richiede la directory socket host preparata dalla user unit.
+services:
+  backend:
+    environment:
+      MAC_HOST_OBSERVABILITY_ENABLED: "true"
+      MAC_HOST_OBSERVABILITY_SOCKET_FILE: /host-observability/host-observability.sock
+      MAC_HOST_OBSERVABILITY_SOCKET_TIMEOUT_SECONDS: ${MAC_HOST_OBSERVABILITY_SOCKET_TIMEOUT_SECONDS:-3}
+      MAC_HOST_OBSERVABILITY_MAX_RESPONSE_BYTES: ${MAC_HOST_OBSERVABILITY_MAX_RESPONSE_BYTES:-131072}
+      MAC_HOST_OBSERVABILITY_RATE_LIMIT: ${MAC_HOST_OBSERVABILITY_RATE_LIMIT:-6}
+      MAC_HOST_OBSERVABILITY_RATE_WINDOW_SECONDS: ${MAC_HOST_OBSERVABILITY_RATE_WINDOW_SECONDS:-60}
+    volumes:
+      - ${MAC_HOST_OBSERVABILITY_SOCKET_DIR:?set MAC_HOST_OBSERVABILITY_SOCKET_DIR in .env}:/host-observability:ro

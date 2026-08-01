@@ -1,0 +1,22 @@
+[Unit]
+Description=Prepare Mobile Agent Console host observability runtime permissions
+Documentation=https://github.com/Tanquebu/mobile-agent-console
+# La socket è ordinata prima di sockets.target. La preparazione non deve
+# acquisire l'After=basic.target implicito, che richiuderebbe il ciclo.
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=MAC_INSTALL_DIR=%h/.local/share/mobile-agent-console
+EnvironmentFile=-%h/.config/mobile-agent-console/environment
+ExecStart=/usr/bin/python3 ${MAC_INSTALL_DIR}/deploy/host-observability-runtime.py
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+UMask=0077
+LockPersonality=yes
+MemoryDenyWriteExecute=yes

@@ -210,7 +210,85 @@ export type AppConfig = {
   allowed_roots: string[];
   workspace_presets: Record<string, string>;
   claude_history_enabled: boolean;
+  host_observability_enabled: boolean;
 };
+
+export type HostStatus = "ok" | "warning" | "critical" | "unknown";
+export type HostComponent = { status: HostStatus; reasons: string[] };
+
+export type HostObservabilitySnapshot = HostComponent & {
+  schema_version: 1;
+  collected_at: string;
+  duration_ms: number;
+  memory: HostComponent & {
+    total_bytes: number | null;
+    available_bytes: number | null;
+    available_percent: number | null;
+    swap_total_bytes: number | null;
+    swap_used_bytes: number | null;
+    swap_used_percent: number | null;
+  };
+  load: HostComponent & {
+    one: number | null;
+    five: number | null;
+    fifteen: number | null;
+    cpu_count: number | null;
+    normalized_one: number | null;
+  };
+  filesystems: HostComponent & {
+    items: Array<HostComponent & {
+      label: string;
+      total_bytes: number | null;
+      available_bytes: number | null;
+      used_percent: number | null;
+    }>;
+  };
+  processes: HostComponent & {
+    top: Array<{
+      pid: number;
+      name: string;
+      label: string | null;
+      rss_bytes: number;
+      age_seconds: number;
+    }>;
+    groups: Array<{
+      name: string;
+      label: string | null;
+      count: number;
+      rss_bytes: number;
+      oldest_age_seconds: number;
+    }>;
+    scanned: number;
+    skipped: number;
+    inaccessible: number;
+    truncated: boolean;
+  };
+  listeners: HostComponent & {
+    items: Array<{
+      port: number;
+      address_scope: "loopback" | "tailscale" | "wildcard" | "other";
+      process_name: string | null;
+      process_label: string | null;
+      expected: boolean;
+      status: "ok" | "warning" | "critical";
+    }>;
+    truncated: boolean;
+  };
+  docker: HostComponent & {
+    available: boolean;
+    problematic: Array<{
+      label: string;
+      status: "warning" | "critical";
+      reason: string;
+    }>;
+    unmapped_problematic_count: number;
+  };
+};
+
+export async function fetchHostObservability(): Promise<HostObservabilitySnapshot> {
+  const response = await request("/api/v1/host-observability");
+  return response.json();
+}
 
 export type ProviderRateLimitWindow = {
   label: string;

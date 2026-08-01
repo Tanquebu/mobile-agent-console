@@ -59,6 +59,9 @@ generic terminal, with no dependency on any specific vendor or tool.
   and Origin check on the WebSocket upgrade;
 - two connectivity modes: an isolated containerized tmux, or your host's
   own tmux server (host CLIs, aliases, and pre-existing sessions included).
+- opt-in, admin-only host observability collected on demand through a hardened
+  Unix socket boundary, with no `/proc`, `/sys` or Docker socket mounted in the
+  backend and no polling from the Host view.
 
 ## Architecture
 
@@ -194,6 +197,22 @@ terminal output, process memory, environment variables or arbitrary commands.
 In host mode the tmux server must be running again before restoring. Codex and
 Claude history must also remain available in their normal persistent user
 directories.
+
+### Host observability (release candidate)
+
+The optional Host view reports a minimized snapshot of memory, load,
+configured filesystems, processes, unexpected listeners and mapped Docker
+problems. Collection is one-shot and admin-only; it is disabled unless
+`compose.host-observability.yaml` is explicitly included. The expandable JSON
+export copies the exact already-sanitized API snapshot, without another fetch
+or UI-only metadata. Copying or sharing it is an explicit administrator action:
+the minimized operational data can still be sensitive outside its intended
+context. Installation,
+rootless UID mapping, security checks, rollback and the complete release gate
+are documented in
+[docs/gates/host-observability.md](docs/gates/host-observability.md). The
+example configuration contains placeholders only and must be copied outside
+the repository with exact mode `0600`.
 
 ## Backup and restore
 
