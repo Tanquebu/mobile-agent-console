@@ -111,9 +111,9 @@ const MAX_TERMINAL_LINES = 2000;
 const LOAD_MORE_STEP_LINES = 500;
 
 const LATEST_RELEASE = {
-  title: "Sessioni nascoste in dashboard",
+  title: "Scorciatoia Compact per agenti",
   description:
-    "Puoi nascondere sessioni attive senza archiviarle e riaprirle dalle altre azioni.",
+    "Nelle sessioni Codex e Claude puoi inviare /compact con un solo tocco.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1937,6 +1937,7 @@ function Console({
   const [deletingAttachmentId, setDeletingAttachmentId] = useState("");
   const [followingOutput, setFollowingOutput] = useState(true);
   const [showSpecialKeys, setShowSpecialKeys] = useState(false);
+  const [compacting, setCompacting] = useState(false);
   const [sendingArtifactPrompt, setSendingArtifactPrompt] = useState(false);
   const [showDirectory, setShowDirectory] = useState(false);
   const [showArtifacts, setShowArtifacts] = useState(false);
@@ -2443,6 +2444,19 @@ function Console({
     }
   }
 
+  async function runCompact() {
+    setCompacting(true);
+    setControlError("");
+    try {
+      await sendText(session.id, "/compact", [], paneId || undefined);
+      await sendEnter(session.id, paneId || undefined);
+    } catch (value) {
+      setControlError(errorMessage(value));
+    } finally {
+      setCompacting(false);
+    }
+  }
+
   async function sendArtifactInstructions() {
     setSendingArtifactPrompt(true);
     setControlError("");
@@ -2816,6 +2830,15 @@ function Console({
             >
               {sendingArtifactPrompt ? "Invio istruzioni…" : "Consegna artefatto"}
             </button>
+            {agentic && (
+              <button
+                disabled={connection === "closed" || compacting}
+                type="button"
+                onClick={() => void runCompact()}
+              >
+                {compacting ? "Compact…" : "Compact"}
+              </button>
+            )}
             <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Up")}>↑ Up</button>
             <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Down")}>↓ Down</button>
             <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Escape")}>Esc</button>
