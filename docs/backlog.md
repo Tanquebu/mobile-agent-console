@@ -1798,3 +1798,88 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   nessuna implementazione avviata, `IMP-BH-03` resta bloccato in attesa
   dell'approvazione dell'utente sull'opzione 2 (o di un'opzione
   alternativa).
+
+#### BH-04 — Piano fase C: drill-down dalla sessione alla timeline (non approvata)
+
+- [ ] GATE-BH-04 | OWNER: ROOT | STATUS: PROPOSED | ADR 010 lascia
+  esplicitamente fuori decisione la fase C («il drill-down sul contenuto dei
+  turni resta esplicitamente fuori da questo round»): questa voce è **solo**
+  il piano tecnico da sottoporre a un gate di prodotto come `GATE-BH-00`,
+  nessuna riga di codice va scritta prima di un'approvazione esplicita
+  dell'utente sui confini qui sotto.
+
+  **Obiettivo.** Dalla riga di `session-usage-history.jsonl` "colpevole" di
+  un picco (`session_uuid` + `bucket_start`, intervallo di 5 minuti) aprire
+  la cronologia dei turni di quella sessione ristretta a quella finestra
+  temporale — la domanda a cui BH-02 risponde è "chi ha consumato", questa è
+  "cosa stava facendo in quel momento".
+
+  **Perché `claude-history` (ADR 007) non è riusabile così com'è.**
+  `ClaudeHistoryService`/`claude-history-collector.py` sono costruiti per un
+  caso diverso: un adapter *live* sul pane tmux correntemente attaccato,
+  correlato tramite la context cache, con una finestra di freschezza di
+  default 30s (`claude_history_max_age_seconds`) e nessuna query per
+  intervallo. Tre limiti concreti la escludono come base diretta per la fase
+  C: (1) richiede un pane vivo — le sessioni headless che BH-02 rende
+  finalmente visibili non ne hanno uno; (2) non fa query per range temporale,
+  serve solo "adesso"; (3) è tenuta deliberatamente opt-in e a bassa
+  persistenza proprio perché ADR 007 la considera un rischio di privacy da
+  minimizzare («quando abilitata esiste una copia derivata persistente delle
+  conversazioni») — estenderla a *qualsiasi* bucket storico passato
+  allargherebbe quel rischio ben oltre quanto ADR 007 ha accettato,
+  indipendentemente dai dettagli implementativi.
+
+  **Blocchi riusabili individuati (solo lettura del codice esistente, nessuna
+  modifica).**
+  - `backend/app/services/claude_transcript_normalizer.py:normalize_transcript()`
+    incapsula già le regole di minimizzazione approvate (solo testo
+    user/assistant, eccezione `AskUserQuestion`, indicatori "activity" senza
+    contenuto, esclusione di thinking/tool input-output/allegati): la fase C
+    dovrebbe riusare queste regole invariate, non inventarne di nuove.
+    Manca però un filtro per intervallo temporale — oggi normalizza l'intero
+    file fino ai limiti di messaggi/dimensione, non un range `[bucket_start,
+    bucket_start+5min)`.
+  - La localizzazione del transcript dato un `session_uuid` è già risolta in
+    parte da `deploy/session-usage-collector.py`: per Claude,
+    `session_uuid` coincide con `path.stem` per le sessioni dirette
+    (`discover_claude_files`/`process_claude_file`), quindi il file è
+    riscopribile con un glob per nome sotto `claude_projects_root`; per i
+    subagent il roll-up avviene sotto il `session_uuid` del genitore ma il
+    contenuto utile del picco può stare nel transcript del subagent, non in
+    quello padre — la fase C deve decidere se seguire anche i file
+    `<progetto>/<parent-uuid>/subagents/agent-*.jsonl` o limitarsi al
+    transcript principale. Per Codex la localizzazione analoga esiste in
+    `discover_codex_files`/`process_codex_file`, ma
+    `claude_transcript_normalizer` è specifico del formato Claude: Codex
+    richiederebbe un normalizzatore separato, oggi inesistente.
+  - Il percorso del transcript non deve mai attraversare il boundary verso
+    il frontend (ADR 010, "Il boundary non si allarga": «Non lo
+    attraversano... percorsi dei transcript»): la risoluzione
+    `session_uuid` → percorso file deve restare interamente lato host/backend,
+    mai un parametro esposto all'API.
+
+  **Domande aperte che il gate deve chiudere prima di un `IMP-BH-04`.**
+  1. Ambito privacy: resta testo minimizzato come ADR 007 (niente
+     thinking/tool payload/percorsi), o serve un livello di dettaglio
+     diverso per essere utile come drill-down di un picco di token (es.
+     mostrare *quali* tool sono stati usati e quante volte, non solo il nome
+     dell'ultimo in corso)?
+  2. On-demand o persistito? Il pattern già accettato per l'aggiornamento
+     forzato della quota (ADR 009: socket Unix, collector one-shot, nessun
+     demone) sembra più coerente di un nuovo JSONL persistito — evita di
+     moltiplicare copie derivate delle conversazioni sul disco — ma un
+     bucket in una sessione headless conclusa richiede comunque rileggere un
+     transcript che potrebbe essere stato ruotato o rimosso a monte: cosa
+     mostra la UI in quel caso?
+  3. Opt-in: riusare `MAC_CLAUDE_HISTORY_ENABLED` (stesso flag di ADR 007) o
+     un flag dedicato, dato che l'esposizione è più ampia (qualsiasi sessione
+     storica, non solo quella nel pane corrente)?
+  4. Copertura Codex: incluso al v1 (richiede un normalizzatore nuovo) o
+     limitata a Claude in una prima iterazione, con Codex esplicitamente
+     `n/d` nel drill-down?
+  5. Subagent: seguirli nel roll-up del drill-down o mostrare solo la
+     sessione principale, rimandando ai subagent con un rimando testuale
+     senza contenuto?
+
+  Nessuna implementazione avviata. `IMP-BH-04` resta bloccato in attesa che
+  l'utente approvi il piano (o lo corregga) e risponda alle domande sopra.
