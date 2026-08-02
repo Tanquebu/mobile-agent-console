@@ -1851,13 +1851,49 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   contratto su entrambi i lati o ricondotta alla seconda forma; oggi non è
   descritta da nessuna delle due parti.
 
-- [ ] IMP-BH-03 | OWNER: SA-IMP | STATUS: READY | Documentare in
-  `docs/contracts/` il contratto di formato atteso dagli script quote, e
-  propagare l'esito del parsing come informazione pubblicata sulla riga
-  storica (opzione 2), con l'avviso corrispondente nella vista Budget.
-  Aggiornare `docs/contracts/budget-history-v1.md` e il gate manuale.
+  **Secondo addendum del 03/08/2026 — il principio, e un secondo caso.** Il
+  giorno stesso si è manifestato lo stesso schema su un'altra superficie: la
+  voce Host è scomparsa dalla dashboard senza alcun errore. Nessun codice
+  perso — il pulsante è subordinato a `host_observability_enabled`, e
+  l'overlay Compose che accende quel flag non era più nella composizione
+  attiva. Diagnosi immediata una volta cercata, invisibile fino ad allora.
+
+  I due casi condividono un principio, ed è quello che questa voce
+  implementa: **lo stato effettivo va dichiarato, non dedotto.** Un fallback
+  al parsing testuale e una funzione opzionale spenta sono entrambi stati
+  legittimi; ciò che non è accettabile è che siano indistinguibili dal
+  funzionamento nominale.
+
+  Nota su cosa **non** va costruito: un controllo che confronti le funzioni
+  attese con quelle attive è irrealizzabile, perché non esiste una fonte di
+  verità su cosa "dovrebbe" essere acceso — una funzione disattivata è una
+  configurazione valida, e un check del genere allarmerebbe a ogni
+  installazione minima. Il primitivo giusto riferisce, non giudica.
+
+  La causa a monte del secondo caso non è di prodotto: il `.env` non è
+  versionato — giustamente, contiene token e percorsi propri
+  dell'installazione — quindi non restava traccia del cambiamento. Rimediato
+  fuori dal prodotto con `deploy/snapshot-env.sh`, che conserva copie datate
+  sotto `customizations/`, ignorata da git; lo script è generico e
+  pubblicabile, le copie no.
+
+- [ ] IMP-BH-03 | OWNER: SA-IMP | STATUS: READY | Due deliverable, uno solo
+  perché condividono principio, area di codice e approccio di test.
+
+  1. Documentare in `docs/contracts/` il contratto di formato atteso dagli
+     script quote, e propagare l'esito del parsing come informazione
+     pubblicata sulla riga storica (opzione 2), con l'avviso corrispondente
+     nella vista Budget. Aggiornare `docs/contracts/budget-history-v1.md` e
+     il gate manuale.
+  2. Dichiarare all'avvio, nei log del backend, l'elenco delle funzioni
+     opzionali effettivamente attive, ed esporlo nella vista admin. Solo
+     enunciazione dei fatti: nessun confronto con un'attesa, nessun livello
+     di allarme, nessun falso positivo su un'installazione minima.
+
   Vincoli: nessuna copia degli script nel repository, nessun percorso
-  assunto, nessun nome di componente esterno nei file versionati.
+  assunto, nessun nome di componente esterno nei file versionati, e nessun
+  valore di configurazione sensibile nei log (i nomi delle funzioni e il
+  loro stato acceso/spento, mai token o percorsi).
 
 - [ ] TEST-BH-03 | OWNER: SA-TEST | STATUS: BLOCKED | Sbloccato da
   `IMP-BH-03`. Verificare che una sorgente priva della forma strutturata
