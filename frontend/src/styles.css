@@ -380,11 +380,14 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .budget-chart-grid { stroke: #26352c; stroke-width: .6; }
 .budget-chart-tick { fill: #7ea58c; font-size: 6px; }
 .budget-line-0 .budget-segment { stroke-width: 2.6; }
-.budget-line-1 .budget-segment { stroke-width: 1.6; opacity: .85; }
+/* Lo spessore distingue le serie anche senza colore: e' la codifica
+   secondaria che regge daltonismo, stampa e forced-colors. Nessuna
+   riduzione di opacita', che abbasserebbe il contrasto validato. */
+.budget-line-1 .budget-segment { stroke-width: 1.6; }
 .budget-segment-stale { stroke: #5b6b60 !important; stroke-width: 1.6 !important; stroke-dasharray: 4 3; opacity: .7; fill: #5b6b60 !important; }
 .budget-chart-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; color: #91a397; font-size: .68rem; }
 .budget-chart-legend i { display: inline-block; width: 14px; height: 2px; margin-right: 3px; vertical-align: middle; background: #7ea58c; }
-.budget-chart-legend .budget-line-1 i { opacity: .7; }
+.budget-chart-legend .budget-line-1 i { height: 1.6px; }
 .budget-legend-stale i { background-image: repeating-linear-gradient(90deg, #5b6b60 0 3px, transparent 3px 6px); background-color: transparent; }
 .budget-force-refresh { display: grid; gap: 6px; margin-top: 12px; }
 .budget-force-refresh button { min-height: 42px; border: 1px solid #4f7a5c; border-radius: 12px; background: #1b2820; color: #9be5b3; font-weight: 750; }

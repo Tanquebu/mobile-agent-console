@@ -244,8 +244,23 @@ test("il pulsante Aggiorna adesso è gated dal flag di config e distingue 429\\/
   assert.match(budgetView, /impiegato troppo tempo a rispondere/);
 });
 
-test("il grafico riusa rateLimitColor e distingue i tratti stantii nel CSS senza nuove dipendenze", () => {
-  assert.match(budgetModule, /stroke=\{chain\.stale \? undefined : rateLimitColor\(/);
+test("il colore identifica la serie e non il valore, con spessore come codifica secondaria", () => {
+  // L'asse verticale codifica gia' la percentuale: colorare la linea in base
+  // al valore la faceva cambiare tinta attraversando un reset, cosi' che uno
+  // stesso 5h sembrasse una terza serie priva di legenda.
+  assert.match(budgetModule, /stroke=\{chain\.stale \? undefined : budgetSeriesColor\(index\)\}/);
+  assert.match(budgetModule, /fill=\{chain\.stale \? undefined : budgetSeriesColor\(index\)\}/);
+  assert.doesNotMatch(budgetModule, /stroke=\{chain\.stale \? undefined : rateLimitColor\(/);
+  // Ordine fisso, mai ciclato, e il pallino di legenda porta la stessa tinta.
+  assert.match(budgetModule, /const BUDGET_SERIES_COLORS = \[/);
+  assert.match(budgetModule, /style=\{\{ background: budgetSeriesColor\(index\) \}\}/);
+  // Il colore non e' l'unico segnale: le serie restano distinte per spessore.
+  assert.match(styles, /\.budget-line-0 \.budget-segment \{[^}]*stroke-width: 2\.6/);
+  assert.match(styles, /\.budget-line-1 \.budget-segment \{[^}]*stroke-width: 1\.6/);
+  assert.doesNotMatch(styles, /\.budget-line-1 \.budget-segment \{[^}]*opacity/);
+});
+
+test("i tratti stantii restano distinti nel CSS senza nuove dipendenze", () => {
   assert.match(styles, /\.budget-segment-stale \{[^}]*stroke-dasharray: 4 3/);
   assert.match(styles, /\.budget-chart svg \{[^}]*width: 100%/);
   assert.match(styles, /\.budget-range-selector/);

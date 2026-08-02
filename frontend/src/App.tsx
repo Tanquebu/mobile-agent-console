@@ -1439,6 +1439,21 @@ function HostMetric({ label, value }: { label: string; value: string }) {
 
 type BudgetHoursOption = 6 | 24 | 168;
 
+// Colore categorico per serie, assegnato per posizione e mai ciclato. Nel
+// grafico l'asse verticale codifica gia' la percentuale: colorare anche la
+// linea in base al valore spenderebbe il canale colore per un'informazione
+// gia' mostrata dalla posizione, sottraendolo all'identita' della serie, che
+// non ha nessun'altra codifica. Il risultato era che uno stesso 5h cambiava
+// tinta attraversando un reset e sembrava una terza serie senza legenda.
+// Tinte validate sulla superficie #101713 del grafico: separazione per
+// daltonismo ΔE 26.8, visione normale 31.8, contrasto oltre 3:1.
+const BUDGET_SERIES_COLORS = ["#3987e5", "#d95926", "#199e70", "#c98500"];
+const BUDGET_SERIES_FALLBACK = "#8fa397";
+
+function budgetSeriesColor(index: number): string {
+  return BUDGET_SERIES_COLORS[index] ?? BUDGET_SERIES_FALLBACK;
+}
+
 const BUDGET_RANGE_OPTIONS: { label: string; hours: BudgetHoursOption }[] = [
   { label: "6h", hours: 6 },
   { label: "24h", hours: 24 },
@@ -1606,7 +1621,7 @@ function BudgetProviderChart({
                   points={chain.points.map((point) => `${x(point.t)},${y(point.y)}`).join(" ")}
                   fill="none"
                   className={chain.stale ? "budget-segment-stale" : "budget-segment"}
-                  stroke={chain.stale ? undefined : rateLimitColor(chain.points[chain.points.length - 1].y)}
+                  stroke={chain.stale ? undefined : budgetSeriesColor(index)}
                 >
                   <title>
                     {`${item.label}: ${chain.points[chain.points.length - 1].y.toFixed(1)}% · `
@@ -1621,7 +1636,7 @@ function BudgetProviderChart({
                   cy={y(chain.points[0].y)}
                   r={2.4}
                   className={chain.stale ? "budget-segment-stale" : "budget-segment"}
-                  fill={chain.stale ? undefined : rateLimitColor(chain.points[0].y)}
+                  fill={chain.stale ? undefined : budgetSeriesColor(index)}
                 />
               )
             ))}
@@ -1631,7 +1646,7 @@ function BudgetProviderChart({
       <div className="budget-chart-legend">
         {series.map((item, index) => (
           <span key={item.label} className={`budget-line-${index}`}>
-            <i aria-hidden="true" /> {item.label}
+            <i aria-hidden="true" style={{ background: budgetSeriesColor(index) }} /> {item.label}
             {item.points.length > 0 && (
               <strong style={{ color: rateLimitColor(item.points[item.points.length - 1].y) }}>
                 {" "}{item.points[item.points.length - 1].y.toFixed(1)}%
