@@ -1519,8 +1519,9 @@ il protocollo di rework già definito per HO-00–HO-06.
 
 ## Storico del consumo di budget e attribuzione per sessione
 
-**Stato: fase A implementata e in attesa di verifica indipendente, fase B in
-corso.** Decisioni e contratto in `docs/adr/010-storico-consumo-budget.md` e
+**Stato: fase A e fase B verificate in modo indipendente e respinte, in
+attesa di rework (`IMP-BH-01-R1`, `IMP-BH-02-R1`).** Decisioni e contratto in
+`docs/adr/010-storico-consumo-budget.md` e
 `docs/contracts/budget-history-v1.md`; non riaprire né contraddire quei
 documenti da questa coda. Segue lo stesso protocollo dei subagent già in uso
 per `HO-*` (vedi sopra, "Protocollo della roadmap per i subagent"): nomi
@@ -1563,14 +1564,57 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   disattivato, rate limit dedicato, errori tipizzati `429`/`503`/`504` senza
   dettagli grezzi del collector). Suite backend: 218 passati, 0 falliti, ruff
   pulito; baseline precedente 196 passati e 1 fallito.
-- [ ] TEST-BH-01 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Verificare in
-  modo indipendente: comandi automatici e gate manuale in
-  `docs/gates/budget-history.md` (JSONL storico che cresce col timer,
-  deduplica a riposo, curva 5h coerente dopo una sessione attiva, "Aggiorna
-  adesso" con `source: "fresh"` e `429` oltre il rate limit dedicato, `grep`
-  di privacy sul JSONL). Nessun deploy eseguito da `IMP-BH-01`: il gate va
-  eseguito prima su un host di test, ricreando soltanto `web`/`backend` e mai
-  `tmux-runtime`.
+- [x] TEST-BH-01 | OWNER: SA-TEST | STATUS: FAILED | Comandi automatici
+  tutti verdi e non peggiorativi rispetto alla baseline: 236 test backend
+  (baseline 232; +18 dovuti a `test_budget_history_hardening.py` di
+  `ce507d1`), 0 falliti, ruff pulito; 58/58 `python3 -m unittest discover -s
+  deploy/tests`; 35/35 test frontend (`test:host` 14 + `test:budget` 18 +
+  `test:console` 3), build `tsc -b && vite build` pulita; test mirati del
+  gate (44 su `test_rate_limit*`, `test_session_usage*`,
+  `test_budget_history_hardening.py`) passati; `systemd-analyze --user
+  verify` sulle unit fresh pulito; `docker compose config --quiet` valido in
+  modalità docker e host, con e senza overlay `compose.budget-history.yaml`
+  (4 combinazioni); `git diff --check` pulito. Grep di privacy su
+  `.mobile-agent-console/provider-rate-limits-history.jsonl` reale (80 righe,
+  timer già attivo su questo host) senza corrispondenze a prompt/risposte/
+  transcript_path/pid/home/root; permessi `600`, proprietario host; lo
+  snapshot `provider-rate-limits.json` mantiene lo schema originale, nessun
+  campo aggiunto. Fallisce però l'attacco esplicitamente richiesto sui
+  "timestamp non UTC": il contratto (`docs/contracts/budget-history-v1.md`,
+  "Forma comune") impone che le righe con timestamp non UTC vengano
+  scartate, ma `RateLimitSample.sampled_at` con un offset esplicito non-UTC
+  (es. `+02:00`, non un caso naive) viene accettato invece che scartato, e
+  `observed_at` non è affatto validato come timestamp (campo `str` libero).
+  Non è un caso sintetico: sul file reale del timer in esecuzione 7 righe su
+  80 hanno `observed_at` in ora locale di Roma (`+02:00`) contro le 73 in
+  UTC, prodotte dal ramo di parsing testuale storico di
+  `deploy/rate-limit-collector.py` che copia l'output dello script quote
+  verbatim. Riproduzione: `docker compose run --rm backend-test python -c
+  "from app.services.rate_limit_history_service import RateLimitSample;
+  s=RateLimitSample.model_validate({'sampled_at':'2026-08-02T21:07:21+02:00','provider':'codex','windows':[]});
+  print(s.sampled_at, s.sampled_at.tzinfo)"` stampa il valore con offset
+  `+02:00` invece di sollevare/scartare la riga. Nessun 500 e nessun valore
+  inventato in nessun caso provato (righe non-JSON, non-oggetto, troncate,
+  percentuali fuori `0..100`, conteggi negativi, file assente/vuoto): il
+  difetto è circoscritto al mancato rispetto dell'invariante UTC dichiarato.
+- [ ] IMP-BH-01-R1 | OWNER: SA-IMP | STATUS: REWORK_REQUIRED | Riferimento:
+  `TEST-BH-01`. Atteso: una riga con timestamp in un fuso diverso da UTC
+  viene scartata dal parsing (o il contratto viene corretto esplicitamente
+  per ammettere/normalizzare offset non-UTC, se quella è la scelta voluta —
+  la tolleranza documentata nel commit `ce507d1` copre solo i timestamp
+  naive, non un offset esplicito). Ottenuto: `RateLimitSample.sampled_at`
+  con `+02:00` accettato e restituito con l'offset originale invece di UTC;
+  `observed_at` non tipizzato/validato come timestamp; il ramo
+  `parse_text` di `deploy/rate-limit-collector.py` copia `observed_at`
+  dallo script quote senza normalizzarlo, producendo nel file reale del
+  timer 7 righe su 80 in ora locale. Stesso pattern di validazione
+  (`require_utc`) in `SessionUsageRow.bucket_start`
+  (`session_usage_service.py`), quindi la correzione va applicata in modo
+  coerente a entrambi i modelli. Comando di riproduzione: vedi `TEST-BH-01`.
+  Aggiungere un test di regressione che verifichi lo scarto (o la
+  normalizzazione, se il contratto viene corretto in tal senso) di un
+  timestamp con offset esplicito non-UTC, non solo del caso naive già
+  coperto.
 
 #### BH-02 — Attribuzione per sessione (fase B)
 
@@ -1587,7 +1631,62 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   l'endpoint API non risultano ancora presenti nell'albero. Il contratto in
   `docs/contracts/budget-history-v1.md` resta autorevole indipendentemente
   dallo stato di avanzamento.
-- [ ] TEST-BH-02 | OWNER: SA-TEST | STATUS: BLOCKED | In attesa che
-  `IMP-BH-02` chiuda con `STATUS: DONE` e riporti commit/working tree, test
-  aggiunti, comandi da eseguire e criteri manuali prima di poter passare a
-  `READY_FOR_TEST`.
+
+  Nota di SA-TEST: questa voce non è mai stata chiusa `STATUS: DONE`, ma il
+  collector, `session-usage-history.jsonl` e l'endpoint risultano già
+  presenti e committati (`b55d56a`, precedente a questa stessa voce nella
+  cronologia). ROOT ha chiesto esplicitamente in questa sessione di
+  verificare e chiudere anche `TEST-BH-02`; si procede in deroga alla
+  transizione `BLOCKED` → `READY_FOR_TEST` prevista dal protocollo, ma senza
+  correggere questa voce, che resta di competenza di `SA-IMP`.
+- [x] TEST-BH-02 | OWNER: SA-TEST | STATUS: FAILED | Comandi automatici
+  verdi: i 20 test di `deploy/tests/test_session_usage_collector.py` (dentro
+  i 58 deploy totali), `test_session_usage_api.py`, `test_session_usage_service.py`
+  e i casi avversariali dedicati di `test_budget_history_hardening.py`
+  (conteggi negativi scartati, roll-up subagent) tutti passati. Grep di
+  privacy su `.mobile-agent-console/session-usage-history.jsonl` reale (58
+  righe, collector già attivo su questo host) senza corrispondenze a
+  prompt/risposte/transcript_path/pid/home/root; permessi `600`. Fallisce
+  però l'attacco esplicitamente richiesto su un "file di cursori corrotto":
+  un'entrata di cursore malformata per un singolo percorso (valore
+  non-oggetto invece di `{"inode":...,"offset":...,"recent_request_ids":...}`)
+  manda in eccezione non gestita `read_new_lines()` in
+  `deploy/session-usage-collector.py`
+  (`AttributeError: 'str' object has no attribute 'get'`), che risale fino a
+  `collect()`/`main()` senza alcun try/except di livello superiore: l'intero
+  ciclo del collector fallisce per tutti i file tracciati, non solo per
+  quello con l'entrata corrotta, e poiché il crash avviene prima di
+  `save_cursors()` la corruzione persiste e ripete il fallimento a ogni
+  ciclo successivo del timer finché non si interviene a mano sul file dei
+  cursori. Riproduzione:
+  ```python
+  import importlib.util, tempfile, os
+  from pathlib import Path
+  spec = importlib.util.spec_from_file_location("cli", "deploy/session-usage-collector.py")
+  mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+  d = tempfile.mkdtemp()
+  target = os.path.join(d, "transcript.jsonl")
+  Path(target).write_text('{"a":1}\n')
+  cursors = {target: "CORRUPTED-NOT-A-DICT"}  # simula load_cursors() su un file cursori corrotto
+  mod.read_new_lines(Path(target), cursors.get(target))  # AttributeError non gestita
+  ```
+  Condivide inoltre con `TEST-BH-01` lo stesso difetto di validazione
+  timestamp: `SessionUsageRow.bucket_start` usa lo stesso `require_utc` e
+  accetta un offset esplicito non-UTC invece di scartare la riga (non
+  ripetuto come motivo di fallimento separato per non duplicarlo).
+- [ ] IMP-BH-02-R1 | OWNER: SA-IMP | STATUS: REWORK_REQUIRED | Riferimento:
+  `TEST-BH-02`. Atteso: un file di cursori con un'entrata malformata non
+  deve mai interrompere l'intero ciclo del collector; al più va ignorata
+  l'entrata corrotta per quel singolo percorso, ripartendo da cursore vuoto
+  per quel percorso soltanto, coerentemente con la tolleranza già applicata
+  a inode/dimensione disallineati in `read_new_lines`. Ottenuto:
+  `AttributeError` non gestita quando il valore di `cursors.get(key)` non è
+  un `dict`, propagata fino a `main()` senza cattura, con fallimento
+  dell'intero ciclo per tutti i file. Comando di riproduzione: vedi
+  `TEST-BH-02`. Validare che ogni valore restituito da `load_cursors()` sia
+  un `dict` (scartando le entrate che non lo sono, invece di propagarle così
+  come sono) è lo stesso principio fail-closed già applicato ai due JSONL
+  pubblicati e va esteso qui. Aggiungere un test di regressione in
+  `deploy/tests/test_session_usage_collector.py` che copra un cursore
+  corrotto (valore non-dict) per un percorso, verificando che gli altri
+  percorsi continuino a essere processati normalmente.
