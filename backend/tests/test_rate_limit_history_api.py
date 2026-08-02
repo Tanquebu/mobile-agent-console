@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -52,8 +53,11 @@ def fresh_result() -> RateLimitFreshResult:
 
 
 def history_row() -> dict:
+    # Relativo a ora, mai fisso: l'endpoint filtra sulle ultime `hours` ore, e
+    # un timestamp costante fa passare il test finche' resta dentro la finestra
+    # per poi farlo fallire da solo quando ne esce.
     return {
-        "sampled_at": "2026-08-02T09:34:50+00:00",
+        "sampled_at": (datetime.now(UTC) - timedelta(minutes=5)).isoformat(),
         "provider": "claude",
         "source": "cache",
         "observed_at": "2026-08-02T09:34:41+00:00",

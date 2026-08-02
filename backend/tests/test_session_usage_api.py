@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -58,7 +59,11 @@ def test_session_usage_returns_404_when_disabled() -> None:
 
 def test_session_usage_returns_report_when_enabled(tmp_path: Path) -> None:
     path = tmp_path / "session-usage-history.jsonl"
-    path.write_text(json.dumps(usage_row("2026-08-02T09:30:00+00:00")) + "\n", encoding="utf-8")
+    # Relativo a ora, mai fisso: l'endpoint filtra sulle ultime `hours` ore, e
+    # un timestamp costante fa passare il test il giorno in cui viene scritto
+    # per poi farlo fallire da solo quando quell'istante esce dalla finestra.
+    recent = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
+    path.write_text(json.dumps(usage_row(recent)) + "\n", encoding="utf-8")
     client = legacy_client(session_usage_enabled=True, session_usage_path=str(path))
     login(client)
 
