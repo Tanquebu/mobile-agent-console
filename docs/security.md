@@ -28,6 +28,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Database locale | path privato nel workspace, nessun prompt/output/segreto, migrazioni versionate |
 | Backup manipolati | checksum archivio e file, manifest con path chiusi, restore offline e riservato all'operatore host |
 | Quote provider sensibili | collector host-side, output JSON sanitizzato; credenziali e transcript non montati nel backend |
+| Storico quote e consumo per sessione | JSONL append-only `0600` con ritenzione 14 giorni; solo l'aggiornamento forzato genera traffico verso il provider, dietro autenticazione admin e rate limit dedicato |
 | Ricognizione host | collector one-shot via socket Unix 0660; nessun mount di `/proc`, `/sys` o Docker, nessuna porta TCP e nessuna API nello spike |
 | Cronologia Claude | opt-in esplicito, derivato `0600`, soli messaggi testuali, limiti/staleness e endpoint autenticato |
 | Classificazione agenti | sole ultime righe in memoria, risposta con stato tipizzato; nessun output persistito, restituito o inserito nell'audit |
@@ -109,9 +110,24 @@ database, con lo stesso TTL di scadenza dei file corrispondenti. Il restore
 non è esposto via HTTP e deve essere eseguito con backend fermo.
 
 Il collector quote invoca soltanto i due path di script fissati nella user unit,
-con argv e timeout, senza `shell=True` e senza `--fresh`. Nel file condiviso
-finiscono provider, percentuali, reset, timestamp ed eventuali errori troncati:
-mai token, header HTTP o contenuti dei transcript. Il file usa permessi `0600`.
+con argv e timeout, senza `shell=True` e senza `--fresh`; prova prima la forma
+strutturata `--json` e ricade sul parsing testuale storico quando lo script non
+la offre. Nel file condiviso finiscono provider, percentuali, reset, timestamp
+ed eventuali errori troncati: mai token, header HTTP o contenuti dei transcript.
+Il file usa permessi `0600`.
+
+Lo stesso collector appende ogni campione a `provider-rate-limits-history.jsonl`
+(ADR 010), con lo stesso timestamp/percentuali/reset del file di stato e una
+marcatura `stale` quando la sorgente non è stata aggiornata di recente. Il file
+è `0600`, non registra mai token o header, deduplica i campioni identici
+consecutivi (una sorgente ferma non produce righe) e ruota mantenendo una
+ritenzione di 14 giorni. Il backend lo legge in sola lettura, esattamente come
+lo snapshot istantaneo. L'unica operazione che genera traffico verso il
+provider è l'aggiornamento forzato (`POST /api/v1/provider-rate-limits/refresh`):
+è opt-in (`404` se disattivato), riservata agli amministratori e protetta da un
+rate limit dedicato distinto da quello di login/mutazioni, con `429` oltre
+soglia e `503`/`504` per collector non disponibile o in timeout, senza mai
+propagare dettagli grezzi del collector nella risposta.
 
 Il boundary di osservabilità host (ADR 009) è opt-in e usa socket activation
 systemd con `Accept=yes`: ogni richiesta crea un processo one-shot confinato a
@@ -198,6 +214,22 @@ dall'API; il backend non riceve accesso a `/proc`, `~/.codex` o `~/.claude`.
 La cache context Claude contiene soltanto session UUID, percentuale, capienza,
 timestamp e pane tmux; i file sono `0600`. Il collector pubblica al backend
 soltanto la percentuale normalizzata `0..100`.
+
+Il collector del consumo per sessione (ADR 010) enumera i transcript per tempo
+di modifica, inclusi quelli dei subagent, e non parte dai pane tmux: è la
+scelta che rende osservabile anche il consumo headless. Attraversano il
+boundary soltanto identificativo di sessione del provider, id di sessione tmux
+quando esiste una mappatura viva, nome del progetto come ultimo segmento del
+percorso, modello, origine (`mac`/`headless`), marcatore di subagent e conteggi
+di token aggregati per intervallo di cinque minuti. Non attraversano il
+boundary, in nessuna forma: prompt, risposte, ragionamenti, nomi e argomenti
+degli strumenti, percorsi dei transcript, PID, working directory completa,
+hostname, username, credenziali o header HTTP. Il file dei cursori di lettura
+incrementale (percorso, inode, offset) è stato interno del collector e non
+viene mai pubblicato. Il file storico risultante,
+`session-usage-history.jsonl`, è `0600` e letto dal backend in sola lettura
+con la stessa validazione Pydantic degli altri file di stato; una riga
+malformata viene scartata senza mai far fallire la lettura.
 
 La cronologia Claude è una deliberata estensione del dato esposto: quando
 abilitata, il collector host legge il transcript e copia nel workspace

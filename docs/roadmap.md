@@ -17,7 +17,11 @@
 - M3: gran parte rilasciata; service worker, offline e preferenze (vista
   predefinita) validati sull'istanza pubblicata (TLS via ADR 008); le
   notifiche locali di M3 sono state superate dal Web Push di M4.
-- M4: concluso. Cronologia Claude anticipata; "Gestione allegati avanzata"
+- M4: concluso, con l'eccezione dello storico del consumo di budget e
+  attribuzione per sessione (ADR 010), approvato il 02/08/2026 e in corso:
+  fase A (serie storica della quota provider) implementata, non ancora
+  deployata; fase B (attribuzione per sessione) in corso. Cronologia Claude
+  anticipata; "Gestione allegati avanzata"
   completa (persistenza, anteprime, quote aggregate, deduplica, retention);
   "Supporto multi-pane esteso" completo (chiusura pane, split orizzontale/
   verticale; la vista con più pane simultanei è stata scartata
@@ -325,6 +329,21 @@ condiviso e mappatura pane ↔ session id.
   rimonta il componente Console (`key={session.id}`); gli allegati non inviati
   vengono eliminati al cambio, mentre la bozza testuale resta in memoria React
   separata per id sessione e viene ripristinata tornando alla stessa console.
+- [~] Storico del consumo di budget e attribuzione per sessione (ADR 010,
+  `docs/contracts/budget-history-v1.md`): a differenza dello snapshot quote
+  già in dashboard, la serie storica conserva i campioni nel tempo invece di
+  mostrarne uno solo. Fase A (quota globale): il collector timer scrive anche
+  `provider-rate-limits-history.jsonl` con deduplica e ritenzione 14 giorni,
+  esposto da `GET /api/v1/provider-rate-limits/history`; un aggiornamento
+  forzato on-demand (`POST /api/v1/provider-rate-limits/refresh`, admin-only,
+  opt-in, rate limit dedicato) resta l'unica azione che interroga il
+  provider. Implementata e testata, non ancora deployata sull'istanza
+  pubblicata. Fase B (attribuzione per sessione): collector che scopre i
+  transcript per tempo di modifica invece che per pane tmux, rende osservabile
+  anche il consumo headless, arrotola i subagent sotto la sessione madre e
+  distingue `origin: mac`/`headless`; espone `GET /api/v1/session-usage`. In
+  corso. Il drill-down sul contenuto dei turni resta esplicitamente fuori
+  scope, rimandato a una fase C separata.
 
 ## M5 — Espansioni
 

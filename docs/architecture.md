@@ -177,10 +177,48 @@ e `web`, preservando il runtime tmux. In modalità host la unit applicativa
 ordina il keepalive prima di Compose e non usa `PrivateTmp`.
 
 Un timer systemd host-side esegue ogni minuto gli script locali di controllo
-quote Codex e Claude senza modalità `--fresh`. Il collector scrive soltanto un
-JSON sanitizzato in `.mobile-agent-console/provider-rate-limits.json`; il
-backend legge quel file e non riceve accesso a credenziali Claude o transcript
-Codex. L'assenza o l'errore di un provider non influenza il runtime tmux.
+quote Codex e Claude senza modalità `--fresh`, provando prima la forma
+strutturata `--json` e ricadendo sul parsing testuale storico quando lo script
+non la offre. Il collector scrive soltanto un JSON sanitizzato in
+`.mobile-agent-console/provider-rate-limits.json`; il backend legge quel file
+e non riceve accesso a credenziali Claude o transcript Codex. L'assenza o
+l'errore di un provider non influenza il runtime tmux.
+
+ADR 010 aggiunge a questo stesso collector uno storico append-only,
+`.mobile-agent-console/provider-rate-limits-history.jsonl`: ogni campione porta
+provider, percentuali per finestra, epoch di reset, l'istante di raccolta e
+quello dichiarato dalla sorgente, più una marcatura `stale` quando i due
+divergono oltre soglia. Campioni identici consecutivi non vengono appesi, il
+file ruota e la ritenzione predefinita è 14 giorni. Il backend continua
+soltanto a leggere: `RateLimitHistoryService` valida ogni riga con Pydantic e
+scarta quelle non conformi senza fallire, esposte in sola lettura da
+`GET /api/v1/provider-rate-limits/history`. L'unica scrittura remota resta
+l'aggiornamento forzato: un collector one-shot attivato dallo stesso
+meccanismo di ADR 009 (socket Unix, socket activation, nessun demone) invocato
+da `POST /api/v1/provider-rate-limits/refresh`, admin-only, dietro rate limit
+dedicato e con errori tipizzati `429`/`503`/`504`. La persistenza temporale è
+quindi ammessa per le quote provider — il cui valore è nella differenza fra
+due istanti — e resta invece esclusa per l'osservabilità host (ADR 009), dove
+il valore è quasi interamente nel presente: vedi ADR 010 per la motivazione
+completa di questa asimmetria.
+
+Un secondo collector host-side, indipendente dal precedente, attribuisce il
+consumo di token per sessione scoprendo i transcript per tempo di modifica
+invece che a partire dai pane tmux — l'unico modo per rendere visibile anche
+il consumo headless (run senza pane, es. orchestratori esterni). Legge in
+modo incrementale con cursori per percorso/inode/offset, deduplica le risposte
+per identificativo di richiesta (le partial di streaming altrimenti
+moltiplicherebbero il consumo) e arrotola i subagent sotto il
+`session_uuid` della sessione madre. Scrive
+`.mobile-agent-console/session-usage-history.jsonl` (righe per intervallo di
+cinque minuti, sessione, modello e natura subagent), letto dal backend in
+sola lettura e validato riga per riga. L'origine è `mac` quando l'id di
+sessione tmux mappa un pane vivo, altrimenti `headless`; la differenza fra la
+crescita della quota globale e la somma attribuita è pubblicata come residuo,
+non nascosta. Il contratto completo di entrambi i file è in
+`docs/contracts/budget-history-v1.md`. Questa fase è in corso: lo stato di
+avanzamento di collector ed endpoint è tracciato in `docs/backlog.md`
+(`BH-02`).
 
 Un secondo collector host-side correla i PID dei pane con i transcript JSONL
 aperti da Codex o aggiornati da Claude. Ogni cinque secondi pubblica soltanto

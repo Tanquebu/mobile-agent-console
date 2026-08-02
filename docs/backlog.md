@@ -1514,3 +1514,80 @@ il protocollo di rework già definito per HO-00–HO-06.
   web; health e gate browser Host live passano e le quattro sessioni tmux sono
   rimaste invariate. La scansione delle modifiche non rileva secret, chiavi,
   host/IP, percorsi locali o riferimenti a infrastrutture private.
+
+---
+
+## Storico del consumo di budget e attribuzione per sessione
+
+**Stato: fase A implementata e in attesa di verifica indipendente, fase B in
+corso.** Decisioni e contratto in `docs/adr/010-storico-consumo-budget.md` e
+`docs/contracts/budget-history-v1.md`; non riaprire né contraddire quei
+documenti da questa coda. Segue lo stesso protocollo dei subagent già in uso
+per `HO-*` (vedi sopra, "Protocollo della roadmap per i subagent"): nomi
+logici `ROOT`/`SA-IMP`/`SA-TEST`, `STATUS` come esito autorevole, rework con
+suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
+
+#### BH-00 — Gate prodotto e decisioni
+
+- [x] GATE-BH-00 | OWNER: ROOT | STATUS: PASSED | Piano approvato
+  dall'utente il 02/08/2026. Confini approvati: fase A (storico della quota
+  globale) e fase B (attribuzione per sessione) autorizzate ora; il
+  drill-down sul contenuto dei turni resta esplicitamente fuori da questo
+  round ed è rimandato a una fase C separata, non avviata e non pianificata.
+  `IMP-BH-01` attivato.
+
+#### BH-01 — Storico della quota globale (fase A)
+
+- [x] IMP-BH-01 | OWNER: SA-IMP | STATUS: DONE | Implementati collector,
+  boundary e API dello storico quota. `deploy/rate-limit-collector.py` prova
+  prima la forma strutturata `--json` e ricade sul parsing testuale storico
+  quando lo script non la offre; continua a scrivere lo snapshot
+  `provider-rate-limits.json` con contratto invariato e in più appende
+  `provider-rate-limits-history.jsonl` con `resets_at` epoch, marcatura
+  `stale`, deduplica dei campioni identici consecutivi, rotazione e ritenzione
+  14 giorni, permessi `0600`. Le unit
+  `mobile-agent-console-rate-limit-fresh.socket`/`@.service` aggiungono
+  l'aggiornamento forzato on-demand via socket activation, riusando la
+  directory runtime e la unit di preparazione ACL dell'osservabilità host;
+  l'hardening diverge da quella unit per tre ragioni documentate nel file
+  stesso (scrittura sotto `MAC_WORKSPACE_ROOT` non esprimibile in
+  `ReadWritePaths` con variabili da `EnvironmentFile`, lettura della home per
+  le credenziali dello script quote, famiglie di indirizzi che includono
+  `AF_INET`/`AF_INET6` perché il campione fresh deve poter interrogare il
+  provider). `compose.budget-history.yaml` è l'overlay opt-in. Backend:
+  `jsonl_tail.py` (lettura coda tollerante a righe troncate),
+  `rate_limit_history_service.py`, `unix_socket_json_client.py` (base
+  generica estratta dal client host-observability), `rate_limit_fresh_client.py`,
+  endpoint `GET /api/v1/provider-rate-limits/history` (sessione attiva) e
+  `POST /api/v1/provider-rate-limits/refresh` (admin, opt-in con `404` se
+  disattivato, rate limit dedicato, errori tipizzati `429`/`503`/`504` senza
+  dettagli grezzi del collector). Suite backend: 218 passati, 0 falliti, ruff
+  pulito; baseline precedente 196 passati e 1 fallito.
+- [ ] TEST-BH-01 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Verificare in
+  modo indipendente: comandi automatici e gate manuale in
+  `docs/gates/budget-history.md` (JSONL storico che cresce col timer,
+  deduplica a riposo, curva 5h coerente dopo una sessione attiva, "Aggiorna
+  adesso" con `source: "fresh"` e `429` oltre il rate limit dedicato, `grep`
+  di privacy sul JSONL). Nessun deploy eseguito da `IMP-BH-01`: il gate va
+  eseguito prima su un host di test, ricreando soltanto `web`/`backend` e mai
+  `tmux-runtime`.
+
+#### BH-02 — Attribuzione per sessione (fase B)
+
+- [ ] IMP-BH-02 | OWNER: SA-IMP | STATUS: IN_PROGRESS | Collector
+  `deploy/session-usage-collector.py` che scopre i transcript per tempo di
+  modifica (non per pane tmux), con lettura incrementale a cursori
+  percorso/inode/offset, deduplica delle risposte per identificativo di
+  richiesta, roll-up dei subagent sotto il `session_uuid` della sessione madre
+  e distinzione `origin` fra `mac` e `headless`; endpoint
+  `GET /api/v1/session-usage`. Al momento di questa voce risulta presente sul
+  disco soltanto il modello Pydantic backend
+  (`backend/app/services/session_usage_service.py`, `SessionUsageRow`); il
+  collector host-side, il file storico `session-usage-history.jsonl` e
+  l'endpoint API non risultano ancora presenti nell'albero. Il contratto in
+  `docs/contracts/budget-history-v1.md` resta autorevole indipendentemente
+  dallo stato di avanzamento.
+- [ ] TEST-BH-02 | OWNER: SA-TEST | STATUS: BLOCKED | In attesa che
+  `IMP-BH-02` chiuda con `STATUS: DONE` e riporti commit/working tree, test
+  aggiunti, comandi da eseguire e criteri manuali prima di poter passare a
+  `READY_FOR_TEST`.
