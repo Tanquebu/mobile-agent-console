@@ -1739,9 +1739,16 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   previsto. `python3 -m unittest discover -s deploy/tests`: 59 passati, 0
   falliti (58 di baseline + 1 nuovo test di regressione).
 
-#### BH-03 — Segnale osservabile per il fallback di parsing testuale (proposta, non decisa)
+#### BH-03 — Proprietà dello strato quote e segnale osservabile sul fallback
 
-- [ ] GATE-BH-03 | OWNER: ROOT | STATUS: PROPOSED | Nel corso di un lavoro
+- [x] GATE-BH-03 | OWNER: ROOT | STATUS: PASSED | Approvato dall'utente il
+  02/08/2026 con una correzione di impostazione rispetto alla proposta
+  originale, riportata in coda a questa voce sotto "Addendum". Il testo
+  seguente resta come è stato scritto al momento della proposta: l'analisi
+  del fallback silenzioso e il rifiuto dell'opzione 1 restano validi,
+  l'addendum aggiunge la dimensione mancante. `IMP-BH-03` è sbloccato.
+
+  Testo originale della proposta. Nel corso di un lavoro
   collaterale del 02/08/2026 (aggiunta di `--json` a `~/.codex/rate-limit.sh`,
   fuori da questa coda) è stato osservato dal vivo il fenomeno per cui questa
   voce propone un rimedio: prima della modifica, il collector produceva per
@@ -1798,6 +1805,65 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   nessuna implementazione avviata, `IMP-BH-03` resta bloccato in attesa
   dell'approvazione dell'utente sull'opzione 2 (o di un'opzione
   alternativa).
+
+  **Addendum del 02/08/2026 — proprietà dello strato quote.** La proposta
+  originale trattava il fallback silenzioso come un problema di MAC. Lo è
+  solo a metà: la metà mancante è che gli script quote **non hanno un
+  proprietario**, e le copie stanno già divergendo. Rilevazione diretta
+  sull'host di sviluppo: lo script quote di Codex esiste in due esemplari
+  di dimensione diversa, uno invocato da questo prodotto e uno versionato
+  nel repository dell'orchestratore esterno; dopo il lavoro del 02/08/2026
+  solo il primo conosce `--json`, quindi la copia versionata è la più
+  vecchia delle due. Lo script quote di Claude non è versionato in nessun
+  repository. Esistono inoltre due watchdog distinti, uno per provider, in
+  posti diversi.
+
+  Decisione approvata: **il proprietario dello strato quote è il componente
+  esterno di orchestrazione**, non questo prodotto. Decidere se un agente
+  può partire è compito di chi schedula; qui le quote si mostrano soltanto.
+  Le copie in `$HOME` diventano artefatti installati da quel componente,
+  non sorgenti.
+
+  Conseguenze per questa coda, che non cambiano il boundary di MAC:
+
+  - il collector continua a invocare **percorsi configurati**, mai una
+    posizione assunta: il prodotto resta funzionante e installabile anche
+    senza il componente di orchestrazione, e nessuna dipendenza nuova entra
+    nel repository;
+  - **non si versiona qui alcuna copia degli script**. L'opzione 1 resta
+    scartata, e ora per una ragione in più rispetto a quelle già scritte
+    sopra: creerebbe un terzo esemplare divergente dello stesso file,
+    esattamente il problema che questa voce deve chiudere;
+  - ciò che va scritto qui è il **contratto di formato** che il collector si
+    aspetta dagli script quote (invocazione, forma strutturata, campi,
+    degradazione ammessa), oggi implicito nel codice di
+    `deploy/rate-limit-collector.py`. Il contratto è l'unica cosa che questo
+    repository possiede legittimamente di quello strato;
+  - l'opzione 2 resta valida e diventa la rete di sicurezza di quel
+    contratto: se la sorgente smette di rispettarlo, il prodotto deve
+    dirlo invece di degradare in silenzio.
+
+  Resta aperta una seconda asimmetria, da chiudere nella stessa passata:
+  l'integrazione da questo prodotto verso il componente di orchestrazione
+  avviene oggi invocandone direttamente uno script sul filesystem, mentre
+  quella in direzione opposta ha un contratto esplicito (endpoint HTTP su
+  loopback, token, collector che sanifica). La prima va documentata come
+  contratto su entrambi i lati o ricondotta alla seconda forma; oggi non è
+  descritta da nessuna delle due parti.
+
+- [ ] IMP-BH-03 | OWNER: SA-IMP | STATUS: READY | Documentare in
+  `docs/contracts/` il contratto di formato atteso dagli script quote, e
+  propagare l'esito del parsing come informazione pubblicata sulla riga
+  storica (opzione 2), con l'avviso corrispondente nella vista Budget.
+  Aggiornare `docs/contracts/budget-history-v1.md` e il gate manuale.
+  Vincoli: nessuna copia degli script nel repository, nessun percorso
+  assunto, nessun nome di componente esterno nei file versionati.
+
+- [ ] TEST-BH-03 | OWNER: SA-TEST | STATUS: BLOCKED | Sbloccato da
+  `IMP-BH-03`. Verificare che una sorgente priva della forma strutturata
+  produca righe marcate come tali e l'avviso in vista, che una sorgente
+  conforme non lo produca, e che l'assenza degli script non causi errori
+  ma solo indisponibilità dichiarata.
 
 #### BH-04 — Piano fase C: drill-down dalla sessione alla timeline (non approvata)
 
