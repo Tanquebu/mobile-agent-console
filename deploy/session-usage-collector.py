@@ -67,7 +67,13 @@ def load_cursors(path: Path) -> dict[str, dict[str, Any]]:
         data = json.loads(raw)
     except (json.JSONDecodeError, UnicodeDecodeError):
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    # Stesso principio fail-closed del parsing delle righe JSONL: un'entrata
+    # per-percorso malformata (non un oggetto) viene scartata singolarmente
+    # invece di propagarsi come AttributeError in `read_new_lines()` e
+    # abbattere l'intero ciclo del collector per tutti i file tracciati.
+    return {key: value for key, value in data.items() if isinstance(value, dict)}
 
 
 def save_cursors(path: Path, cursors: dict[str, dict[str, Any]]) -> None:

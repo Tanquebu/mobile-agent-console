@@ -337,6 +337,60 @@ class SessionUsageCollectorTest(unittest.TestCase):
 
         self.assertEqual(cursors, {})
 
+    def test_corrupted_cursor_entry_is_dropped_for_its_path_only(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            corrupted_uuid = "33333333-3333-3333-3333-333333333333"
+            healthy_uuid = "44444444-4444-4444-4444-444444444444"
+            corrupted_transcript = root / "claude" / "projects" / "demo" / f"{corrupted_uuid}.jsonl"
+            healthy_transcript = root / "claude" / "projects" / "demo" / f"{healthy_uuid}.jsonl"
+            write_jsonl(
+                corrupted_transcript,
+                [assistant_record(session_id=corrupted_uuid, request_id="req-a1", input_tokens=1)],
+            )
+            write_jsonl(
+                healthy_transcript,
+                [assistant_record(session_id=healthy_uuid, request_id="req-b1", input_tokens=2)],
+            )
+            args = make_args(root)
+            run_once(args)
+
+            # Corrompe a mano l'entrata del cursore per un solo percorso
+            # (valore stringa invece dell'oggetto atteso), come accadrebbe
+            # con un file cursori scritto a metà o modificato a mano.
+            cursor_path = Path(args.cursor_file)
+            cursors = json.loads(cursor_path.read_text(encoding="utf-8"))
+            healthy_key = str(healthy_transcript.resolve())
+            self.assertIsInstance(cursors[healthy_key], dict)
+            cursors[str(corrupted_transcript.resolve())] = "CORRUPTED-NOT-A-DICT"
+            cursor_path.write_text(json.dumps(cursors), encoding="utf-8")
+
+            write_jsonl(
+                corrupted_transcript,
+                [assistant_record(session_id=corrupted_uuid, request_id="req-a2", input_tokens=10)],
+            )
+            write_jsonl(
+                healthy_transcript,
+                [assistant_record(session_id=healthy_uuid, request_id="req-b2", input_tokens=20)],
+            )
+
+            # Non deve sollevare AttributeError né interrompere il ciclo per
+            # il percorso sano.
+            second_rows = run_once(args)
+
+        rows_by_session = {row["session_uuid"]: row for row in second_rows}
+        # Il percorso con il cursore corrotto riparte da cursore vuoto:
+        # l'intero file viene riletto, incluse le righe già viste in
+        # precedenza, perché l'informazione di dedup andava persa insieme
+        # all'entrata scartata.
+        self.assertEqual(rows_by_session[corrupted_uuid]["turns"], 2)
+        self.assertEqual(rows_by_session[corrupted_uuid]["input_tokens"], 1 + 10)
+        # Il percorso sano non viene toccato dalla corruzione altrove nel
+        # file dei cursori: solo la riga nuova viene letta, a partire dal
+        # proprio cursore salvato.
+        self.assertEqual(rows_by_session[healthy_uuid]["turns"], 1)
+        self.assertEqual(rows_by_session[healthy_uuid]["input_tokens"], 20)
+
     def test_buckets_align_to_five_minutes_and_sum_within_bucket(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
