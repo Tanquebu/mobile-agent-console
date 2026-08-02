@@ -1519,8 +1519,8 @@ il protocollo di rework già definito per HO-00–HO-06.
 
 ## Storico del consumo di budget e attribuzione per sessione
 
-**Stato: fase A e fase B verificate in modo indipendente e respinte, in
-attesa di rework (`IMP-BH-01-R1`, `IMP-BH-02-R1`).** Decisioni e contratto in
+**Stato: fase A e fase B verificate una seconda volta dopo il rework
+(`IMP-BH-01-R1`, `IMP-BH-02-R1`), entrambe `PASSED`.** Decisioni e contratto in
 `docs/adr/010-storico-consumo-budget.md` e
 `docs/contracts/budget-history-v1.md`; non riaprire né contraddire quei
 documenti da questa coda. Segue lo stesso protocollo dei subagent già in uso
@@ -1597,7 +1597,7 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   inventato in nessun caso provato (righe non-JSON, non-oggetto, troncate,
   percentuali fuori `0..100`, conteggi negativi, file assente/vuoto): il
   difetto è circoscritto al mancato rispetto dell'invariante UTC dichiarato.
-- [ ] IMP-BH-01-R1 | OWNER: SA-IMP | STATUS: REWORK_REQUIRED | Riferimento:
+- [x] IMP-BH-01-R1 | OWNER: SA-IMP | STATUS: DONE | Riferimento:
   `TEST-BH-01`. Atteso: una riga con timestamp in un fuso diverso da UTC
   viene scartata dal parsing (o il contratto viene corretto esplicitamente
   per ammettere/normalizzare offset non-UTC, se quella è la scelta voluta —
@@ -1615,6 +1615,31 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   normalizzazione, se il contratto viene corretto in tal senso) di un
   timestamp con offset esplicito non-UTC, non solo del caso naive già
   coperto.
+
+  Fatto: `require_utc` in `rate_limit_history_service.py` e in
+  `session_usage_service.py` (stesso pattern in entrambi) ora solleva
+  `ValueError` quando il timestamp ha un `tzinfo` con offset esplicito
+  diverso da UTC (`value.utcoffset() != timedelta(0)`), lasciando invariata
+  la normalizzazione del caso naive. Il chiamante in entrambi i servizi già
+  catturava `ValidationError` e scartava la riga (`continue`): non è stato
+  necessario toccare la logica di lettura. `observed_at` resta `str | None`
+  non tipizzato, fuori scope come annotato sopra (coerente con lo stesso
+  pattern già in uso in `rate_limit_status_service.py` e
+  `orchestrator_state_service.py`, non specifico di questo rework). Aggiunto
+  `test_non_utc_offset_timestamp_is_discarded` in
+  `backend/tests/test_rate_limit_history_service.py` e in
+  `backend/tests/test_session_usage_service.py`, entrambi con lo stesso
+  timestamp d'attacco usato nella riproduzione di `TEST-BH-01`.
+- [x] TEST-BH-01-T2 | OWNER: ROOT | STATUS: PASSED | Verifica di chiusura
+  eseguita direttamente da ROOT (non da un subagent SA-TEST dedicato):
+  riprodotto esattamente il comando di `TEST-BH-01`
+  (`RateLimitSample.model_validate({'sampled_at':'2026-08-02T21:07:21+02:00',...})`)
+  dentro `docker compose run --rm backend-test`, ora solleva
+  `ValidationError` invece di accettare l'offset. `docker compose run --rm
+  backend-test` (rebuild dell'immagine incluso): 238 passati, 0 falliti (236
+  di baseline + 2 nuovi test di regressione), `ruff check .` pulito
+  (`All checks passed!`). `docker compose config --quiet` valido sia in
+  modalità docker sia in modalità host (`compose.host.yaml`).
 
 #### BH-02 — Attribuzione per sessione (fase B)
 
@@ -1674,7 +1699,7 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   timestamp: `SessionUsageRow.bucket_start` usa lo stesso `require_utc` e
   accetta un offset esplicito non-UTC invece di scartare la riga (non
   ripetuto come motivo di fallimento separato per non duplicarlo).
-- [ ] IMP-BH-02-R1 | OWNER: SA-IMP | STATUS: REWORK_REQUIRED | Riferimento:
+- [x] IMP-BH-02-R1 | OWNER: SA-IMP | STATUS: DONE | Riferimento:
   `TEST-BH-02`. Atteso: un file di cursori con un'entrata malformata non
   deve mai interrompere l'intero ciclo del collector; al più va ignorata
   l'entrata corrotta per quel singolo percorso, ripartendo da cursore vuoto
@@ -1690,3 +1715,86 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   `deploy/tests/test_session_usage_collector.py` che copra un cursore
   corrotto (valore non-dict) per un percorso, verificando che gli altri
   percorsi continuino a essere processati normalmente.
+
+  Fatto: `load_cursors()` in `deploy/session-usage-collector.py` ora scarta
+  (senza propagare) le entrate del dict top-level il cui valore non è a sua
+  volta un `dict`, invece di limitarsi a validare solo il contenitore
+  esterno. Firma invariata (`dict[str, dict[str, Any]]`, ora un tipo
+  realmente garantito); `read_new_lines()` non toccata, non ne aveva
+  bisogno. Aggiunto
+  `test_corrupted_cursor_entry_is_dropped_for_its_path_only` in
+  `deploy/tests/test_session_usage_collector.py`: un file di cursori con
+  un'entrata corrotta (stringa) per un percorso e un'entrata valida per un
+  secondo percorso, verifica che il ciclo successivo non sollevi eccezioni,
+  che il percorso corrotto riparta da cursore vuoto (rilegge tutto il file)
+  e che il percorso sano usi il proprio cursore salvato senza essere
+  toccato dalla corruzione altrove nel file.
+- [x] TEST-BH-02-T2 | OWNER: ROOT | STATUS: PASSED | Verifica di chiusura
+  eseguita direttamente da ROOT (non da un subagent SA-TEST dedicato):
+  riprodotto lo scenario esatto di `TEST-BH-02` (cursore corrotto per un
+  percorso, valore stringa invece di oggetto) chiamando direttamente
+  `load_cursors()`/`read_new_lines()` fuori da qualsiasi mock — l'entrata
+  corrotta viene scartata da `load_cursors()`, `read_new_lines()` non
+  solleva più `AttributeError` e il file viene riletto da zero come
+  previsto. `python3 -m unittest discover -s deploy/tests`: 59 passati, 0
+  falliti (58 di baseline + 1 nuovo test di regressione).
+
+#### BH-03 — Segnale osservabile per il fallback di parsing testuale (proposta, non decisa)
+
+- [ ] GATE-BH-03 | OWNER: ROOT | STATUS: PROPOSED | Nel corso di un lavoro
+  collaterale del 02/08/2026 (aggiunta di `--json` a `~/.codex/rate-limit.sh`,
+  fuori da questa coda) è stato osservato dal vivo il fenomeno per cui questa
+  voce propone un rimedio: prima della modifica, il collector produceva per
+  Codex righe storiche con `resets_at: null` su tutte le finestre, perché lo
+  script quote di Codex non offriva la forma strutturata e il collector
+  ricadeva sul parsing testuale — esattamente il comportamento descritto in
+  ADR 010 ("Conseguenze e limiti": «la sorgente strutturata delle
+  percentuali vive fuori dal repository, negli script quote dell'utente. Il
+  collector deve degradare al parsing testuale esistente quando lo script
+  non offre la forma strutturata»). Questo non è in discussione: la voce non
+  riapre né contraddice ADR 010, che accetta esplicitamente il fallback come
+  comportamento voluto.
+
+  Il problema è un secondo passo mai affrontato: quel fallback è silenzioso.
+  `~/.claude/rate-limit.sh` e `~/.codex/rate-limit.sh` vivono fuori dal repo
+  per costruzione — sono personalizzazioni di deployment coerenti con la
+  regola di CLAUDE.md di non versionare dettagli di infrastruttura personale
+  e con `customizations/`/`CLAUDE.local.md` in `.gitignore`; leggono
+  credenziali OAuth locali e i transcript dell'utente, legati
+  all'installazione personale degli strumenti sull'host, non al prodotto. Se
+  uno dei due script viene sovrascritto, reinstallato o perde il supporto a
+  `--json` in futuro, `deploy/rate-limit-collector.py:collect()` ricade in
+  automatico su `parse_text()` (voluto) ma `resets_at` torna `null` per quel
+  provider senza che nulla nel prodotto lo segnali: la serie storica smette
+  silenziosamente di segmentare le finestre ai reset e nessuno se ne accorge
+  finché non serve un'indagine su quei dati.
+
+  Due opzioni valutate:
+
+  1. **Versionare gli script nel repo** (es. sotto `deploy/`) e farli
+     invocare dal collector al posto di quelli personali in `$HOME`.
+     Scartata: contraddice sia la regola CLAUDE.md sulle personalizzazioni di
+     deployment sia la premessa esplicita di ADR 010 secondo cui la sorgente
+     strutturata vive fuori dal repository per scelta. Adottarla
+     richiederebbe riaprire ADR 010, esplicitamente vietato da questa coda
+     ("non riaprire né contraddire quei documenti").
+  2. **Emettere un segnale osservabile quando il fallback si attiva**
+     (opzione raccomandata da ROOT, non ancora approvata). `collect()` in
+     `deploy/rate-limit-collector.py` già distingue internamente se
+     `parse_structured()` ha avuto successo o se si è ricaduti su
+     `parse_text()` (righe 138-151): propagare quel fatto come informazione
+     pubblicata, ad es. un campo `"parse_mode": "structured"|"text"` sulla
+     riga storica, così la vista Budget può mostrare un avviso quando le
+     righe più recenti di un provider sono tutte in modalità testuale pur
+     avendo `resets_at` valorizzato altrove nella serie — stesso principio
+     del badge già esistente per `stale`.
+
+  L'opzione 2 allarga il contratto pubblicato
+  (`docs/contracts/budget-history-v1.md`, sezioni "Forma comune" e "Serie
+  storica della quota") con un campo che oggi non attraversa il boundary, e
+  potenzialmente la superficie della vista Budget. Per lo stesso motivo per
+  cui `GATE-BH-00` ha richiesto approvazione esplicita prima di avviare
+  `IMP-BH-01`, questa non è una decisione che `ROOT` può prendere da solo:
+  nessuna implementazione avviata, `IMP-BH-03` resta bloccato in attesa
+  dell'approvazione dell'utente sull'opzione 2 (o di un'opzione
+  alternativa).
