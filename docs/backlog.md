@@ -1498,3 +1498,19 @@ il protocollo di rework già definito per HO-00–HO-06.
   dettaglio, export deep-equal, clipboard, refresh e assenza di polling. Deploy
   eseguito ricreando esclusivamente `web`; backend e quattro sessioni tmux sono
   invariati. `git diff --check` passa.
+
+### SESSION-UX-01 — Nomi Unicode e continuità della console
+
+- [x] IMP-SESSION-UX-01 | OWNER: ROOT | STATUS: DONE | I nomi di sessione
+  accettano lettere e numeri Unicode con normalizzazione NFC, mantenendo limite
+  di 64 caratteri, separatori ammessi e target tmux esclusivamente numerici.
+  Le bozze testuali sono conservate separatamente per session id durante i
+  cambi console; per Codex e Claude è disponibile `Clear`, inviato come testo
+  seguito da `Enter` separato. Aggiornati contratti, documentazione pubblica,
+  test UI e `LATEST_RELEASE`.
+- [x] TEST-SESSION-UX-01-T1 | OWNER: ROOT | STATUS: PASSED | Backend mirato
+  `96 passed`, Ruff, test UI `17/17`, build frontend, fixture Chromium mobile e
+  tre configurazioni Compose passano. Il deploy ha ricreato soltanto backend e
+  web; health e gate browser Host live passano e le quattro sessioni tmux sono
+  rimaste invariate. La scansione delle modifiche non rileva secret, chiavi,
+  host/IP, percorsi locali o riferimenti a infrastrutture private.

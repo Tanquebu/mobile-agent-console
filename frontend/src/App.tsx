@@ -112,11 +112,13 @@ const MIN_PANE_COLUMNS = 120;
 // (vedi main.py, stream()).
 const MAX_TERMINAL_LINES = 2000;
 const LOAD_MORE_STEP_LINES = 500;
+const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
+const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Dettagli Host richiudibili",
+  title: "Console più fluida e nomi Unicode",
   description:
-    "Le sezioni Host partono chiuse: titolo e stato restano visibili, mentre metriche e liste si aprono solo quando servono.",
+    "Nomi sessione accentati, bozze separate per sessione e scorciatoia Clear per Codex e Claude.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1915,8 +1917,14 @@ function SessionList({
   }
 
   async function renameListedSession(session: Session) {
-    const nextName = window.prompt("Nuovo nome della sessione", session.name)?.trim();
+    const promptedName = window.prompt("Nuovo nome della sessione", session.name);
+    if (promptedName === null) return;
+    const nextName = promptedName.trim().normalize("NFC");
     if (!nextName || nextName === session.name) return;
+    if (nextName.length > 64 || !SESSION_NAME_PATTERN.test(nextName)) {
+      setError(SESSION_NAME_HINT);
+      return;
+    }
     setError("");
     try {
       await renameSession(session.id, nextName);
@@ -2088,12 +2096,17 @@ function SessionList({
       )}
       {creating && <form className="create-form" onSubmit={async (event) => {
         event.preventDefault();
+        const normalizedName = name.trim().normalize("NFC");
+        if (!SESSION_NAME_PATTERN.test(normalizedName)) {
+          setError(SESSION_NAME_HINT);
+          return;
+        }
         try {
-          await createSession(name, directory, profile);
+          await createSession(normalizedName, directory, profile);
           const updatedSessions = await listSessions();
           setCreating(false); setName(""); setProfile("shell"); setError("");
           setSessions(updatedSessions);
-          const createdSession = updatedSessions.find((session) => session.name === name.trim());
+          const createdSession = updatedSessions.find((session) => session.name === normalizedName);
           if (createdSession) onOpen(createdSession);
         } catch (value) {
           setError(errorMessage(value));
@@ -2101,9 +2114,9 @@ function SessionList({
       }}>
         <input
           required
-          pattern="[A-Za-z0-9_-]+( [A-Za-z0-9_-]+)*"
+          pattern="[\\p{L}\\p{N}_-]+( [\\p{L}\\p{N}_-]+)*"
           maxLength={64}
-          title="Usa lettere, numeri, trattini e spazi singoli tra le parole"
+          title={SESSION_NAME_HINT}
           placeholder="Nome sessione"
           value={name}
           onChange={(event) => setName(event.target.value)}
@@ -2387,17 +2400,20 @@ function Console({
   onSwitch,
   recentSessions,
   identity,
+  draft,
+  onDraftChange,
 }: {
   session: Session;
   onBack: () => void;
   onSwitch: (session: Session) => void;
   recentSessions: Session[];
   identity: Identity;
+  draft: string;
+  onDraftChange: (draft: string) => void;
 }) {
   const [content, setContent] = useState("");
   const contentRef = useRef(content);
   useEffect(() => { contentRef.current = content; }, [content]);
-  const [draft, setDraft] = useState("");
   const [connection, setConnection] = useState<Connection>("connecting");
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -2405,6 +2421,7 @@ function Console({
   const [followingOutput, setFollowingOutput] = useState(true);
   const [showSpecialKeys, setShowSpecialKeys] = useState(false);
   const [compacting, setCompacting] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [sendingArtifactPrompt, setSendingArtifactPrompt] = useState(false);
   const [showDirectory, setShowDirectory] = useState(false);
   const [showArtifacts, setShowArtifacts] = useState(false);
@@ -2843,7 +2860,7 @@ function Console({
         attachments.map((attachment) => attachment.id),
         paneId || undefined,
       );
-      setDraft("");
+      onDraftChange("");
       setAttachments([]);
       setControlError("");
     } catch (value) {
@@ -2921,6 +2938,19 @@ function Console({
       setControlError(errorMessage(value));
     } finally {
       setCompacting(false);
+    }
+  }
+
+  async function runClear() {
+    setClearing(true);
+    setControlError("");
+    try {
+      await sendText(session.id, "/clear", [], paneId || undefined);
+      await sendEnter(session.id, paneId || undefined);
+    } catch (value) {
+      setControlError(errorMessage(value));
+    } finally {
+      setClearing(false);
     }
   }
 
@@ -3260,7 +3290,7 @@ function Console({
         )}
         <textarea
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => onDraftChange(event.target.value)}
           placeholder="Scrivi o incolla un prompt…"
           rows={3}
           maxLength={65536}
@@ -3298,13 +3328,22 @@ function Console({
               {sendingArtifactPrompt ? "Invio istruzioni…" : "Consegna artefatto"}
             </button>
             {agentic && (
-              <button
-                disabled={connection === "closed" || compacting}
-                type="button"
-                onClick={() => void runCompact()}
-              >
-                {compacting ? "Compact…" : "Compact"}
-              </button>
+              <>
+                <button
+                  disabled={connection === "closed" || compacting || clearing}
+                  type="button"
+                  onClick={() => void runCompact()}
+                >
+                  {compacting ? "Compact…" : "Compact"}
+                </button>
+                <button
+                  disabled={connection === "closed" || compacting || clearing}
+                  type="button"
+                  onClick={() => void runClear()}
+                >
+                  {clearing ? "Clear…" : "Clear"}
+                </button>
+              </>
             )}
             <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Up")}>↑ Up</button>
             <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Down")}>↓ Down</button>
@@ -3412,6 +3451,7 @@ function Console({
 export default function App() {
   const online = useOnlineStatus();
   const [active, setActive] = useState<Session | null>(null);
+  const [draftsBySession, setDraftsBySession] = useState<Record<string, string>>({});
   const [recentSessions, setRecentSessions] = useState<Session[]>(readRecentSessions);
   const [identity, setIdentity] = useState<Identity | null | undefined>(undefined);
   const [username, setUsername] = useState("admin");
@@ -3435,6 +3475,15 @@ export default function App() {
   function closeSession() {
     if (active) rememberSession(active);
     setActive(null);
+  }
+  function setSessionDraft(sessionId: string, draft: string) {
+    setDraftsBySession((current) => {
+      if (!draft) {
+        const { [sessionId]: _removed, ...remaining } = current;
+        return remaining;
+      }
+      return { ...current, [sessionId]: draft };
+    });
   }
   useEffect(() => {
     // Copre anche Console (WS/polling), non solo la lista sessioni: una
@@ -3485,6 +3534,8 @@ export default function App() {
           onBack={closeSession}
           onSwitch={openSession}
           recentSessions={recentSessions.filter((item) => item.id !== active.id)}
+          draft={draftsBySession[active.id] ?? ""}
+          onDraftChange={(draft) => setSessionDraft(active.id, draft)}
         />
       )
       : <SessionList identity={identity} onOpen={openSession} />;

@@ -1,0 +1,32 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+const consoleView = app.slice(app.indexOf("function Console("), app.indexOf("export default function App()"));
+const rootApp = app.slice(app.indexOf("export default function App()"));
+
+test("i nomi sessione Unicode sono normalizzati e validati anche nel client", () => {
+  assert.match(app, /SESSION_NAME_PATTERN = \/\^\[\\p\{L\}\\p\{N\}_-\]/);
+  assert.match(app, /trim\(\)\.normalize\("NFC"\)/);
+  assert.match(app, /SESSION_NAME_HINT/);
+});
+
+test("la bozza testuale resta separata per session id e non usa persistenza", () => {
+  const draftState = rootApp.slice(
+    rootApp.indexOf("function setSessionDraft("),
+    rootApp.indexOf("useEffect(() =>", rootApp.indexOf("function setSessionDraft(")),
+  );
+  assert.match(rootApp, /draftsBySession/);
+  assert.match(rootApp, /draft=\{draftsBySession\[active\.id\] \?\? ""\}/);
+  assert.match(rootApp, /onDraftChange=\{\(draft\) => setSessionDraft\(active\.id, draft\)\}/);
+  assert.match(consoleView, /value=\{draft\}[\s\S]*onChange=\{\(event\) => onDraftChange\(event\.target\.value\)\}/);
+  assert.doesNotMatch(draftState, /localStorage|sessionStorage|indexedDB/);
+});
+
+test("Clear invia testo ed Enter come operazioni distinte solo nei controlli agentici", () => {
+  assert.match(consoleView, /await sendText\(session\.id, "\/clear", \[\], paneId \|\| undefined\);[\s\S]*await sendEnter\(session\.id, paneId \|\| undefined\)/);
+  assert.match(consoleView, /\{agentic && \([\s\S]*onClick=\{\(\) => void runClear\(\)\}[\s\S]*\{clearing \? "Clear…" : "Clear"\}/);
+  assert.match(consoleView, /disabled=\{connection === "closed" \|\| compacting \|\| clearing\}/);
+  assert.doesNotMatch(consoleView, /sendText\([^\n]*"\/clear[^\n]*Enter/);
+});

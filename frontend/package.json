@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "test:host": "node --test tests/host-observability-ui.test.mjs",
+    "test:console": "node --test tests/session-console-ui.test.mjs",
+    "test:ui": "npm run test:host && npm run test:console",
     "test:host:browser": "node tests/host-observability-browser.mjs",
+    "test:console:browser": "node tests/session-console-browser.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },

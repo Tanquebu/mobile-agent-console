@@ -322,9 +322,9 @@ condiviso e mappatura pane ↔ session id.
   agente (solo sessioni Codex/Claude) con stato corrente, contesto usato e
   quote del provider di questa sessione, sempre visibile in Console (prima
   disponibili solo nella lista sessioni). Il passaggio tra sessioni
-  rimonta il componente Console (`key={session.id}`) per evitare che
-  bozza di prompt e allegati non inviati di una sessione finiscano
-  accidentalmente in un'altra.
+  rimonta il componente Console (`key={session.id}`); gli allegati non inviati
+  vengono eliminati al cambio, mentre la bozza testuale resta in memoria React
+  separata per id sessione e viene ripristinata tornando alla stessa console.
 
 ## M5 — Espansioni
 
