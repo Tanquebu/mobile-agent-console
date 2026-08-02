@@ -31,8 +31,10 @@ ignorati da Git.
   come target tmux. I pane id opzionali seguono lo stesso formato numerico,
   diventano `%N` soltanto lato server e devono essere verificati come
   appartenenti alla sessione richiesta.
-- I nomi in creazione e rinomina hanno al massimo 64 caratteri e rispettano
-  `^[A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+)*$`.
+- I nomi in creazione e rinomina sono normalizzati NFC, hanno al massimo 64
+  caratteri e contengono parole Unicode di sole lettere/numeri, `_` e `-`,
+  separate da spazi singoli. I nomi restano esclusivamente dati/display e non
+  vengono mai usati come target tmux.
 - Inviare testo libero tramite `load-buffer -` e `paste-buffer`; `Enter` e gli
   altri tasti restano operazioni separate.
 - L'allowlist delle directory è applicata in `backend/app/main.py` con

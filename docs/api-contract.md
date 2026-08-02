@@ -20,10 +20,11 @@ Richiede cookie e CSRF; elimina il cookie.
 ## `POST /api/v1/sessions`
 
 Richiede CSRF. Body: `{"name":"demo","directory":"/workspace","profile":"shell"}`.
-Il nome, lungo al massimo 64 caratteri, accetta lettere ASCII, numeri, `_`,
-`-` e spazi singoli tra le parole; la directory deve essere sotto una root
-configurata. I profili ammessi sono `shell`, `codex` e `claude`; il server li
-risolve in argv costanti e il client non invia un comando eseguibile.
+Il nome viene normalizzato NFC, ha al massimo 64 caratteri e accetta lettere e
+numeri Unicode, `_`, `-` e spazi singoli tra le parole; la directory deve essere
+sotto una root configurata. I profili ammessi sono `shell`, `codex` e `claude`;
+il server li risolve in argv costanti e il client non invia un comando
+eseguibile.
 
 ## Archivio sessioni
 

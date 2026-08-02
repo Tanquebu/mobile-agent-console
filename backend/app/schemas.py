@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Literal
+from unicodedata import normalize
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -166,7 +167,12 @@ class ConfirmedAction(BaseModel):
 
 
 class RenameSessionInput(BaseModel):
-    name: str = Field(pattern=r"^[A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+)*$", max_length=64)
+    name: str = Field(pattern=r"^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$", max_length=64)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        return normalize("NFC", value)
 
 
 class SnapshotSelectionInput(BaseModel):
@@ -290,9 +296,14 @@ class UserStatusInput(BaseModel):
 
 
 class CreateSessionInput(BaseModel):
-    name: str = Field(pattern=r"^[A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+)*$", max_length=64)
+    name: str = Field(pattern=r"^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$", max_length=64)
     directory: str = Field(min_length=1, max_length=4096)
     profile: Literal["shell", "codex", "claude", "antigravity"] = "shell"
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        return normalize("NFC", value)
 
 
 class PushPublicKeyView(BaseModel):

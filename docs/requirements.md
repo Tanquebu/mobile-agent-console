@@ -31,9 +31,10 @@ L'applicazione pubblicata comprende:
 - viste Terminale e Blocchi, con Cronologia Claude opzionale;
 - modalità tmux Docker o host e avvio/deploy tramite user unit systemd.
 
-Creazione e rinomina accettano nomi ASCII con lettere, numeri, `_`, `-` e
-spazi singoli tra le parole. Directory e file restano entro l'allowlist; i
-profili eseguibili sono risolti server-side.
+Creazione e rinomina accettano nomi normalizzati NFC con lettere e numeri
+Unicode, `_`, `-` e spazi singoli tra le parole. Directory e file restano entro
+l'allowlist; i profili eseguibili sono risolti server-side e il nome non viene
+mai usato come target tmux.
 
 Gli snapshot non sono checkpoint dei processi: dopo un reboot ricreano shell
 e possono aprire il selettore di resume nativo di Codex o Claude. La
@@ -45,8 +46,8 @@ tmux.
 - bind predefinito localhost, oppure IP Tailscale esplicito con `MAC_BIND_IP`;
 - porta host predefinita `8081` per evitare conflitti con altri servizi già presenti sulla 8080;
 - `subprocess` con argv e `shell=False`;
-- nomi sessione lunghi al massimo 64 caratteri, con parole ASCII separate da
-  spazi singoli (`_` e `-` consentiti);
+- nomi sessione NFC lunghi al massimo 64 caratteri, con parole Unicode di
+  lettere/numeri separate da spazi singoli (`_` e `-` consentiti);
 - limite input 64 KiB e snapshot WebSocket autorevoli;
 - WebSocket autenticato e riconnessione con snapshot idempotente;
 - interfaccia usabile a 360 px, input multilinea e target touch >= 44 px;

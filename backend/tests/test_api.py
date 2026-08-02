@@ -456,6 +456,27 @@ def test_rename_session_supports_spaces_and_requires_csrf() -> None:
     assert missing.status_code == 404
 
 
+def test_create_and_rename_session_support_accented_names() -> None:
+    client, fake = client_and_fake()
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+
+    created = client.post(
+        "/api/v1/sessions",
+        headers=headers,
+        json={"name": "osservabilità", "directory": "/workspace"},
+    )
+    assert created.status_code == 201
+
+    renamed = client.post(
+        "/api/v1/sessions/1/rename",
+        headers=headers,
+        json={"name": "analisi qualità"},
+    )
+    assert renamed.status_code == 200
+    assert fake.renamed == [("1", "analisi qualità")]
+
+
 def test_config_exposes_allowed_roots_to_authenticated_users() -> None:
     client, _ = client_and_fake()
     assert client.get("/api/v1/config").status_code == 401

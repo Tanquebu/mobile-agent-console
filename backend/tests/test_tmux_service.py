@@ -46,6 +46,8 @@ def test_rejects_unsafe_session_names(value: str) -> None:
 def test_accepts_safe_session_names() -> None:
     assert TmuxService.validate_session_id("codex_project-1") == "codex_project-1"
     assert TmuxService.validate_session_id("Refactoring Codex") == "Refactoring Codex"
+    assert TmuxService.validate_session_name("osservabilità") == "osservabilità"
+    assert TmuxService.validate_session_name("osservabilita\u0300") == "osservabilità"
 
 
 def test_target_accepts_numeric_ids() -> None:

@@ -1,11 +1,14 @@
 import asyncio
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 
 SOCKET_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-SESSION_NAME = re.compile(r"^[A-Za-z0-9_-]+(?: [A-Za-z0-9_-]+)*$")
+# ``\w`` is Unicode-aware in Python: session names may use letters and
+# numbers such as "osservabilità", but never separators or control characters.
+SESSION_NAME = re.compile(r"^[\w-]+(?: [\w-]+)*$")
 TARGET_ID = re.compile(r"^\d{1,10}$")
 RUNTIME_KEEPALIVE = "__runtime__"
 ALLOWED_KEYS = {
@@ -105,10 +108,16 @@ class TmuxService:
         self._external_server = external_server
 
     @staticmethod
-    def validate_session_id(session_id: str) -> str:
-        if len(session_id) > 64 or not SESSION_NAME.fullmatch(session_id):
+    def validate_session_name(name: str) -> str:
+        normalized = unicodedata.normalize("NFC", name)
+        if len(normalized) > 64 or not SESSION_NAME.fullmatch(normalized):
             raise ValueError("Invalid session name")
-        return session_id
+        return normalized
+
+    @staticmethod
+    def validate_session_id(session_id: str) -> str:
+        """Backward-compatible alias; session ids are validated by validate_target."""
+        return TmuxService.validate_session_name(session_id)
 
     @staticmethod
     def validate_target(session_id: str) -> str:
@@ -237,7 +246,7 @@ class TmuxService:
         profile: str = "shell",
         resume: bool = False,
     ) -> None:
-        self.validate_session_id(session_id)
+        session_id = self.validate_session_name(session_id)
         command = (RESUME_PROFILE_ARGV if resume else PROFILE_ARGV).get(profile)
         if command is None:
             raise ValueError("Unsupported profile")
@@ -247,7 +256,7 @@ class TmuxService:
 
     async def rename_session(self, session_id: str, name: str) -> None:
         target = self.validate_target(session_id)
-        self.validate_session_id(name)
+        name = self.validate_session_name(name)
         await self._run("rename-session", "-t", target, name)
 
     async def send_text(self, session_id: str, text: str, pane_id: str | None = None) -> None:

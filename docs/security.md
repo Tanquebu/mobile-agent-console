@@ -34,6 +34,12 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Password account | solo hash Argon2id nel database; secret usato esclusivamente per bootstrap iniziale |
 | Web Push abusata | chiave privata VAPID `0600` generata/persistita lato server, mai esposta al client (solo la pubblica); payload push senza output/prompt, stesso invariante delle notifiche locali; subscription rimosse automaticamente se il push service segnala 404/410 |
 
+I nomi sessione inseriti in creazione o rinomina sono normalizzati NFC e
+limitati a lettere/numeri Unicode, `_`, `-` e spazi singoli. Anche quando
+contengono caratteri non ASCII restano argomenti argv separati e dati di
+display: tutte le operazioni su sessioni esistenti continuano a usare soltanto
+l'id tmux numerico validato lato server.
+
 ## Rischi residui del vertical slice
 
 L'account amministratore persistente resta single-user in questa fase; ruoli e

@@ -53,8 +53,9 @@ Scelte vincolanti:
   stringa numerica senza `$`. I nomi delle sessioni host possono contenere
   caratteri fuori da `^[A-Za-z0-9_-]{1,64}$` e `-t <nome>` fa
   prefix-matching ambiguo; l'id è assegnato dal server, univoco e validato
-  con `^\d{1,10}$`. Il nome resta per display e per la creazione (dove il
-  regex continua a valere).
+  con `^\d{1,10}$`. Il nome resta per display, creazione e rinomina: viene
+  normalizzato NFC e limitato a parole Unicode di lettere/numeri con `_`, `-`
+  e spazi singoli, ma non diventa mai un target tmux.
 - **Target = `$N`** (pane attivo della window corrente), non `:0.0`: le
   sessioni preesistenti possono avere `base-index 1` o più window.
 - **`bash -l`** per le nuove sessioni: il pane è già interattivo (pty),
