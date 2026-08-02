@@ -211,6 +211,8 @@ export type AppConfig = {
   workspace_presets: Record<string, string>;
   claude_history_enabled: boolean;
   host_observability_enabled: boolean;
+  rate_limit_fresh_enabled: boolean;
+  session_usage_enabled: boolean;
 };
 
 export type HostStatus = "ok" | "warning" | "critical" | "unknown";
@@ -343,6 +345,93 @@ export type ProviderRateLimits = {
 
 export async function fetchProviderRateLimits(): Promise<ProviderRateLimits | null> {
   const response = await request("/api/v1/provider-rate-limits");
+  return response.json();
+}
+
+// Storico quota (contratto storico budget v1): un campione per rilevazione del
+// collector, non lo snapshot istantaneo sopra. `resets_at` segmenta la serie
+// (la finestra scorrevole non deve leggere il reset come calo di consumo) e
+// `stale` marca un campione valido ma di osservazione vecchia, da non
+// interpolare come misura corrente.
+export type RateLimitHistoryWindow = {
+  label: string;
+  used_percent: number | null;
+  resets_at: number | null;
+};
+
+export type RateLimitHistorySample = {
+  sampled_at: string;
+  provider: string;
+  source: "cache" | "fresh";
+  observed_at: string | null;
+  stale: boolean;
+  windows: RateLimitHistoryWindow[];
+  error: string | null;
+};
+
+export type RateLimitHistory = {
+  samples: RateLimitHistorySample[];
+};
+
+export async function fetchRateLimitHistory(
+  hours = 24,
+  limit = 3000,
+): Promise<RateLimitHistory> {
+  const params = new URLSearchParams({ hours: String(hours), limit: String(limit) });
+  const response = await request(`/api/v1/provider-rate-limits/history?${params.toString()}`);
+  return response.json();
+}
+
+export type RateLimitFreshResult = {
+  collected_at: string;
+  samples: RateLimitHistorySample[];
+};
+
+// Admin + CSRF; 404 se disabilitato (`rate_limit_fresh_enabled`), 429 oltre il
+// rate limit, 503/504 se il collector host non risponde — il chiamante
+// distingue questi stati sull'errore restituito.
+export async function refreshRateLimits(): Promise<RateLimitFreshResult> {
+  const response = await request("/api/v1/provider-rate-limits/refresh", { method: "POST" });
+  return response.json();
+}
+
+// Consumo attribuito per sessione (contratto storico budget v1). La forma
+// autorevole è nei modelli Pydantic di
+// backend/app/services/session_usage_service.py. `ranking_tokens` è solo la
+// chiave di ordinamento (input + cache_creation + output): non è, e non deve
+// diventare, una stima di percentuale di quota — quel valore non è
+// ricostruibile dai contatori di token grezzi.
+export type SessionUsageTotals = {
+  turns: number;
+  input_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  output_tokens: number;
+  ranking_tokens: number;
+};
+
+export type SessionUsageEntry = {
+  session_uuid: string;
+  provider: string;
+  origin: string;
+  project: string;
+  tmux_session_id: string | null;
+  models: string[];
+  own: SessionUsageTotals;
+  subagents: SessionUsageTotals;
+  total: SessionUsageTotals;
+};
+
+export type SessionUsageReport = {
+  since: string;
+  entries: SessionUsageEntry[];
+};
+
+// 404 quando l'attribuzione per sessione è disabilitata lato backend: il
+// chiamante deve degradare mostrando comunque lo storico quota.
+export async function fetchSessionUsage(hours = 6, limit = 50): Promise<SessionUsageReport> {
+  const params = new URLSearchParams({ hours: String(hours), limit: String(limit) });
+  const response = await request(`/api/v1/session-usage?${params.toString()}`);
   return response.json();
 }
 

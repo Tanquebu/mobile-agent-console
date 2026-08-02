@@ -33,6 +33,8 @@ import {
   fetchOrchestratorState,
   fetchProviderRateLimits,
   fetchPushPublicKey,
+  fetchRateLimitHistory,
+  fetchSessionUsage,
   fileDownloadUrl,
   FileContent,
   errorMessage,
@@ -53,6 +55,9 @@ import {
   Pane,
   OrchestratorState,
   ProviderRateLimits,
+  RateLimitHistory,
+  RateLimitHistorySample,
+  refreshRateLimits,
   renameSession,
   restoreSession,
   setUnauthorizedHandler,
@@ -66,6 +71,9 @@ import {
   sendKey,
   sendText,
   Session,
+  SessionUsageEntry,
+  SessionUsageReport,
+  SessionUsageTotals,
   setUserActive,
   subscribePush,
   unsubscribePush,
@@ -1429,6 +1437,573 @@ function HostMetric({ label, value }: { label: string; value: string }) {
   return <div><dt>{label}</dt><dd>{value}</dd></div>;
 }
 
+type BudgetHoursOption = 6 | 24 | 168;
+
+const BUDGET_RANGE_OPTIONS: { label: string; hours: BudgetHoursOption }[] = [
+  { label: "6h", hours: 6 },
+  { label: "24h", hours: 24 },
+  { label: "7g", hours: 168 },
+];
+
+// Etichette privilegiate quando si sceglie quali due finestre disegnare: il
+// contratto ammette anche "primaria"/"secondaria" per provider diversi da
+// Claude, quindi la selezione resta dinamica (vedi budgetSeriesLabels) e
+// queste sono solo l'ordine preferito quando presenti entrambe.
+const BUDGET_WINDOW_LABELS = ["5h", "7d"];
+
+type BudgetPoint = {
+  t: number;
+  y: number;
+  resetsAt: number | null;
+  stale: boolean;
+};
+
+type BudgetChain = {
+  points: BudgetPoint[];
+  stale: boolean;
+};
+
+function budgetSeriesLabels(samples: RateLimitHistorySample[]): string[] {
+  const seen = new Set<string>();
+  for (const sample of samples) {
+    for (const window of sample.windows) seen.add(window.label);
+  }
+  const ordered = BUDGET_WINDOW_LABELS.filter((label) => seen.has(label));
+  for (const label of seen) if (!ordered.includes(label)) ordered.push(label);
+  return ordered.slice(0, 2);
+}
+
+function budgetPointsForLabel(samples: RateLimitHistorySample[], label: string): BudgetPoint[] {
+  const points: BudgetPoint[] = [];
+  for (const sample of samples) {
+    const window = sample.windows.find((item) => item.label === label);
+    if (!window || window.used_percent === null) continue;
+    const t = new Date(sample.sampled_at).getTime();
+    if (!Number.isFinite(t)) continue;
+    points.push({ t, y: window.used_percent, resetsAt: window.resets_at, stale: sample.stale });
+  }
+  return points;
+}
+
+// Costruisce le spezzate da disegnare per una finestra di quota (5h/7d):
+// interrompe la linea quando `resets_at` cambia, perché la finestra
+// scorrevole riparte da zero e la sua discesa fisiologica non deve leggersi
+// come un calo di consumo (contratto storico budget v1, sezione "serie
+// storica della quota"). All'interno di uno stesso reset isola invece i
+// tratti che toccano un campione stantio: restano collegati (stesso reset,
+// continuità fisica) ma sono marcati per il tratteggio, perché un campione
+// stantio descrive un'osservazione vecchia e non va mai interpolato come se
+// fosse una misura corrente.
+function buildBudgetChains(points: BudgetPoint[]): BudgetChain[] {
+  const chains: BudgetChain[] = [];
+  let current: BudgetPoint[] = [];
+  let currentStale = false;
+  for (const point of points) {
+    if (current.length === 0) {
+      current = [point];
+      continue;
+    }
+    const previous = current[current.length - 1];
+    const sameReset = previous.resetsAt === point.resetsAt;
+    if (!sameReset) {
+      chains.push({ points: current, stale: currentStale });
+      current = [point];
+      currentStale = false;
+      continue;
+    }
+    const edgeStale = previous.stale || point.stale;
+    if (current.length > 1 && edgeStale !== currentStale) {
+      chains.push({ points: current, stale: currentStale });
+      current = [previous, point];
+      currentStale = edgeStale;
+      continue;
+    }
+    currentStale = edgeStale;
+    current.push(point);
+  }
+  if (current.length > 0) chains.push({ points: current, stale: currentStale });
+  return chains;
+}
+
+// Crescita della quota dall'ultimo reset osservato, non sull'intero
+// intervallo scelto: un delta calcolato attraverso reset multipli (la
+// finestra 5h può resettarsi più volte in 24h/7g) sottostimerebbe la
+// crescita reale, esattamente l'errore di lettura che la segmentazione del
+// grafico evita di mostrare (contratto storico budget v1).
+function growthForLabel(samples: RateLimitHistorySample[], label: string): number | null {
+  const points = budgetPointsForLabel(samples, label);
+  if (points.length === 0) return null;
+  const lastResetsAt = points[points.length - 1].resetsAt;
+  let start = points.length - 1;
+  while (start > 0 && points[start - 1].resetsAt === lastResetsAt) start -= 1;
+  const run = points.slice(start);
+  if (run.length < 2) return null;
+  return run[run.length - 1].y - run[0].y;
+}
+
+function formatSignedPercent(value: number | null): string {
+  if (value === null) return "n/d";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(1)} pt`;
+}
+
+const BUDGET_CHART_WIDTH = 320;
+const BUDGET_CHART_HEIGHT = 130;
+const BUDGET_CHART_PAD = { top: 10, right: 8, bottom: 8, left: 26 };
+
+function BudgetProviderChart({
+  provider,
+  samples,
+}: {
+  provider: string;
+  samples: RateLimitHistorySample[];
+}) {
+  const labels = useMemo(() => budgetSeriesLabels(samples), [samples]);
+  const series = useMemo(
+    () => labels.map((label) => ({ label, points: budgetPointsForLabel(samples, label) })),
+    [labels, samples],
+  );
+  const allPoints = series.flatMap((item) => item.points);
+  if (allPoints.length === 0) return null;
+
+  const minT = Math.min(...allPoints.map((point) => point.t));
+  const maxT = Math.max(...allPoints.map((point) => point.t));
+  const innerWidth = BUDGET_CHART_WIDTH - BUDGET_CHART_PAD.left - BUDGET_CHART_PAD.right;
+  const innerHeight = BUDGET_CHART_HEIGHT - BUDGET_CHART_PAD.top - BUDGET_CHART_PAD.bottom;
+  const x = (t: number) => (
+    BUDGET_CHART_PAD.left + (maxT === minT ? innerWidth / 2 : ((t - minT) / (maxT - minT)) * innerWidth)
+  );
+  const y = (value: number) => (
+    BUDGET_CHART_PAD.top + (1 - Math.max(0, Math.min(100, value)) / 100) * innerHeight
+  );
+
+  return (
+    <figure className="budget-chart" aria-label={`Andamento quota ${provider}`}>
+      <figcaption>{provider}</figcaption>
+      <svg
+        viewBox={`0 0 ${BUDGET_CHART_WIDTH} ${BUDGET_CHART_HEIGHT}`}
+        role="img"
+        aria-label={`Grafico quota ${provider}: percentuale utilizzata nel tempo, per finestra`}
+      >
+        {[0, 50, 100].map((tick) => (
+          <g key={tick}>
+            <line
+              x1={BUDGET_CHART_PAD.left}
+              x2={BUDGET_CHART_WIDTH - BUDGET_CHART_PAD.right}
+              y1={y(tick)}
+              y2={y(tick)}
+              className="budget-chart-grid"
+            />
+            <text x={1} y={y(tick) + 3} className="budget-chart-tick">{tick}</text>
+          </g>
+        ))}
+        {series.map((item, index) => (
+          <g key={item.label} className={`budget-line budget-line-${index}`}>
+            {buildBudgetChains(item.points).map((chain, chainIndex) => (
+              chain.points.length > 1 ? (
+                <polyline
+                  key={chainIndex}
+                  points={chain.points.map((point) => `${x(point.t)},${y(point.y)}`).join(" ")}
+                  fill="none"
+                  className={chain.stale ? "budget-segment-stale" : "budget-segment"}
+                  stroke={chain.stale ? undefined : rateLimitColor(chain.points[chain.points.length - 1].y)}
+                >
+                  <title>
+                    {`${item.label}: ${chain.points[chain.points.length - 1].y.toFixed(1)}% · `
+                      + `${new Date(chain.points[chain.points.length - 1].t).toLocaleString()}`
+                      + (chain.stale ? " · dato non recente, non interpolato" : "")}
+                  </title>
+                </polyline>
+              ) : (
+                <circle
+                  key={chainIndex}
+                  cx={x(chain.points[0].t)}
+                  cy={y(chain.points[0].y)}
+                  r={2.4}
+                  className={chain.stale ? "budget-segment-stale" : "budget-segment"}
+                  fill={chain.stale ? undefined : rateLimitColor(chain.points[0].y)}
+                />
+              )
+            ))}
+          </g>
+        ))}
+      </svg>
+      <div className="budget-chart-legend">
+        {series.map((item, index) => (
+          <span key={item.label} className={`budget-line-${index}`}>
+            <i aria-hidden="true" /> {item.label}
+            {item.points.length > 0 && (
+              <strong style={{ color: rateLimitColor(item.points[item.points.length - 1].y) }}>
+                {" "}{item.points[item.points.length - 1].y.toFixed(1)}%
+              </strong>
+            )}
+          </span>
+        ))}
+        <span className="budget-legend-stale"><i aria-hidden="true" /> dato non recente (non interpolato)</span>
+      </div>
+    </figure>
+  );
+}
+
+function hasBudgetUsage(totals: SessionUsageTotals): boolean {
+  return totals.turns > 0
+    || totals.input_tokens > 0
+    || totals.cache_creation_input_tokens > 0
+    || totals.cache_read_input_tokens > 0
+    || totals.output_tokens > 0;
+}
+
+function BudgetTotalsRow({
+  label,
+  totals,
+  emphasis,
+}: {
+  label: string;
+  totals: SessionUsageTotals;
+  emphasis?: boolean;
+}) {
+  return (
+    <div className={`budget-totals-row${emphasis ? " emphasis" : ""}`}>
+      <span className="budget-totals-label">{label}</span>
+      <span className="budget-totals-figures">
+        <span title="Turni (risposte del modello, deduplicate)">{totals.turns} turni</span>
+        <span title="Token di input">in {totals.input_tokens.toLocaleString("it-IT")}</span>
+        <span title="Token di scrittura cache">cache scritta {totals.cache_creation_input_tokens.toLocaleString("it-IT")}</span>
+        <span title="Token di rilettura cache">cache letta {totals.cache_read_input_tokens.toLocaleString("it-IT")}</span>
+        <span title="Token di output">out {totals.output_tokens.toLocaleString("it-IT")}</span>
+      </span>
+    </div>
+  );
+}
+
+function BudgetRankingItem({
+  entry,
+  sessionsById,
+  onOpenSession,
+}: {
+  entry: SessionUsageEntry;
+  sessionsById: Map<string, Session>;
+  onOpenSession: (session: Session) => void;
+}) {
+  const linkedSession = entry.tmux_session_id ? sessionsById.get(entry.tmux_session_id) : undefined;
+  return (
+    <article className="budget-rank-item">
+      <header>
+        <span className="budget-rank-project">{entry.project || "progetto non registrato"}</span>
+        <span className={`budget-origin-badge origin-${entry.origin === "mac" ? "mac" : "headless"}`}>
+          {entry.origin === "mac" ? "MAC" : "headless"}
+        </span>
+      </header>
+      <small className="budget-rank-models">
+        {entry.models.length > 0 ? entry.models.join(", ") : "modello non registrato"}
+      </small>
+      {/* Il fan-out di subagent va mostrato annidato sotto la sessione madre
+          (blocco `subagents`), perché può pesare più della sessione che lo
+          genera: è il punto di valore della classifica (contratto storico
+          budget v1). Nessuna percentuale di quota per riga: non è
+          ricostruibile dai contatori di token, si mostrano solo i token. */}
+      <div className="budget-rank-totals">
+        <BudgetTotalsRow label="Sessione" totals={entry.own} />
+        {hasBudgetUsage(entry.subagents) && (
+          <div className="budget-subagent-row">
+            <BudgetTotalsRow label="↳ Subagent" totals={entry.subagents} />
+          </div>
+        )}
+        <BudgetTotalsRow label="Totale" totals={entry.total} emphasis />
+      </div>
+      {entry.origin === "mac" && linkedSession && (
+        <button type="button" className="budget-open-console" onClick={() => onOpenSession(linkedSession)}>
+          Apri console
+        </button>
+      )}
+    </article>
+  );
+}
+
+function BudgetView({
+  onBack,
+  sessions,
+  onOpenSession,
+  rateLimitFreshEnabled,
+  sessionUsageEnabled,
+}: {
+  onBack: () => void;
+  sessions: Session[];
+  onOpenSession: (session: Session) => void;
+  rateLimitFreshEnabled: boolean;
+  sessionUsageEnabled: boolean;
+}) {
+  const [hours, setHours] = useState<BudgetHoursOption>(24);
+  const [history, setHistory] = useState<RateLimitHistory | null>(null);
+  const [historyError, setHistoryError] = useState("");
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [usage, setUsage] = useState<SessionUsageReport | null>(null);
+  const [usageError, setUsageError] = useState("");
+  const [usageDisabled, setUsageDisabled] = useState(false);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState("");
+  const mounted = useRef(false);
+  const historyVersion = useRef(0);
+  const usageVersion = useRef(0);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  async function loadHistory(rangeHours: BudgetHoursOption) {
+    const version = ++historyVersion.current;
+    if (mounted.current) {
+      setHistoryLoading(true);
+      setHistoryError("");
+    }
+    try {
+      const next = await fetchRateLimitHistory(rangeHours, 3000);
+      if (mounted.current && version === historyVersion.current) setHistory(next);
+    } catch (value) {
+      if (mounted.current && version === historyVersion.current) setHistoryError(errorMessage(value));
+    } finally {
+      if (mounted.current && version === historyVersion.current) setHistoryLoading(false);
+    }
+  }
+
+  async function loadUsage(rangeHours: BudgetHoursOption) {
+    const version = ++usageVersion.current;
+    // Il flag di config è noto in anticipo (non serve una risposta 404 per
+    // scoprirlo): risparmia la richiesta quando l'attribuzione è disattivata.
+    // Il ramo 404 sotto resta comunque come fallback per un flag non ancora
+    // propagato o un endpoint temporaneamente indietro rispetto al config.
+    if (!sessionUsageEnabled) {
+      if (mounted.current && version === usageVersion.current) {
+        setUsageDisabled(true);
+        setUsage(null);
+      }
+      return;
+    }
+    if (mounted.current) {
+      setUsageLoading(true);
+      setUsageError("");
+    }
+    try {
+      const next = await fetchSessionUsage(rangeHours, 50);
+      if (mounted.current && version === usageVersion.current) {
+        setUsage(next);
+        setUsageDisabled(false);
+      }
+    } catch (value) {
+      if (mounted.current && version === usageVersion.current) {
+        // 404: l'attribuzione per sessione può non essere ancora abilitata
+        // lato backend (endpoint in corso su un altro modulo) — degradare
+        // mostrando comunque il grafico "quando", non un errore.
+        if (value instanceof ApiError && value.status === 404) {
+          setUsageDisabled(true);
+          setUsage(null);
+        } else {
+          setUsageError(errorMessage(value));
+        }
+      }
+    } finally {
+      if (mounted.current && version === usageVersion.current) setUsageLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      historyVersion.current += 1;
+      usageVersion.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    void loadHistory(hours);
+    void loadUsage(hours);
+    // Ricarica quando cambia l'intervallo scelto dall'utente o quando il
+    // flag di abilitazione arriva (in genere già noto, ma il fetch di
+    // /api/v1/config può risolversi dopo il primo montaggio della vista).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hours, sessionUsageEnabled]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      headingRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  async function forceRefresh() {
+    setRefreshing(true);
+    setRefreshMessage("");
+    try {
+      await refreshRateLimits();
+      if (mounted.current) setRefreshMessage("Campione fresco raccolto: storico aggiornato.");
+      await loadHistory(hours);
+    } catch (value) {
+      if (!mounted.current) return;
+      if (value instanceof ApiError && value.status === 429) {
+        setRefreshMessage("Troppi aggiornamenti ravvicinati: attendi qualche secondo e riprova.");
+      } else if (value instanceof ApiError && value.status === 503) {
+        setRefreshMessage("Il collector della quota non è raggiungibile sull'host. Riprova più tardi.");
+      } else if (value instanceof ApiError && value.status === 504) {
+        setRefreshMessage("Il collector della quota ha impiegato troppo tempo a rispondere. Riprova più tardi.");
+      } else {
+        setRefreshMessage(errorMessage(value));
+      }
+    } finally {
+      if (mounted.current) setRefreshing(false);
+    }
+  }
+
+  const sessionsById = useMemo(() => {
+    const map = new Map<string, Session>();
+    for (const session of sessions) map.set(session.id, session);
+    return map;
+  }, [sessions]);
+
+  const providers = useMemo(() => {
+    const ordered: string[] = [];
+    for (const sample of history?.samples ?? []) {
+      if (!ordered.includes(sample.provider)) ordered.push(sample.provider);
+    }
+    return ordered;
+  }, [history]);
+
+  const providerGrowth = useMemo(() => (
+    providers.map((provider) => {
+      const providerSamples = (history?.samples ?? []).filter((sample) => sample.provider === provider);
+      const labels = budgetSeriesLabels(providerSamples);
+      return {
+        provider,
+        series: labels.map((label) => ({ label, growth: growthForLabel(providerSamples, label) })),
+      };
+    })
+  ), [providers, history]);
+
+  const rankedEntries = usage?.entries ?? [];
+  const totalTurnsAttributed = rankedEntries.reduce((sum, entry) => sum + entry.total.turns, 0);
+  const totalTokensAttributed = rankedEntries.reduce(
+    (sum, entry) => sum + entry.total.input_tokens + entry.total.cache_creation_input_tokens
+      + entry.total.cache_read_input_tokens + entry.total.output_tokens,
+    0,
+  );
+
+  return (
+    <main className="shell budget-view">
+      <header className="host-topbar">
+        <button className="icon-button" onClick={onBack} aria-label="Torna alle sessioni">‹</button>
+        <div>
+          <span className="eyebrow">BUDGET PROVIDER</span>
+          <h1 ref={headingRef} className="host-focus-target" tabIndex={-1}>Budget</h1>
+          <small>Quando è stato consumato e chi lo ha consumato</small>
+        </div>
+        <button
+          className="host-refresh"
+          onClick={() => { void loadHistory(hours); void loadUsage(hours); }}
+          disabled={historyLoading || usageLoading}
+          aria-label="Aggiorna vista budget"
+        >
+          {historyLoading || usageLoading ? "Aggiorno…" : "Aggiorna"}
+        </button>
+      </header>
+
+      <div className="budget-range-selector" role="group" aria-label="Intervallo">
+        {BUDGET_RANGE_OPTIONS.map((option) => (
+          <button
+            key={option.hours}
+            type="button"
+            aria-pressed={hours === option.hours}
+            onClick={() => setHours(option.hours)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="budget-content">
+        <section className="budget-section" aria-label="Quando è stato consumato il budget">
+          <h2>Quando</h2>
+          {historyLoading && !history && <p role="status">Caricamento storico quota…</p>}
+          {historyError && <p className="error" role="alert">{historyError}</p>}
+          {!historyError && history && history.samples.length === 0 && (
+            <p className="budget-empty">
+              Ancora nessun campione nell'intervallo selezionato: i campioni si stanno accumulando.
+            </p>
+          )}
+          {!historyError && history && history.samples.length > 0 && (
+            <div className="budget-charts">
+              {providers.map((provider) => (
+                <BudgetProviderChart
+                  key={provider}
+                  provider={provider}
+                  samples={history.samples.filter((sample) => sample.provider === provider)}
+                />
+              ))}
+            </div>
+          )}
+          {rateLimitFreshEnabled && (
+            <div className="budget-force-refresh">
+              <button type="button" onClick={() => void forceRefresh()} disabled={refreshing}>
+                {refreshing ? "Aggiorno…" : "Aggiorna adesso"}
+              </button>
+              {refreshMessage && <p className="budget-refresh-message" aria-live="polite">{refreshMessage}</p>}
+            </div>
+          )}
+        </section>
+
+        <section className="budget-section" aria-label="Chi ha consumato il budget">
+          <h2>Chi</h2>
+          {usageLoading && !usage && !usageDisabled && <p role="status">Caricamento consumo per sessione…</p>}
+          {usageDisabled && (
+            <p className="budget-empty">
+              L'attribuzione del consumo per sessione non è abilitata su questo backend: resta visibile solo
+              l'andamento della quota qui sopra.
+            </p>
+          )}
+          {usageError && <p className="error" role="alert">{usageError}</p>}
+          {!usageDisabled && !usageError && usage && rankedEntries.length === 0 && (
+            <p className="budget-empty">Nessun consumo attribuito nell'intervallo selezionato.</p>
+          )}
+          {!usageDisabled && !usageError && rankedEntries.length > 0 && (
+            <>
+              <div className="budget-rank-list">
+                {rankedEntries.map((entry) => (
+                  <BudgetRankingItem
+                    key={entry.session_uuid}
+                    entry={entry}
+                    sessionsById={sessionsById}
+                    onOpenSession={onOpenSession}
+                  />
+                ))}
+              </div>
+              <div className="budget-residual" aria-label="Residuo non attribuito">
+                <h3>Residuo</h3>
+                <p>
+                  Crescita osservata della quota dall'ultimo reset:{" "}
+                  {providerGrowth.map(({ provider, series }) => (
+                    <span key={provider} className="budget-residual-figure">
+                      <strong>{provider}</strong>{" "}
+                      {series.map((item) => `${item.label} ${formatSignedPercent(item.growth)}`).join(" · ")}
+                    </span>
+                  ))}
+                </p>
+                <p>
+                  Consumo attribuito nello stesso intervallo: {totalTurnsAttributed} turni,{" "}
+                  {totalTokensAttributed.toLocaleString("it-IT")} token complessivi su {rankedEntries.length}{" "}
+                  session{rankedEntries.length === 1 ? "e" : "i"}.
+                </p>
+                <p className="budget-note">
+                  Percentuale di quota e conteggio di token non sono convertibili nella stessa unità (contratto
+                  storico budget v1): non esiste quindi un residuo numerico unico. Quando la crescita della quota
+                  non è spiegata per intero dalle sessioni elencate sopra, la differenza è consumo proveniente da
+                  altre macchine sullo stesso account o da client non osservati — non un difetto della raccolta.
+                </p>
+              </div>
+            </>
+          )}
+        </section>
+      </div>
+    </main>
+  );
+}
+
 function HostView({ onBack }: { onBack: () => void }) {
   const [snapshot, setSnapshot] = useState<HostObservabilitySnapshot | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1770,6 +2345,11 @@ function SessionList({
   const [restoreHostFocus, setRestoreHostFocus] = useState(false);
   const [hostObservabilityEnabled, setHostObservabilityEnabled] = useState(false);
   const hostTriggerRef = useRef<HTMLButtonElement>(null);
+  const [showBudget, setShowBudget] = useState(false);
+  const [restoreBudgetFocus, setRestoreBudgetFocus] = useState(false);
+  const [rateLimitFreshEnabled, setRateLimitFreshEnabled] = useState(false);
+  const [sessionUsageEnabled, setSessionUsageEnabled] = useState(false);
+  const budgetTriggerRef = useRef<HTMLButtonElement>(null);
   const [dashboardDensity, setDashboardDensity] = useState<DashboardDensity>(readDashboardDensity);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
   const [providerLimits, setProviderLimits] = useState<ProviderRateLimits | null>(null);
@@ -1835,12 +2415,17 @@ function SessionList({
         setHostObservabilityEnabled(
           identity.role === "admin" && config.host_observability_enabled,
         );
+        setRateLimitFreshEnabled(
+          identity.role === "admin" && config.rate_limit_fresh_enabled,
+        );
+        setSessionUsageEnabled(config.session_usage_enabled);
       })
       .catch(() => { /* il campo resta vuoto, l'utente può digitare */ });
   }, [identity.role]);
 
   useEffect(() => {
     if (showHost) return;
+    if (showBudget) return;
     let active = true;
     const refresh = () => {
       listAgentStatuses()
@@ -1858,7 +2443,7 @@ function SessionList({
       active = false;
       window.clearInterval(interval);
     };
-  }, [showHost]);
+  }, [showHost, showBudget]);
 
   useEffect(() => {
     if (showHost || !restoreHostFocus) return;
@@ -1870,7 +2455,17 @@ function SessionList({
   }, [restoreHostFocus, showHost]);
 
   useEffect(() => {
+    if (showBudget || !restoreBudgetFocus) return;
+    const frame = window.requestAnimationFrame(() => {
+      budgetTriggerRef.current?.focus({ preventScroll: true });
+      setRestoreBudgetFocus(false);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [restoreBudgetFocus, showBudget]);
+
+  useEffect(() => {
     if (showHost) return;
+    if (showBudget) return;
     let active = true;
     const refresh = () => {
       fetchOrchestratorState()
@@ -1883,10 +2478,11 @@ function SessionList({
       active = false;
       window.clearInterval(interval);
     };
-  }, [showHost]);
+  }, [showHost, showBudget]);
 
   useEffect(() => {
     if (showHost) return;
+    if (showBudget) return;
     let active = true;
     const refresh = () => {
       fetchProviderRateLimits()
@@ -1901,7 +2497,7 @@ function SessionList({
       active = false;
       window.clearInterval(interval);
     };
-  }, [showHost]);
+  }, [showHost, showBudget]);
 
   useEffect(() => {
     if (!showHelp) return;
@@ -2021,6 +2617,21 @@ function SessionList({
     }} />;
   }
 
+  if (showBudget) {
+    return (
+      <BudgetView
+        onBack={() => {
+          setRestoreBudgetFocus(true);
+          setShowBudget(false);
+        }}
+        sessions={sessions}
+        onOpenSession={onOpen}
+        rateLimitFreshEnabled={rateLimitFreshEnabled}
+        sessionUsageEnabled={sessionUsageEnabled}
+      />
+    );
+  }
+
   return (
     <main className={`shell ${compactDashboard ? "compact-dashboard" : ""}`}>
       <header className="topbar">
@@ -2080,6 +2691,7 @@ function SessionList({
             <button className="snapshot-button" onClick={() => setShowArchives(true)} aria-label="Archivio" title="Archivio">{compactDashboard ? "▣" : "Archivio"}</button>
           )}
           <button className="snapshot-button" onClick={() => setShowHiddenSessions(true)} aria-label="Sessioni nascoste" title="Sessioni nascoste">{compactDashboard ? "◌" : "Sessioni nascoste"}</button>
+          <button ref={budgetTriggerRef} className="snapshot-button" onClick={() => setShowBudget(true)} aria-label="Budget" title="Budget">{compactDashboard ? "◔" : "Budget"}</button>
           {identity.role === "admin" && (
             <button className="snapshot-button" onClick={() => setShowUsers(true)} aria-label="Utenti" title="Utenti">{compactDashboard ? "♟" : "Utenti"}</button>
           )}
