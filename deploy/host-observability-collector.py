@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from itertools import islice
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SUPPORTED_CONFIG_SCHEMA_VERSIONS = {1, 2}
 MAX_CONFIG_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 128 * 1024
 MAX_FILESYSTEMS = 16
@@ -69,6 +69,22 @@ class ListenerExpectation:
 
 
 @dataclass(frozen=True)
+class SwapIoSampleConfig:
+    duration_ms: int = 100
+    warning_pages_delta: int = 1
+    critical_pages_delta: int = 128
+
+
+@dataclass(frozen=True)
+class ProcessPolicy:
+    label: str | None = None
+    warning_count: int | None = None
+    critical_count: int | None = None
+    warning_rss_bytes: int | None = None
+    critical_rss_bytes: int | None = None
+
+
+@dataclass(frozen=True)
 class DockerConfig:
     enabled: bool = False
     container_labels: dict[str, str] = field(default_factory=dict)
@@ -76,10 +92,13 @@ class DockerConfig:
 
 @dataclass(frozen=True)
 class CollectorConfig:
+    schema_version: int = 1
     thresholds: Thresholds = Thresholds()
+    swap_io_sample: SwapIoSampleConfig = SwapIoSampleConfig()
     filesystems: tuple[FilesystemConfig, ...] = ()
     expected_listeners: tuple[ListenerExpectation, ...] = ()
     process_labels: dict[str, str] = field(default_factory=dict)
+    process_policies: dict[str, ProcessPolicy] = field(default_factory=dict)
     docker: DockerConfig = DockerConfig()
 
 
@@ -100,6 +119,8 @@ class DockerCommandResult:
 
 DockerRunner = Callable[[], DockerCommandResult]
 Statvfs = Callable[[str], os.statvfs_result]
+Clock = Callable[[], float]
+Sleeper = Callable[[float], None]
 
 
 def require_mapping(value: object, label: str) -> dict[str, object]:
@@ -137,11 +158,17 @@ def safe_label(value: object, label: str) -> str:
     return value
 
 
-def parse_thresholds(value: object) -> Thresholds:
+def parse_thresholds(value: object, schema_version: int) -> Thresholds:
     if value is None:
         return Thresholds()
     raw = require_mapping(value, "thresholds")
     fields = set(Thresholds.__dataclass_fields__)
+    if schema_version == 2:
+        fields -= {
+            "swap_used_critical_percent",
+            "process_group_warning_count",
+            "process_group_critical_count",
+        }
     require_keys(raw, fields, "thresholds")
     defaults = Thresholds()
     percentages = {
@@ -181,11 +208,13 @@ def parse_thresholds(value: object) -> Thresholds:
         "memory_available_warning_percent"
     ]:
         raise CollectorConfigError("memory critical threshold must not exceed warning")
-    if percentages["swap_used_warning_percent"] > percentages[
+    if schema_version == 1 and percentages["swap_used_warning_percent"] > percentages[
         "swap_used_critical_percent"
     ]:
         raise CollectorConfigError("swap warning threshold must not exceed critical")
-    if load_warning > load_critical or group_warning > group_critical:
+    if load_warning > load_critical or (
+        schema_version == 1 and group_warning > group_critical
+    ):
         raise CollectorConfigError("warning thresholds must not exceed critical thresholds")
     return Thresholds(
         **percentages,
@@ -196,22 +225,101 @@ def parse_thresholds(value: object) -> Thresholds:
     )
 
 
+def parse_swap_io_sample(value: object) -> SwapIoSampleConfig:
+    raw = require_mapping({} if value is None else value, "swap_io_sample")
+    require_keys(
+        raw,
+        {"duration_ms", "warning_pages_delta", "critical_pages_delta"},
+        "swap_io_sample",
+    )
+    defaults = SwapIoSampleConfig()
+    duration = integer(raw.get("duration_ms", defaults.duration_ms), "swap sample duration", 10, 500)
+    warning = integer(
+        raw.get("warning_pages_delta", defaults.warning_pages_delta),
+        "swap sample warning delta",
+        1,
+        1_000_000_000,
+    )
+    critical = integer(
+        raw.get("critical_pages_delta", defaults.critical_pages_delta),
+        "swap sample critical delta",
+        1,
+        1_000_000_000,
+    )
+    if warning > critical:
+        raise CollectorConfigError("swap sample warning threshold must not exceed critical")
+    return SwapIoSampleConfig(duration, warning, critical)
+
+
+def parse_process_policies(value: object) -> dict[str, ProcessPolicy]:
+    raw = require_mapping({} if value is None else value, "process_policies")
+    if len(raw) > MAX_PROCESS_LABELS:
+        raise CollectorConfigError("process policies exceeds limit")
+    result: dict[str, ProcessPolicy] = {}
+    for name, policy_value in raw.items():
+        if not isinstance(name, str) or not SAFE_PROCESS_KEY.fullmatch(name):
+            raise CollectorConfigError("process policy key is invalid")
+        policy = require_mapping(policy_value, f"process_policies[{name}]")
+        fields = {
+            "label",
+            "warning_count",
+            "critical_count",
+            "warning_rss_bytes",
+            "critical_rss_bytes",
+        }
+        require_keys(policy, fields, "process policy")
+        limits: dict[str, int | None] = {}
+        for key in fields - {"label"}:
+            maximum = 4096 if key.endswith("count") else 2**63 - 1
+            raw_limit = policy.get(key)
+            limits[key] = (
+                None
+                if raw_limit is None
+                else integer(raw_limit, f"process policy {key}", 1, maximum)
+            )
+        if all(value is None for value in limits.values()):
+            raise CollectorConfigError("process policy must define a count or RSS limit")
+        if (
+            limits["warning_count"] is not None
+            and limits["critical_count"] is not None
+            and limits["warning_count"] > limits["critical_count"]
+        ) or (
+            limits["warning_rss_bytes"] is not None
+            and limits["critical_rss_bytes"] is not None
+            and limits["warning_rss_bytes"] > limits["critical_rss_bytes"]
+        ):
+            raise CollectorConfigError("process policy warning limit must not exceed critical")
+        label_value = policy.get("label")
+        label = None if label_value is None else safe_label(label_value, "process policy label")
+        result[name] = ProcessPolicy(label=label, **limits)
+    return result
+
+
 def parse_config(payload: object) -> CollectorConfig:
     raw = require_mapping(payload, "config")
+    schema_version = raw.get("schema_version")
+    if (
+        isinstance(schema_version, bool)
+        or not isinstance(schema_version, int)
+        or schema_version not in SUPPORTED_CONFIG_SCHEMA_VERSIONS
+    ):
+        raise CollectorConfigError("unsupported config schema version")
+    version_fields = (
+        {"expected_tcp_listeners", "process_labels"}
+        if schema_version == 1
+        else {"tcp_listener_policies", "process_policies", "swap_io_sample"}
+    )
     require_keys(
         raw,
         {
             "schema_version",
             "thresholds",
             "filesystems",
-            "expected_tcp_listeners",
-            "process_labels",
             "docker",
-        },
+        }
+        | version_fields,
         "config",
     )
-    if raw.get("schema_version") != SCHEMA_VERSION:
-        raise CollectorConfigError("unsupported config schema version")
 
     raw_filesystems = raw.get("filesystems", [])
     if not isinstance(raw_filesystems, list) or len(raw_filesystems) > MAX_FILESYSTEMS:
@@ -237,16 +345,18 @@ def parse_config(payload: object) -> CollectorConfig:
         seen_labels.add(label)
         filesystems.append(FilesystemConfig(label, Path(path_value), warning, critical))
 
-    raw_listeners = raw.get("expected_tcp_listeners", [])
+    listener_field = "expected_tcp_listeners" if schema_version == 1 else "tcp_listener_policies"
+    raw_listeners = raw.get(listener_field, [])
     if not isinstance(raw_listeners, list) or len(raw_listeners) > MAX_EXPECTED_LISTENERS:
         raise CollectorConfigError("expected listeners exceeds limit")
     expected: list[ListenerExpectation] = []
     seen_ports: set[int] = set()
     for index, item in enumerate(raw_listeners):
-        entry = require_mapping(item, f"expected_tcp_listeners[{index}]")
-        require_keys(entry, {"port", "scopes"}, "expected listener")
+        entry = require_mapping(item, f"{listener_field}[{index}]")
+        scopes_field = "scopes" if schema_version == 1 else "allowed_scopes"
+        require_keys(entry, {"port", scopes_field}, "listener policy")
         port = integer(entry.get("port"), "listener port", 1, 65535)
-        scopes = entry.get("scopes")
+        scopes = entry.get(scopes_field)
         if (
             not isinstance(scopes, list)
             or not scopes
@@ -259,14 +369,23 @@ def parse_config(payload: object) -> CollectorConfig:
         seen_ports.add(port)
         expected.append(ListenerExpectation(port, frozenset(scopes)))
 
-    raw_labels = require_mapping(raw.get("process_labels", {}), "process_labels")
-    if len(raw_labels) > MAX_PROCESS_LABELS:
-        raise CollectorConfigError("process labels exceeds limit")
+    process_policies: dict[str, ProcessPolicy] = {}
     process_labels: dict[str, str] = {}
-    for name, label in raw_labels.items():
-        if not isinstance(name, str) or not SAFE_PROCESS_KEY.fullmatch(name):
-            raise CollectorConfigError("process label key is invalid")
-        process_labels[name] = safe_label(label, "process label")
+    if schema_version == 1:
+        raw_labels = require_mapping(raw.get("process_labels", {}), "process_labels")
+        if len(raw_labels) > MAX_PROCESS_LABELS:
+            raise CollectorConfigError("process labels exceeds limit")
+        for name, label in raw_labels.items():
+            if not isinstance(name, str) or not SAFE_PROCESS_KEY.fullmatch(name):
+                raise CollectorConfigError("process label key is invalid")
+            process_labels[name] = safe_label(label, "process label")
+    else:
+        process_policies = parse_process_policies(raw.get("process_policies"))
+        process_labels = {
+            name: policy.label
+            for name, policy in process_policies.items()
+            if policy.label is not None
+        }
 
     raw_docker = require_mapping(raw.get("docker", {}), "docker")
     require_keys(raw_docker, {"enabled", "container_labels"}, "docker")
@@ -283,10 +402,17 @@ def parse_config(payload: object) -> CollectorConfig:
         container_labels[name] = safe_label(label, "container label")
 
     return CollectorConfig(
-        thresholds=parse_thresholds(raw.get("thresholds")),
+        schema_version=schema_version,
+        thresholds=parse_thresholds(raw.get("thresholds"), schema_version),
+        swap_io_sample=(
+            parse_swap_io_sample(raw.get("swap_io_sample"))
+            if schema_version == 2
+            else SwapIoSampleConfig()
+        ),
         filesystems=tuple(filesystems),
         expected_listeners=tuple(expected),
         process_labels=process_labels,
+        process_policies=process_policies,
         docker=DockerConfig(enabled, container_labels),
     )
 
@@ -380,7 +506,68 @@ def percent(part: int, total: int) -> float:
     return round(part * 100 / total, 1) if total > 0 else 0.0
 
 
-def read_memory(proc_root: Path, thresholds: Thresholds) -> dict[str, object]:
+def read_swap_counters(proc_root: Path) -> tuple[int, int]:
+    values: dict[str, int] = {}
+    for line in (proc_root / "vmstat").read_text(encoding="ascii").splitlines():
+        fields = line.split()
+        if len(fields) == 2 and fields[0] in {"pswpin", "pswpout"}:
+            value = int(fields[1])
+            if value < 0:
+                raise ValueError
+            values[fields[0]] = value
+    return values["pswpin"], values["pswpout"]
+
+
+def sample_swap_io(
+    proc_root: Path,
+    config: SwapIoSampleConfig,
+    *,
+    sleep: Sleeper,
+    monotonic: Clock,
+) -> dict[str, object]:
+    unavailable = {
+        "available": False,
+        "duration_ms": None,
+        "pages_in_delta": None,
+        "pages_out_delta": None,
+    }
+    if not 10 <= config.duration_ms <= 500:
+        return unavailable
+    try:
+        first_in, first_out = read_swap_counters(proc_root)
+        started = monotonic()
+        sleep(config.duration_ms / 1000)
+        second_in, second_out = read_swap_counters(proc_root)
+        elapsed_ms = round((monotonic() - started) * 1000)
+        if (
+            second_in < first_in
+            or second_out < first_out
+            or not 1 <= elapsed_ms <= 1000
+        ):
+            raise ValueError
+    except (OSError, UnicodeError, ValueError, KeyError):
+        return unavailable
+    return {
+        "available": True,
+        "duration_ms": elapsed_ms,
+        "pages_in_delta": second_in - first_in,
+        "pages_out_delta": second_out - first_out,
+    }
+
+
+def read_memory(
+    proc_root: Path,
+    thresholds: Thresholds,
+    *,
+    swap_io_config: SwapIoSampleConfig | None = None,
+    sleep: Sleeper = time.sleep,
+    monotonic: Clock = time.monotonic,
+) -> dict[str, object]:
+    swap_sample = (
+        sample_swap_io(proc_root, swap_io_config, sleep=sleep, monotonic=monotonic)
+        if swap_io_config is not None
+        else None
+    )
     try:
         values: dict[str, int] = {}
         for line in (proc_root / "meminfo").read_text(encoding="ascii").splitlines():
@@ -394,7 +581,7 @@ def read_memory(proc_root: Path, thresholds: Thresholds) -> dict[str, object]:
         if total <= 0 or not 0 <= available <= total or not 0 <= swap_used <= swap_total:
             raise ValueError
     except (OSError, UnicodeError, ValueError, KeyError):
-        return {
+        unavailable: dict[str, object] = {
             "status": "unknown",
             "reasons": ["memory_unavailable"],
             "total_bytes": None,
@@ -404,19 +591,66 @@ def read_memory(proc_root: Path, thresholds: Thresholds) -> dict[str, object]:
             "swap_used_bytes": None,
             "swap_used_percent": None,
         }
+        if swap_sample is not None:
+            unavailable["swap_io_sample"] = swap_sample
+            if not swap_sample["available"]:
+                unavailable["reasons"] = [
+                    "memory_unavailable",
+                    "swap_sample_unavailable",
+                ]
+        return unavailable
     available_percent = percent(available, total)
     swap_percent = percent(swap_used, swap_total)
     status = "ok"
     reasons: list[str] = []
-    if available_percent <= thresholds.memory_available_critical_percent:
-        status, reasons = "critical", ["memory_available_critical"]
-    elif available_percent <= thresholds.memory_available_warning_percent:
-        status, reasons = "warning", ["memory_available_low"]
-    if swap_total and swap_percent >= thresholds.swap_used_critical_percent:
-        status, reasons = "critical", [*reasons, "swap_used_critical"]
-    elif swap_total and swap_percent >= thresholds.swap_used_warning_percent and status != "critical":
-        status, reasons = "warning", [*reasons, "swap_used_high"]
-    return {
+    if swap_sample is None:
+        if available_percent <= thresholds.memory_available_critical_percent:
+            status, reasons = "critical", ["memory_available_critical"]
+        elif available_percent <= thresholds.memory_available_warning_percent:
+            status, reasons = "warning", ["memory_available_low"]
+        if swap_total and swap_percent >= thresholds.swap_used_critical_percent:
+            status, reasons = "critical", [*reasons, "swap_used_critical"]
+        elif (
+            swap_total
+            and swap_percent >= thresholds.swap_used_warning_percent
+            and status != "critical"
+        ):
+            status, reasons = "warning", [*reasons, "swap_used_high"]
+    else:
+        sample_available = bool(swap_sample["available"])
+        activity = (
+            int(swap_sample["pages_in_delta"])
+            + int(swap_sample["pages_out_delta"])
+            if sample_available
+            else None
+        )
+        if (
+            available_percent <= thresholds.memory_available_critical_percent
+            and activity is not None
+            and activity >= swap_io_config.critical_pages_delta
+        ):
+            status = "critical"
+            reasons.extend(["memory_available_critical", "swap_pressure_critical"])
+        elif available_percent <= thresholds.memory_available_warning_percent:
+            status = "warning"
+            reasons.append("memory_available_low")
+        if swap_total and swap_percent >= thresholds.swap_used_warning_percent:
+            if status == "ok":
+                status = "warning"
+            reasons.append("swap_used_high")
+        if (
+            activity is not None
+            and activity >= swap_io_config.warning_pages_delta
+            and status != "critical"
+        ):
+            if status == "ok":
+                status = "warning"
+            reasons.append("swap_activity_high")
+        if not sample_available:
+            reasons.append("swap_sample_unavailable")
+            if status == "ok":
+                status = "unknown"
+    result: dict[str, object] = {
         "status": status,
         "reasons": fixed_reason(*reasons),
         "total_bytes": total,
@@ -426,6 +660,9 @@ def read_memory(proc_root: Path, thresholds: Thresholds) -> dict[str, object]:
         "swap_used_bytes": swap_used,
         "swap_used_percent": swap_percent,
     }
+    if swap_sample is not None:
+        result["swap_io_sample"] = swap_sample
+    return result
 
 
 def read_load(proc_root: Path, thresholds: Thresholds, cpu_count: int | None) -> dict[str, object]:
@@ -522,6 +759,32 @@ def clean_process_name(value: str) -> str:
     return SAFE_NAME_CHAR.sub("?", value.strip())[:64] or "unknown"
 
 
+def evaluate_process_policy(
+    values: dict[str, int], policy: ProcessPolicy
+) -> tuple[str, list[str]]:
+    critical_reasons: list[str] = []
+    warning_reasons: list[str] = []
+    if policy.critical_count is not None and values["count"] >= policy.critical_count:
+        critical_reasons.append("process_policy_count_critical")
+    elif policy.warning_count is not None and values["count"] >= policy.warning_count:
+        warning_reasons.append("process_policy_count_high")
+    if (
+        policy.critical_rss_bytes is not None
+        and values["rss_bytes"] >= policy.critical_rss_bytes
+    ):
+        critical_reasons.append("process_policy_rss_critical")
+    elif (
+        policy.warning_rss_bytes is not None
+        and values["rss_bytes"] >= policy.warning_rss_bytes
+    ):
+        warning_reasons.append("process_policy_rss_high")
+    if critical_reasons:
+        return "critical", critical_reasons
+    if warning_reasons:
+        return "warning", warning_reasons
+    return "ok", []
+
+
 def read_processes(
     proc_root: Path,
     config: CollectorConfig,
@@ -574,23 +837,66 @@ def read_processes(
         group["count"] += 1
         group["rss_bytes"] += sample.rss_bytes
         group["oldest_age_seconds"] = max(group["oldest_age_seconds"], sample.age_seconds)
-    ordered_groups = sorted(groups.items(), key=lambda item: (-item[1]["rss_bytes"], item[0]))
-    top_groups = []
+    ordered_groups = sorted(
+        groups.items(), key=lambda item: (-item[1]["rss_bytes"], item[0])
+    )
+    top_groups: list[dict[str, object]] = []
     status = "ok"
     reasons: list[str] = []
-    for name, values in ordered_groups[:MAX_PROCESS_GROUPS]:
-        top_groups.append(
-            {
-                "name": name,
-                "label": config.process_labels.get(name),
-                **values,
-            }
+    if config.schema_version == 1:
+        for name, values in ordered_groups[:MAX_PROCESS_GROUPS]:
+            top_groups.append(
+                {
+                    "name": name,
+                    "label": config.process_labels.get(name),
+                    **values,
+                }
+            )
+            if values["count"] >= config.thresholds.process_group_critical_count:
+                status, reasons = "critical", ["process_group_count_critical"]
+            elif (
+                values["count"] >= config.thresholds.process_group_warning_count
+                and status != "critical"
+            ):
+                status, reasons = "warning", ["process_group_count_high"]
+    else:
+        evaluated: list[tuple[int, str, dict[str, object]]] = []
+        severity_rank = {"critical": 0, "warning": 1, "ok": 2}
+        for name, values in ordered_groups:
+            policy = config.process_policies.get(name)
+            group_status, group_reasons = (
+                evaluate_process_policy(values, policy) if policy is not None else ("ok", [])
+            )
+            if group_status == "critical":
+                status = "critical"
+            elif group_status == "warning" and status != "critical":
+                status = "warning"
+            reasons.extend(group_reasons)
+            policy_status = (
+                "not_configured"
+                if policy is None
+                else "violated"
+                if group_status != "ok"
+                else "within_limits"
+            )
+            evaluated.append(
+                (
+                    severity_rank[group_status],
+                    name,
+                    {
+                        "name": name,
+                        "label": config.process_labels.get(name),
+                        **values,
+                        "policy_status": policy_status,
+                    },
+                )
+            )
+        evaluated.sort(
+            key=lambda item: (item[0], -int(item[2]["rss_bytes"]), item[1])
         )
-        if values["count"] >= config.thresholds.process_group_critical_count:
-            status, reasons = "critical", ["process_group_count_critical"]
-        elif values["count"] >= config.thresholds.process_group_warning_count and status != "critical":
-            status, reasons = "warning", ["process_group_count_high"]
-    if inaccessible:
+        top_groups = [item[2] for item in evaluated[:MAX_PROCESS_GROUPS]]
+        reasons = fixed_reason(*reasons)
+    if inaccessible or (config.schema_version == 2 and truncated):
         reasons = [*reasons, "processes_partial"]
         if status == "ok":
             status = "unknown"
@@ -606,7 +912,7 @@ def read_processes(
     ]
     return {
         "status": status if samples else "unknown",
-        "reasons": reasons if samples else ["processes_unavailable"],
+        "reasons": fixed_reason(*reasons) if samples else ["processes_unavailable"],
         "top": top,
         "groups": top_groups,
         "scanned": len(samples),
@@ -720,28 +1026,59 @@ def read_listeners(
     unique: dict[tuple[int, str, str | None], dict[str, object]] = {}
     status = "ok"
     reasons: list[str] = []
+    ownership_partial = False
     for port, scope, inode in rows:
         process_name = inode_names.get(inode)
-        expected = port in expectations and scope in expectations[port]
-        item_status = "ok" if expected else "warning"
-        if not expected and scope == "wildcard":
-            item_status = "critical"
+        ownership_partial = ownership_partial or process_name is None
+        configured = port in expectations
+        expected = configured and scope in expectations[port]
+        if config.schema_version == 1:
+            item_status = "ok" if expected else "warning"
+            if not expected and scope == "wildcard":
+                item_status = "critical"
+            item: dict[str, object] = {
+                "port": port,
+                "address_scope": scope,
+                "process_name": process_name,
+                "process_label": config.process_labels.get(process_name or ""),
+                "expected": expected,
+                "status": item_status,
+            }
+        else:
+            policy_status = (
+                "allowed" if expected else "violated" if configured else "not_configured"
+            )
+            item_status = "ok" if expected else "critical" if configured else "warning"
+            item = {
+                "port": port,
+                "bind_scope": scope,
+                "external_reachability": "not_assessed",
+                "process_name": process_name,
+                "process_label": config.process_labels.get(process_name or ""),
+                "policy_status": policy_status,
+                "status": item_status,
+            }
         if item_status == "critical":
             status = "critical"
-            reasons.append("wildcard_listener_unexpected")
+            reasons.append(
+                "wildcard_listener_unexpected"
+                if scope == "wildcard"
+                else "tcp_listener_unexpected"
+            )
         elif item_status == "warning" and status != "critical":
             status = "warning"
-            reasons.append("tcp_listener_unexpected")
-        unique[(port, scope, process_name)] = {
-            "port": port,
-            "address_scope": scope,
-            "process_name": process_name,
-            "process_label": config.process_labels.get(process_name or ""),
-            "expected": expected,
-            "status": item_status,
-        }
-    ordered = sorted(unique.values(), key=lambda item: (int(item["port"]), str(item["address_scope"])))
-    if partial:
+            reasons.append(
+                "wildcard_listener_unexpected"
+                if scope == "wildcard"
+                else "tcp_listener_unexpected"
+            )
+        unique[(port, scope, process_name)] = item
+    scope_field = "address_scope" if config.schema_version == 1 else "bind_scope"
+    ordered = sorted(
+        unique.values(),
+        key=lambda item: (int(item["port"]), str(item[scope_field])),
+    )
+    if partial or (config.schema_version == 2 and ownership_partial):
         reasons.append("listeners_partial")
         if status == "ok":
             status = "unknown"
@@ -906,9 +1243,17 @@ def collect_snapshot(
     cpu_count: int | None = None,
     page_size: int | None = None,
     clock_ticks: int | None = None,
+    sleep: Sleeper = time.sleep,
+    monotonic: Clock = time.monotonic,
 ) -> dict[str, object]:
-    started = time.monotonic()
-    memory = read_memory(proc_root, config.thresholds)
+    started = monotonic()
+    memory = read_memory(
+        proc_root,
+        config.thresholds,
+        swap_io_config=config.swap_io_sample if config.schema_version == 2 else None,
+        sleep=sleep,
+        monotonic=monotonic,
+    )
     load = read_load(proc_root, config.thresholds, cpu_count if cpu_count is not None else os.cpu_count())
     filesystems = read_filesystems(config, statvfs)
     processes, samples = read_processes(
@@ -924,9 +1269,9 @@ def collect_snapshot(
         *(reason for component in components for reason in component.get("reasons", []))
     )
     return {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": config.schema_version,
         "collected_at": datetime.now(UTC).isoformat(),
-        "duration_ms": max(0, int((time.monotonic() - started) * 1000)),
+        "duration_ms": max(0, int((monotonic() - started) * 1000)),
         "status": combine_status([str(component["status"]) for component in components]),
         "reasons": reasons,
         "memory": memory,
@@ -936,6 +1281,21 @@ def collect_snapshot(
         "listeners": listeners,
         "docker": docker,
     }
+
+
+def write_response(payload: bytes, fd: int = 1) -> None:
+    offset = 0
+    while offset < len(payload):
+        try:
+            written = os.write(fd, payload[offset:])
+        except BrokenPipeError:
+            # Il consumer può chiudere una socket Accept=yes dopo aver annullato
+            # il refresh. Non è un errore di raccolta e non deve lasciare la
+            # one-shot systemd in stato failed.
+            return
+        if written <= 0:
+            raise OSError("host observability response write made no progress")
+        offset += written
 
 
 def main() -> None:
@@ -949,7 +1309,7 @@ def main() -> None:
         raise SystemExit(f"host observability collector failed: {type(exc).__name__}") from exc
     if len(payload) > MAX_RESPONSE_BYTES:
         raise SystemExit("host observability collector response exceeds limit")
-    os.write(1, payload)
+    write_response(payload)
 
 
 if __name__ == "__main__":

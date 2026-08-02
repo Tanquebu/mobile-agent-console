@@ -216,8 +216,7 @@ export type AppConfig = {
 export type HostStatus = "ok" | "warning" | "critical" | "unknown";
 export type HostComponent = { status: HostStatus; reasons: string[] };
 
-export type HostObservabilitySnapshot = HostComponent & {
-  schema_version: 1;
+type HostObservabilitySnapshotBase = HostComponent & {
   collected_at: string;
   duration_ms: number;
   memory: HostComponent & {
@@ -257,21 +256,11 @@ export type HostObservabilitySnapshot = HostComponent & {
       count: number;
       rss_bytes: number;
       oldest_age_seconds: number;
+      policy_status?: "not_configured" | "within_limits" | "violated";
     }>;
     scanned: number;
     skipped: number;
     inaccessible: number;
-    truncated: boolean;
-  };
-  listeners: HostComponent & {
-    items: Array<{
-      port: number;
-      address_scope: "loopback" | "tailscale" | "wildcard" | "other";
-      process_name: string | null;
-      process_label: string | null;
-      expected: boolean;
-      status: "ok" | "warning" | "critical";
-    }>;
     truncated: boolean;
   };
   docker: HostComponent & {
@@ -284,6 +273,48 @@ export type HostObservabilitySnapshot = HostComponent & {
     unmapped_problematic_count: number;
   };
 };
+
+type HostListenerBase = {
+  port: number;
+  process_name: string | null;
+  process_label: string | null;
+  status: "ok" | "warning" | "critical";
+};
+
+export type HostObservabilitySnapshotV1 = HostObservabilitySnapshotBase & {
+  schema_version: 1;
+  listeners: HostComponent & {
+    items: Array<HostListenerBase & {
+      address_scope: "loopback" | "tailscale" | "wildcard" | "other";
+      expected: boolean;
+    }>;
+    truncated: boolean;
+  };
+};
+
+export type HostObservabilitySnapshotV2 = HostObservabilitySnapshotBase & {
+  schema_version: 2;
+  memory: HostObservabilitySnapshotBase["memory"] & {
+    swap_io_sample: {
+      available: boolean;
+      duration_ms: number | null;
+      pages_in_delta: number | null;
+      pages_out_delta: number | null;
+    };
+  };
+  listeners: HostComponent & {
+    items: Array<HostListenerBase & {
+      bind_scope: "loopback" | "tailscale" | "wildcard" | "other";
+      external_reachability: "not_assessed";
+      policy_status: "not_configured" | "allowed" | "violated";
+    }>;
+    truncated: boolean;
+  };
+};
+
+export type HostObservabilitySnapshot =
+  | HostObservabilitySnapshotV1
+  | HostObservabilitySnapshotV2;
 
 export async function fetchHostObservability(): Promise<HostObservabilitySnapshot> {
   const response = await request("/api/v1/host-observability");

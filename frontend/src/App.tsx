@@ -114,9 +114,9 @@ const MAX_TERMINAL_LINES = 2000;
 const LOAD_MORE_STEP_LINES = 500;
 
 const LATEST_RELEASE = {
-  title: "Osservabilità host + export JSON",
+  title: "Dettagli Host richiudibili",
   description:
-    "Vista admin on-demand con copia dello snapshot JSON sanitizzato, ora rilasciata e validata.",
+    "Le sezioni Host partono chiuse: titolo e stato restano visibili, mentre metriche e liste si aprono solo quando servono.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1329,6 +1329,9 @@ const HOST_REASON_LABEL: Record<string, string> = {
   memory_available_low: "Memoria disponibile bassa",
   swap_used_critical: "Swap critica",
   swap_used_high: "Swap elevata",
+  swap_sample_unavailable: "Campione attività swap non disponibile",
+  swap_activity_high: "Attività swap elevata",
+  swap_pressure_critical: "Pressione memoria e attività swap critiche",
   load_unavailable: "Carico non disponibile",
   load_critical: "Carico critico",
   load_high: "Carico elevato",
@@ -1340,6 +1343,10 @@ const HOST_REASON_LABEL: Record<string, string> = {
   processes_partial: "Elenco processi parziale",
   process_group_count_critical: "Troppi processi omonimi",
   process_group_count_high: "Molti processi omonimi",
+  process_policy_count_critical: "Policy numero processi violata, livello critico",
+  process_policy_count_high: "Policy numero processi violata, livello attenzione",
+  process_policy_rss_critical: "Policy memoria aggregata violata, livello critico",
+  process_policy_rss_high: "Policy memoria aggregata violata, livello attenzione",
   listeners_unavailable: "Porte in ascolto non disponibili",
   listeners_partial: "Elenco porte parziale",
   wildcard_listener_unexpected: "Porta wildcard inattesa",
@@ -1349,6 +1356,25 @@ const HOST_REASON_LABEL: Record<string, string> = {
   docker_output_excessive: "Risposta Docker troppo grande",
   docker_output_invalid: "Risposta Docker non valida",
   containers_problematic: "Container con problemi",
+};
+
+const HOST_PROCESS_POLICY_LABEL = {
+  not_configured: "Policy locale non configurata",
+  within_limits: "Entro i limiti della policy locale",
+  violated: "Policy locale violata",
+} as const;
+
+const HOST_LISTENER_POLICY_LABEL = {
+  not_configured: "Policy locale non configurata",
+  allowed: "Bind consentito dalla policy locale",
+  violated: "Policy locale violata",
+} as const;
+
+const HOST_EMPTY_ASSESSMENT_LABEL: Record<HostComponent["status"], string> = {
+  ok: "Nessuna anomalia rilevata dai controlli disponibili.",
+  warning: "Attenzione rilevata; il collector non ha fornito un dettaglio della valutazione.",
+  critical: "Stato critico rilevato; il collector non ha fornito un dettaglio della valutazione.",
+  unknown: "Valutazione non disponibile: l’esito non è accertato.",
 };
 
 function HostStatusBadge({ status }: { status: HostComponent["status"] }) {
@@ -1376,14 +1402,24 @@ function HostCard({
   children: ReactNode;
 }) {
   return (
-    <section className={`host-card status-${component.status}`}>
-      <header>
+    <details className={`host-card status-${component.status}`}>
+      <summary>
         <h2>{title}</h2>
         <HostStatusBadge status={component.status} />
-      </header>
-      <HostReasons reasons={component.reasons} />
-      {children}
-    </section>
+      </summary>
+      <div className="host-card-body">
+        <div className="host-assessment" aria-label={`Valutazione ${title}`}>
+          <span className="eyebrow">VALUTAZIONE</span>
+          {component.reasons.length > 0 ? (
+            <HostReasons reasons={component.reasons} />
+          ) : (
+            <p>{HOST_EMPTY_ASSESSMENT_LABEL[component.status]}</p>
+          )}
+        </div>
+        <h3 className="host-facts-heading">Fatti locali</h3>
+        {children}
+      </div>
+    </details>
   );
 }
 
@@ -1436,7 +1472,11 @@ function HostView({ onBack }: { onBack: () => void }) {
     return () => window.cancelAnimationFrame(frame);
   }, []);
 
-  const unexpectedListeners = snapshot?.listeners.items.filter((item) => !item.expected) ?? [];
+  const displayedListeners = snapshot ? (
+    snapshot.schema_version === 2
+      ? snapshot.listeners.items
+      : snapshot.listeners.items.filter((item) => !item.expected)
+  ) : [];
   const collectedAt = snapshot ? new Date(snapshot.collected_at).getTime() : 0;
   const stale = snapshot !== null && (
     Boolean(error) || !Number.isFinite(collectedAt) || Date.now() - collectedAt > 2 * 60_000
@@ -1465,7 +1505,10 @@ function HostView({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <main className="shell host-view">
+    <main
+      className="shell host-view"
+      data-observability-version={snapshot?.schema_version ?? "loading"}
+    >
       <header className="host-topbar">
         <button className="icon-button" onClick={onBack} aria-label="Torna alle sessioni">‹</button>
         <div>
@@ -1503,7 +1546,9 @@ function HostView({ onBack }: { onBack: () => void }) {
             <div>
               <span className="eyebrow">STATO COMPLESSIVO</span>
               <h2 id="host-summary-title">{HOST_STATUS_LABEL[snapshot.status]}</h2>
-              <small>Raccolta in {snapshot.duration_ms} ms</small>
+              <small>
+                Contratto {snapshot.schema_version === 1 ? "v1 legacy" : "v2"} · Raccolta in {snapshot.duration_ms} ms
+              </small>
             </div>
             <HostStatusBadge status={snapshot.status} />
             <HostReasons reasons={snapshot.reasons} />
@@ -1520,6 +1565,15 @@ function HostView({ onBack }: { onBack: () => void }) {
               ))}
             </div>
           </section>
+
+          <details className="host-reading-guide">
+            <summary id="host-reading-guide-title">Come leggere la fotografia</summary>
+            <dl aria-labelledby="host-reading-guide-title">
+              <div><dt>Fatti locali</dt><dd>Misure raccolte sull’host e scope di bind osservati.</dd></div>
+              <div><dt>Valutazione</dt><dd>Esito derivato dalle soglie e dalle policy locali disponibili.</dd></div>
+              <div><dt>Non accertato</dt><dd>Dato non raccolto o non verificato; non esprime un esito positivo.</dd></div>
+            </dl>
+          </details>
 
           <details
             className={`host-json-export${snapshot.status === "critical" ? " status-critical" : ""}`}
@@ -1550,6 +1604,20 @@ function HostView({ onBack }: { onBack: () => void }) {
                 <HostMetric label="Swap usata" value={`${formatSize(snapshot.memory.swap_used_bytes)} · ${formatPercent(snapshot.memory.swap_used_percent)}`} />
                 <HostMetric label="Swap totale" value={formatSize(snapshot.memory.swap_total_bytes)} />
               </dl>
+              {snapshot.schema_version === 2 && (
+                <section className="host-sample" aria-label="Campione attività swap">
+                  <h4>Campione attività swap</h4>
+                  {snapshot.memory.swap_io_sample.available ? (
+                    <dl>
+                      <HostMetric label="Durata" value={`${snapshot.memory.swap_io_sample.duration_ms ?? "—"} ms`} />
+                      <HostMetric label="Pagine lette" value={`${snapshot.memory.swap_io_sample.pages_in_delta ?? "—"}`} />
+                      <HostMetric label="Pagine scritte" value={`${snapshot.memory.swap_io_sample.pages_out_delta ?? "—"}`} />
+                    </dl>
+                  ) : (
+                    <p><strong>Non accertato.</strong> Il campione non è disponibile e non viene interpretato come attività zero.</p>
+                  )}
+                </section>
+              )}
             </HostCard>
 
             <HostCard title="Carico" component={snapshot.load}>
@@ -1586,6 +1654,11 @@ function HostView({ onBack }: { onBack: () => void }) {
                   <article key={group.name}>
                     <span><strong>{group.label ?? group.name}</strong><small>{group.label ? group.name : null}</small></span>
                     <span><strong>{group.count}×</strong><small>{formatSize(group.rss_bytes)} · più vecchio {formatAge(group.oldest_age_seconds)}</small></span>
+                    {snapshot.schema_version === 2 && group.policy_status && (
+                      <p className={`host-policy policy-${group.policy_status}`}>
+                        Valutazione policy: {HOST_PROCESS_POLICY_LABEL[group.policy_status]}
+                      </p>
+                    )}
                   </article>
                 ))}
               </div>
@@ -1605,18 +1678,40 @@ function HostView({ onBack }: { onBack: () => void }) {
             )}
           </HostCard>
 
-          <HostCard title="Porte inattese" component={snapshot.listeners}>
-            {unexpectedListeners.length === 0 ? <p className="host-empty">Nessuna porta inattesa rilevata.</p> : (
+          <HostCard
+            title={snapshot.schema_version === 2 ? "Listener TCP" : "Porte inattese"}
+            component={snapshot.listeners}
+          >
+            {displayedListeners.length === 0 ? (
+              <p className="host-empty">
+                {snapshot.schema_version === 2 ? "Nessun listener TCP rilevato." : "Nessuna porta inattesa rilevata."}
+              </p>
+            ) : (
               <div className="host-item-grid">
-                {unexpectedListeners.map((listener) => (
-                  <article key={`${listener.port}-${listener.address_scope}-${listener.process_name ?? "unknown"}`} className={`host-item status-${listener.status}`}>
+                {displayedListeners.map((listener) => (
+                  <article key={`${listener.port}-${"address_scope" in listener ? listener.address_scope : listener.bind_scope}-${listener.process_name ?? "unknown"}`} className={`host-item status-${listener.status}`}>
                     <header><strong>TCP {listener.port}</strong><HostStatusBadge status={listener.status} /></header>
-                    <span>{listener.address_scope}</span>
+                    <span>Bind locale: {"address_scope" in listener ? listener.address_scope : listener.bind_scope}</span>
                     <small>{listener.process_label ?? listener.process_name ?? "Processo non identificato"}</small>
+                    {"policy_status" in listener && (
+                      <small className={`host-policy policy-${listener.policy_status}`}>
+                        Valutazione policy: {HOST_LISTENER_POLICY_LABEL[listener.policy_status]}
+                      </small>
+                    )}
+                    {"external_reachability" in listener && (
+                      <small className="host-not-assessed">
+                        Raggiungibilità esterna: non accertata
+                      </small>
+                    )}
                   </article>
                 ))}
               </div>
             )}
+            <p className="host-note">
+              {snapshot.schema_version === 2
+                ? "La fotografia osserva il bind locale; non verifica la raggiungibilità dalla rete esterna."
+                : "Snapshot legacy v1: policy locale e raggiungibilità esterna non sono disponibili."}
+            </p>
             {snapshot.listeners.truncated && <p className="host-note">Elenco listener troncato: potrebbero mancare altre porte.</p>}
           </HostCard>
 

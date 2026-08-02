@@ -137,7 +137,13 @@ invece l'owner. Le ACL predefinite sulla directory vengono ereditate dal socket
 ricreato da systemd, senza ricorrere a permessi world-writable. Il collector
 HO-02 legge `/proc` e filesystem esclusivamente sull'host e restituisce il
 contratto v1 limitato; Docker è opzionale e usa un solo comando ad argv fisso.
-Path, inventario e soglie restano nella configurazione host privata. API e UI
+Il contratto v2 mantiene la lettura della configurazione v1 legacy ma aggiunge
+policy locali per listener e gruppi processo e un campione swap limitato. Il
+payload separa `bind_scope` da `external_reachability=not_assessed` e non espone
+le soglie private. Backend e frontend accettano entrambe le versioni durante il
+rollout e rifiutano versioni future o payload misti; non vengono introdotte
+sonde o dipendenze di rete. Path, inventario e soglie restano nella
+configurazione host privata. API e UI
 sono separate: HO-03 aggiunge un `GET /api/v1/host-observability` opt-in,
 riservato agli admin e con rate limit dedicato; HO-04 aggiunge la vista mobile
 separata. Il backend valida nuovamente l'intero contratto Pydantic e non persiste,
@@ -156,6 +162,14 @@ stesso ultimo snapshot valido: non richiama nuovamente l'API, non introduce un
 wrapper o metadati UI e cambia soltanto dopo un refresh riuscito. Il fallback
 clipboard seleziona la `textarea` read-only per una copia manuale, senza
 `execCommand` o trasformazioni del contenuto.
+
+Durante il rollout la vista distingue esplicitamente i fatti osservati dalla
+valutazione prodotta da soglie e policy. Con il contratto v2 mostra tutti i
+listener locali, il relativo esito di policy e
+`external_reachability=not_assessed` come dato non accertato: uno scope di bind
+non viene mai presentato come prova che una porta sia sicura, chiusa o
+raggiungibile dall'esterno. Il fallback v1 continua a mostrare le sole porte
+inattese e dichiara che policy e raggiungibilità non sono disponibili.
 
 Le unit systemd sono user unit separate per modalità Docker e host. Entrambe
 delegano l'avvio a Compose; allo stop e al reload agiscono soltanto su `backend`

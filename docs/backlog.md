@@ -935,3 +935,566 @@ Il modulo passa a `rilasciato e validato` soltanto quando tutti i check da
 `REWORK_REQUIRED` aperte, il deploy pubblicato è stato verificato e
 `LATEST_RELEASE` descrive questa funzionalità. Il solo completamento dei test
 locali non chiude il round.
+
+## Anomalie e follow-up da validare
+
+### HO-FU-01 — Stato host critico sovrastimato da segnali non contestualizzati
+
+- STATUS: VALIDATED_WITH_CHANGES
+- SEGNALATO_DA: Codex
+- Contesto: snapshot one-shot del modulo di osservabilità su un host Linux con
+  processi applicativi, container rootless, swap già occupata e firewall
+  perimetrale indipendente dall'host.
+- Comportamento osservato: l'envelope risulta `critical` per la sola percentuale
+  di swap occupata, per conteggi assoluti di gruppi processo e per listener TCP
+  wildcard non presenti nell'inventario atteso. Il collector non riesce ad
+  attribuire i listener ai processi e non accede a Docker, ma combina comunque
+  questi segnali incompleti nel verdetto. Una verifica esterna separata mostra
+  che i listener wildcard osservati localmente sono filtrati dal firewall
+  perimetrale, mentre memoria disponibile, carico e disco non indicano
+  saturazione e un breve campione di swap I/O non mostra thrashing.
+- Comportamento atteso: distinguere i fatti raccolti dalla valutazione del
+  rischio. Un bind wildcard deve restare visibile, ma non essere descritto come
+  esposizione Internet accertata senza evidenza di raggiungibilità; raccolte
+  parziali o integrazioni indisponibili devono produrre `unknown` nel componente
+  interessato senza aggravare da sole l'envelope. Swap e gruppi processo devono
+  diventare critici soltanto con indicatori contestuali configurati e
+  riproducibili, non per una singola soglia assoluta generica.
+- Procedura di riproduzione: configurare un listener TCP non presente
+  nell'allowlist su `0.0.0.0:<porta-fittizia>`, lasciandolo filtrato da un
+  firewall perimetrale; rendere Docker non accessibile al collector; predisporre
+  swap occupata oltre la soglia con memoria disponibile ancora adeguata e senza
+  swap I/O sostenuto; includere gruppi multiprocesso leciti oltre la soglia.
+  Richiedere un solo snapshot e confrontare stato envelope, stato dei
+  componenti, reasons e dati grezzi minimizzati.
+- Evidenze/log sanitizzati: snapshot con memoria disponibile circa metà del
+  totale, swap occupata oltre quattro quinti, carico normalizzato sotto uno,
+  filesystem sotto soglia, listener wildcard attribuibili a servizi noti ma
+  `process_name=null`, Docker `available=false` e test TCP esterno in timeout
+  sulle porte applicative; una porta di controllo consentita risulta invece
+  raggiungibile. Nessun host, IP, porta reale, processo privato o risultato
+  esterno identificabile è riportato qui.
+- Impatto: falso allarme ad alta severità, perdita di fiducia nel verdetto
+  sintetico e rischio di interventi inutili o distruttivi su servizi sani; al
+  tempo stesso, abbassare indiscriminatamente la severità dei wildcard listener
+  potrebbe occultare una regressione reale del firewall.
+- Funzionalità proposta: introdurre una valutazione esplicita per evidenza e
+  confidenza. Separare `bind_scope` da `external_reachability`, mantenendo
+  quest'ultima `unknown` salvo attestazione affidabile e opt-in; permettere alla
+  configurazione privata di dichiarare esposizione attesa e presenza di un
+  controllo perimetrale senza inserire dettagli infrastrutturali nel repo.
+  Contestualizzare la swap con memoria disponibile e, solo se compatibile col
+  budget one-shot, un delta locale breve e limitato di swap-in/swap-out.
+  Valutare i gruppi tramite soglie per label o consumo aggregato, non con un
+  limite globale. Conservare `unknown` per ownership listener parziale e Docker
+  indisponibile. Non effettuare scansioni Internet automatiche dal collector,
+  non contattare API cloud e non introdurre credenziali o dipendenze esterne.
+- File probabilmente coinvolti: collector e relativi test host-side; schema e
+  contratto `host-observability-v1`; esempio di configurazione privata; modelli
+  backend; mapping di severità e testi della vista Host; gate, architettura e
+  threat model. I path esatti vanno determinati durante la validazione senza
+  riaprire o riscrivere la roadmap HO-00–HO-06 conclusa.
+- Rischi di sicurezza/architettura: un campo configurabile che dichiara il
+  firewall può diventare un'assicurazione falsa se la policy esterna cambia;
+  una sonda esterna divulgherebbe destinazione e porte a terzi e introdurrebbe
+  rete, latenza e disponibilità nel collector one-shot; l'accesso alle API del
+  provider porterebbe credenziali cloud nel boundary. Il fail-safe deve quindi
+  conservare il wildcard bind come evidenza locale e non tradurre
+  `external_reachability=unknown` in `closed`. Un eventuale cambio di schema
+  richiede versionamento compatibile e non deve ampliare i dati esposti.
+- Criteri di accettazione suggeriti: fixture deterministiche dimostrano che
+  (1) wildcard inatteso con raggiungibilità ignota resta evidente ma non viene
+  presentato come esposizione Internet verificata; (2) una dichiarazione
+  privata di firewall non può produrre `closed` né sopprimere il dato di bind;
+  (3) raccolta listener parziale e Docker indisponibile restano `unknown` e non
+  causano da soli `critical`; (4) swap molto occupata con memoria disponibile e
+  delta I/O nullo non è critica, mentre pressione di memoria e swap I/O
+  sostenuto superano la soglia prevista; (5) gruppi leciti configurati non
+  attivano il limite globale, ma una crescita anomala o RSS aggregato oltre
+  soglia sì; (6) nessuna sonda Internet, API cloud, credenziale, hostname, IP o
+  inventario reale entra in codice, payload, log, fixture o documentazione;
+  (7) il contratto mantiene stati e reasons deterministici, compatibilità
+  dichiarata e propagazione corretta fino all'envelope e alla UI.
+
+#### Esito della validazione ROOT
+
+La proposta è accettata, ma non integralmente nella forma iniziale. La lettura
+del collector conferma tre cause indipendenti di sovrastima:
+
+- `read_memory()` rende critica la memoria quando la sola occupazione swap
+  supera la soglia, anche con `MemAvailable` adeguata e senza un indicatore di
+  attività swap;
+- `read_processes()` applica a ogni nome processo due soglie globali di conteggio,
+  senza distinguere gruppi leciti né considerare il loro RSS aggregato;
+- `read_listeners()` rende critico ogni bind wildcard inatteso sulla sola
+  evidenza locale del bind, che non dimostra la raggiungibilità da Internet.
+
+Due parti della diagnosi non sono invece confermate come cause autonome del
+`critical`: Docker indisponibile produce già `unknown`, e `listeners_partial`
+porta a `unknown` soltanto in assenza di un altro verdetto concreto. Inoltre la
+UI corrente mostra “Porta wildcard inattesa”, non dichiara che la porta sia
+raggiungibile da Internet. L'assenza di ownership del listener non è oggi
+modellata come incompletezza distinta e va resa esplicita soltanto se può
+essere calcolata in modo deterministico.
+
+La correzione adotterà questi vincoli:
+
+- il bind locale rimane sempre visibile; la raggiungibilità esterna resta
+  `not_assessed` e non diventa mai `closed` in base a una dichiarazione di
+  configurazione;
+- la configurazione privata può definire policy locali per porta/scope e per
+  nome processo, ma non attestare lo stato del firewall né sopprimere i fatti
+  raccolti;
+- un wildcard inatteso è `warning` per default; diventa `critical` soltanto se
+  viola una policy locale esplicita, non per una presunta esposizione esterna;
+- l'occupazione swap resta un fatto mostrato. Il livello critico richiede
+  pressione di memoria e attività swap contestuali; l'eventuale campione
+  `/proc/vmstat` deve essere breve, limitato, iniettabile nei test e compreso
+  nel timeout one-shot. Se il campione non è disponibile, il dato contestuale
+  è `unknown`, non `0`;
+- i gruppi non configurati vengono elencati ma non diventano critici per un
+  limite globale. Le policy per nome possono usare conteggio e RSS aggregato.
+  Il rilevamento di una crescita temporale resta fuori scope perché richiederebbe
+  storia o persistenza, escluse dall'MVP;
+- nessuna rete in uscita, sonda esterna, API cloud, credenziale, hostname, IP
+  grezzo o dettaglio infrastrutturale viene aggiunto al boundary;
+- l'aggiunta di evidenza/confidenza e dei nuovi indicatori richiede un
+  contratto output v2. Durante il rollout backend e frontend devono accettare
+  sia v1 sia v2; il collector deve leggere la configurazione privata v1
+  esistente con default sicuri oppure una v2 esplicita. La rimozione della
+  compatibilità v1 non appartiene a questo round.
+
+#### Criterio di completamento HO-FU-01
+
+Il follow-up è chiuso soltanto dopo contratto e configurazione compatibili,
+test automatici deterministici, verifica indipendente di ogni fase, deploy
+mirato e collaudo sulla fotografia reale. Il deploy deve preservare
+`tmux-runtime`; `LATEST_RELEASE` viene aggiornato soltanto nella fase finale,
+dopo il gate live superato. I tentativi falliti restano nella roadmap e seguono
+il protocollo di rework già definito per HO-00–HO-06.
+
+#### Roadmap flaggabile HO-FU-01
+
+- [x] GATE-HO-FU-01 | OWNER: ROOT | STATUS: PASSED | Anomalia validata sul
+  codice corrente. Accettati scoring contestuale e separazione tra fatto locale
+  e valutazione; respinte attestazioni di firewall e sonde esterne. Autorizzata
+  la preparazione della roadmap, non l'implementazione.
+
+- [x] IMP-HO-FU-01 | OWNER: SA-IMP | STATUS: DONE | Implementati contratto
+  output v2 e configurazione privata v2 con rollout compatibile. Il backend usa
+  un'unione Pydantic discriminata e fail-closed per v1/v2; il frontend espone
+  tipi discriminati senza cambiare endpoint o serializzazione dell'export. Il
+  v2 separa `bind_scope` da `external_reachability=not_assessed`, vincola
+  disponibilità e risultato del campione swap, pubblica soltanto l'esito delle
+  policy processo/listener e mantiene private soglie e dettagli host. Il parser
+  accetta la config v1 legacy oppure la v2 esplicita, mai forme miste; la v2
+  supporta policy count/RSS limitate, policy porta/scope e campione swap
+  bounded, senza firewall, credenziali o dipendenze di rete.
+  File: `backend/app/services/host_observability_contract.py`, service e test
+  Host API/contratto; `deploy/host-observability-collector.py`, esempio e test;
+  `frontend/src/api.ts` con adattamento compatibile della vista; contratto v1 e
+  nuovo `docs/contracts/host-observability-v2.md`, ADR 009, architettura e
+  sicurezza. Test di validazione coprono payload v1/v2, reason separati, campi
+  extra, campione coerente/incoerente, versione futura, response senza wrapper,
+  fallback config v1, esempio v2, campi misti, cardinalità e boundary numerici.
+  Evidenze/comandi SA-IMP: suite backend completa sull'albero corrente `179
+  passed`; test mirati contratto/API `28 passed`; suite host observability
+  deploy `29 passed`; test collector `23 passed`; test UI Host `9 passed`;
+  `npm run build`, `docker compose config --quiet`, lint Ruff dei file coinvolti,
+  validazione JSON e `git diff --check` passano. Il lint backend globale riporta
+  soltanto i due `I001` preesistenti in `app/main.py` e `app/schemas.py`, fuori
+  scope e già registrati. Nessun deploy, commit o avvio di HO-FU-02.
+- [x] TEST-HO-FU-01-T1 | OWNER: SA-TEST | STATUS: FAILED | Verifica
+  indipendente eseguita senza deploy o correzioni. Le suite mirate
+  contratto/API/socket passano (`37 passed`), i test UI Host e la build frontend
+  passano (`9 passed`), e i 29 test host-side hanno un errore intermittente
+  nella fixture del timeout, poi superato in due ripetizioni isolate. Config v1
+  e v2, forme miste, limiti dichiarati, output v1 intenzionale del collector,
+  assenza di nuove dipendenze di rete e scansione privacy non evidenziano altri
+  blocker. Il gate fallisce però la strict validation v2: un campione
+  `swap_io_sample` con `available=false`, `duration_ms=100` e delta `null` viene
+  accettato dall'adapter. Il contratto richiede invece che, quando il campione è
+  indisponibile, tutti e tre i risultati siano `null`; la forma parziale deve
+  fallire chiuso.
+
+- [x] IMP-HO-FU-01-R1 | OWNER: SA-IMP | STATUS: DONE | Corretto
+  il validatore di `SwapIoSample` affinché accetti esclusivamente le due forme
+  coerenti: `available=true` con tutti i risultati presenti, oppure
+  `available=false` con tutti i risultati `null`. Aggiunti test parametrizzati
+  per ogni combinazione parziale,
+  inclusi un solo valore presente e due valori presenti, senza modificare il
+  contratto documentato né anticipare HO-FU-02. Rieseguiti test contratto/API e
+  suite backend prima di dichiarare pronto il nuovo check. Nessun deploy.
+  Evidenze SA-IMP: riprodotto prima della correzione il payload
+  `available=false`, `duration_ms=100`, delta `null`, confermandone l'errata
+  accettazione. Il validatore ora distingue presenza parziale e completa con
+  controlli `any`/`all`; un test parametrizzato esercita tutte le 16
+  combinazioni fra flag e presenza dei tre risultati, incluse forme con uno o
+  due valori. Test contratto/API `44 passed`, suite backend completa `195
+  passed`, lint Ruff mirato e `git diff --check` passano. Nessun cambiamento al
+  contratto documentato, deploy, commit o attività HO-FU-02.
+
+- [x] TEST-HO-FU-01-T2 | OWNER: SA-TEST | STATUS: PASSED | Rework verificato
+  indipendentemente sui sorgenti correnti. Una matrice esterna ai test del
+  SA-IMP esercita tutte le 16 combinazioni tra `available` e presenza dei tre
+  risultati: vengono accettate soltanto `true` con tutti valorizzati e `false`
+  con tutti `null`; le altre 14 forme falliscono chiuso. Passano contratto,
+  API e socket Host (`54 passed`), suite backend completa (`195 passed`), suite
+  collector/runtime/systemd (`29 passed`), test UI Host (`9 passed`), build
+  frontend, Ruff mirato, configurazione Compose, esempio JSON e diff-check.
+  Confermate compatibilità output v1/v2 senza wrapper, config legacy v1 e v2
+  non miscelabili, limiti, reason separati, privacy ricorsiva, output collector
+  ancora v1 e assenza di nuove sonde o dipendenze di rete. L'immagine
+  `backend-test` preesistente era obsoleta; la riesecuzione autorevole ha
+  montato i sorgenti correnti e `deploy/`. Nessun deploy, commit o correzione.
+
+- [x] IMP-HO-FU-02 | OWNER: SA-IMP | STATUS: DONE | Implementato lo scoring
+  contestuale nel collector con selezione output per config: la v1 continua a
+  produrre payload e semantica legacy, la v2 produce il contratto v2. Il
+  campione bounded di `pswpin`/`pswpout` usa clock e sleep iniettabili, delta
+  non negativi e failure `available=false` con risultati null. Swap occupata,
+  pressione memoria o attività isolate sono al massimo warning; critical
+  richiede pressione memoria e delta critical contestuali. Policy processo
+  count/RSS valutano aggregati alle soglie inclusive, mentre gruppi non
+  configurati restano visibili e neutrali. Listener senza policy, incluso
+  wildcard, è warning; uno scope non consentito da una policy locale esplicita
+  è critical senza modificare `external_reachability=not_assessed`. Ownership,
+  scansioni o letture parziali restano partial/unknown e non diventano evidenza
+  negativa; Docker unavailable resta unknown.
+  File: `deploy/host-observability-collector.py` e relativi test host-side;
+  semantica aggiornata in `docs/contracts/host-observability-v2.md`. Fixture
+  deterministiche coprono swap alta senza pressione, pressione più I/O al
+  boundary, campioni mancanti/parziali/reset/timeout, durata e sleep bounded,
+  gruppi neutrali, count/RSS warning e critical, troncamento processi, wildcard
+  default, policy listener violata, ownership/lettura TCP partial, Docker
+  unavailable, envelope, dimensione e privacy.
+  Evidenze/comandi SA-IMP: collector `34 passed`; suite collector/runtime/
+  systemd `40 passed`; contratto/API/socket backend `54 passed`; suite backend
+  completa `195 passed`; test UI Host `9 passed` e `npm run build` passano. Uno
+  snapshot prodotto dal collector v2 è validato dall'adapter backend v2. Ruff
+  mirato, `docker compose config --quiet`, esempio JSON, scansione assenza rete,
+  verifica unico `Popen` ad argv fisso con `shell=False` e `git diff --check`
+  passano. Nessuna soglia/path privato entra nel payload; nessun deploy, commit
+  o attività HO-FU-03.
+- [x] TEST-HO-FU-02-T1 | OWNER: SA-TEST | STATUS: PASSED | Scoring v2
+  verificato indipendentemente. Riprodotti swap alta senza pressione né I/O,
+  pressione con attività immediatamente sotto e alla soglia critical,
+  campioni mancanti/parziali/reset/timeout, durata fuori budget, gruppi non
+  configurati neutrali, policy count/RSS ai boundary inclusivi, precedenza
+  critical, wildcard senza policy, policy locale allowed/violated, ownership e
+  letture TCP parziali, Docker indisponibile e propagazione all'envelope. Una
+  matrice esterna ai test del SA-IMP ha inoltre prodotto snapshot v1 e v2 e li
+  ha validati direttamente con l'adapter backend, confermando forma legacy v1,
+  `external_reachability=not_assessed`, limiti e response sotto 128 KiB.
+  Passano suite host-side completa (`40 passed`), backend corrente (`195
+  passed`), test UI Host (`9 passed`), build frontend, Ruff mirato, Compose,
+  esempio JSON, scansioni privacy/rete, unico `Popen` ad argv controllato con
+  `shell=False` e diff-check. La prima esecuzione host-side ha incontrato la
+  race già nota della fixture timeout sul file PID; il test è passato due volte
+  isolatamente e l'intera suite è poi passata pulita. Nessun deploy, commit o
+  correzione eseguito.
+
+- [x] IMP-HO-FU-03 | OWNER: SA-IMP | STATUS: DONE | Dopo il `PASSED` del
+  gate collector, aggiornare la vista Host per presentare separatamente fatti,
+  valutazione e dati non accertati. La UI non deve chiamare un endpoint nuovo,
+  aggiungere polling o descrivere `not_assessed` come sicuro/chiuso; refresh,
+  stato stale, permessi admin-only ed export JSON byte-per-byte devono restare
+  invariati. Aggiungere test browser/mobile per v1 legacy, v2, stati misti,
+  testi non fuorvianti, copia/fallback e assenza di overflow. Non eseguire
+  deploy. Implementata presentazione distinta di fatti locali, valutazione e
+  dati non accertati, con fallback v1 e vista v2 di tutti i bind locali senza
+  inferenze sulla raggiungibilità esterna. Restano invariati endpoint unico,
+  caricamento on-open/refresh manuale, stale, gating admin ed export esatto.
+  Aggiunti test nativi e browser Chromium a 320 px per v1/v2, stati misti,
+  ruoli, accessibilità/touch target, semantica, copia/fallback, refresh/stale,
+  zero polling Host e zero overflow. Evidenze SA-IMP: `npm run test:host` 11/11,
+  `npm run test:host:browser` exit 0, `npm run build` e `git diff --check`
+  passano. Aggiornati architettura e gate; nessun deploy, commit, FU-04 o
+  `LATEST_RELEASE`.
+- [x] TEST-HO-FU-03-T1 | OWNER: SA-TEST | STATUS: FAILED | Verifica
+  indipendente eseguita senza deploy o correzioni. Passano test UI statici
+  (`11 passed`), build frontend, diff-check e una sessione Chromium reale a 320
+  px con exit 0 per v1/v2, ruoli, focus, touch target, overflow, export
+  deep-equal, clipboard/fallback, refresh e zero polling; un secondo probe
+  Chromium indipendente conferma stale, live region/ARIA e zero fetch extra.
+  Restano due blocker semantici/test. `HostCard` mostra «Nessuna anomalia
+  rilevata dai controlli disponibili» per ogni componente con `reasons=[]`,
+  anche quando `status` è `unknown`, `warning` o `critical`: l'assenza di un
+  dettaglio viene quindi presentata come esito rassicurante e viola il vincolo
+  unknown non equivalente a safe. Inoltre le fixture browser dichiarate v1/v2
+  usano i reason non ammessi dal contratto `unexpected_tcp_listener` e
+  `listener_policy_violation`, perciò non rappresentano payload che il backend
+  potrebbe realmente pubblicare. Il primo avvio Chromium senza preview ha
+  prodotto `ERR_CONNECTION_REFUSED`; con preview esplicito la sessione si è
+  conclusa correttamente. Nessun commit o modifica applicativa eseguito.
+
+- [x] IMP-HO-FU-03-R1 | OWNER: SA-IMP | STATUS: DONE | Rendere il
+  fallback della valutazione coerente con lo stato: il testo rassicurante è
+  ammesso soltanto per `ok`; `unknown` deve dichiarare che la valutazione non è
+  disponibile/non accertata, mentre warning e critical senza reason non devono
+  dire che non esistono anomalie. Aggiungere casi browser reali per tutti e
+  quattro gli status con `reasons=[]`. Correggere le fixture usando esclusivamente
+  reason v1/v2 ammessi (`wildcard_listener_unexpected` o
+  `tcp_listener_unexpected` secondo il caso) e aggiungere un controllo che ne
+  impedisca la divergenza dal contratto. Conservare invariati endpoint, export,
+  ruoli, fetch e semantica `not_assessed`. Non eseguire deploy. Rework
+  completato: `HostCard` usa una matrice esplicita per i quattro status e
+  riserva «Nessuna anomalia» al solo `ok`; `warning` e `critical` dichiarano lo
+  stato senza inventare un dettaglio, mentre `unknown` dichiara la valutazione
+  non disponibile/non accertata. Le fixture browser v1 e v2 sono JSON
+  condivisi, usano soltanto reason code ammessi e vengono validate dall'adapter
+  Pydantic autorevole. Regressioni: matrice completa in Chromium a 320 px e
+  test nativo; validazione fixture nel test contratto. Evidenze SA-IMP:
+  contratto `21 passed`; UI `12 passed`; build frontend, Chromium completo exit
+  0 e `git diff --check` passano. Nessun deploy, commit, FU-04 o modifica a
+  `LATEST_RELEASE`.
+
+- [x] TEST-HO-FU-03-T2 | OWNER: SA-TEST | STATUS: PASSED | Rework verificato
+  indipendentemente. La matrice reale Chromium dei componenti `ok`, `warning`,
+  `critical` e `unknown` con reason vuoti riserva «Nessuna anomalia» al solo
+  `ok`; gli altri stati dichiarano rispettivamente attenzione, criticità o
+  valutazione non disponibile/non accertata. Le fixture JSON condivise v1 e v2
+  superano l'adapter Pydantic autorevole e non contengono più reason fuori
+  schema. Passano contratto Host (`40 passed`), test UI (`12 passed`), build
+  frontend, JSON e diff-check. La sessione Chromium completa a 320 px termina
+  con exit 0 e conferma v1/v2 e stati misti, fatti/policy/not-assessed, ruoli
+  viewer/operator senza CTA o fetch Host, focus/ARIA, touch target, overflow,
+  refresh, zero polling, export deep-equal e clipboard/fallback. Un secondo
+  probe Chromium indipendente con exit 0 conferma ritorno del focus al trigger,
+  stale dopo 503, live region e conteggio fetch invariato. Documentazione e
+  gate restano coerenti; nessun deploy, commit o correzione eseguito.
+
+- [x] IMP-HO-FU-04 | OWNER: SA-IMP | STATUS: DONE | Dopo il `PASSED` UI,
+  eseguire hardening e preflight completi: test collector/contract/API/UI,
+  suite backend e build frontend, lint/diff-check, Compose config, gate privacy,
+  systemd security e test socket concorrenti/one-shot. Documentare separatamente
+  eventuali failure infrastrutturali preesistenti; aggiornare il gate live con
+  matrici v1/v2 e rollback. Nessun deploy e nessun commit. Preflight SA-IMP
+  completato: collector/runtime/systemd `40 passed`; contratto/API/socket/tmux
+  mirati `75 passed`; suite backend `178 passed` con mount `/deploy:ro`; UI
+  `12 passed`; build locale e `frontend-build` Compose passano; Chromium reale
+  a 320 px termina con exit 0. Passano lint Host mirato, tre configurazioni
+  Compose, JSON/esempi, privacy ricorsiva, unico endpoint nel bundle senza
+  sourcemap, `systemd-analyze verify`, test statici delle unit e probe user
+  reale con `CapPrm/CapEff/CapAmb=0`, AF_UNIX consentito e AF_INET bloccato.
+  Verificati concorrenza socket, one-shot bounded, timeout/128 KiB, assenza di
+  client rete, unico `Popen` con argv Docker fisso e `shell=False`, compatibilità
+  config/output/API/UI v1-v2 e fallback v1. Gate live aggiornato con matrice e
+  ordine atomico di deploy/rollback che preserva `tmux-runtime`.
+  Failure infrastrutturali separate: il comando Compose backend standard si
+  ferma a `177 passed, 1 failed` perché non monta il collector rate-limit in
+  `/deploy`; la stessa suite passa interamente con il mount read-only. Ruff
+  senza `--no-cache` non può creare `.ruff_cache` nel container read-only; con
+  `--no-cache` il perimetro Host passa. Il lint globale segnala soltanto import
+  non ordinati in `app/main.py` non modificato e `app/schemas.py` modificato da
+  lavoro utente estraneo al round; non sono regressioni Host e non sono stati
+  riscritti. L'analisi security offline assegna livello MEDIUM e interpreta le
+  user unit come root; verify, assert unit e probe sul vero user manager
+  confermano invece gli invarianti applicabili. `git diff --check` passa.
+  Nessun deploy, commit, FU-05 o modifica a `LATEST_RELEASE`.
+- [x] TEST-HO-FU-04-T1 | OWNER: SA-TEST | STATUS: FAILED | Preflight
+  indipendente eseguito senza deploy o correzioni. Passano backend completo sui
+  sorgenti correnti con mount espliciti (`197 passed`), host-side (`40 passed`),
+  socket/API/contratto mirati (`56 passed`), UI (`12 passed`), build locale e
+  Compose, Chromium reale a 320 px con exit 0, tre config Compose,
+  `systemd-analyze --user verify`, security offline, probe transitorio sul vero
+  user manager con capability nulle e AF_INET bloccato, JSON, privacy/rete,
+  unico `Popen` Docker con `shell=False`, bundle con un solo endpoint, mount
+  backend senza `/proc`/`/sys`/socket Docker e diff-check. Confermati matrice
+  v1/v2, limiti socket/concorrenza/timeout, ordine atomico deploy/rollback e
+  preservazione di `tmux-runtime`. Il comando backend standard riproduce il
+  failure infrastrutturale già noto per `/deploy/rate-limit-collector.py`
+  assente (`177 passed, 1 failed`).
+  Il gate fallisce però tre regressioni di ripetibilità del round: (1) Ruff
+  Host mirato segnala `I001` nel file modificato
+  `backend/tests/test_host_observability_contract.py`; (2) il comando Ruff
+  deploy scritto nel gate usa i path inesistenti
+  `/deploy/tests/test_host-observability_runtime.py` e
+  `/deploy/tests/test_host-observability_systemd.py`, quindi termina con `E902`; con i nomi
+  reali underscore il lint passa; (3) i nuovi test delle fixture cercano
+  `/frontend/tests/fixtures`, non disponibile nel servizio `backend-test` e
+  non dichiarato dal comando automatico. Su sorgenti correnti senza mount ad
+  hoc il contratto termina `38 passed, 2 failed`; il pass completo richiedeva
+  un mount frontend extra non documentato. Il lint globale aggiunge al nuovo
+  `I001` soltanto i due casi preesistenti in `app/main.py` e `app/schemas.py`.
+  Inventario dirty-worktree invariato; nessun commit o mutazione applicativa.
+
+- [x] IMP-HO-FU-04-R1 | OWNER: SA-IMP | STATUS: DONE | Rendere il
+  preflight eseguibile da ambiente pulito con i comandi dichiarati: correggere
+  l'import formatting del test contratto; correggere nel gate i due nomi file
+  deploy con underscore; rendere le fixture v1/v2 accessibili al
+  `backend-test` standard senza mount manuali non documentati, tramite una
+  collocazione condivisa inclusa nell'immagine/test context oppure un volume
+  read-only esplicito nella configurazione Compose. Il test browser e il test
+  Pydantic devono continuare a leggere gli stessi file, senza duplicazione che
+  possa divergere. Rieseguire comando backend standard e autorevole sui
+  sorgenti correnti, Ruff Host/deploy, tre Compose config e diff-check; separare
+  ancora il solo failure rate-limit preesistente se non corretto in questo
+  round. Non eseguire deploy o commit. Rework completato: import del test
+  contratto ordinati; gate Ruff allineato ai file deploy reali con underscore;
+  fixture JSON condivise montate in sola lettura esclusivamente nel profilo
+  `backend-test`, senza estendere il backend di produzione. Un test statico
+  verifica source, target, read-only e isolamento dal servizio runtime.
+  Immagine test ricostruita dai sorgenti correnti. I comandi documentati senza
+  override passano: Host API/socket/contratto `56 passed`, Ruff Host e Ruff
+  deploy verdi, host-side `41 passed`; test contratto fixture `40 passed`. UI
+  `12 passed`, build locale e Compose, Chromium 320 px exit 0, tre Compose
+  config e verifica del mount risolto passano. La suite backend standard arriva
+  a `196 passed, 1 failed`: resta esclusivamente il failure preesistente del
+  rate-limit collector per `/deploy` assente; con il relativo mount read-only
+  passa `197 passed`. `git diff --check` passa. Nessun deploy, commit, FU-05 o
+  modifica a `LATEST_RELEASE`.
+
+- [x] TEST-HO-FU-04-T2 | OWNER: SA-TEST | STATUS: PASSED |
+  Dopo il rework, ripetere l'intero preflight T1 da ambiente pulito, verificando
+  in particolare che fixture e lint passino con i comandi documentati senza
+  mount SA ad hoc. Un nuovo failure crea `IMP-HO-FU-04-R2` e
+  `TEST-HO-FU-04-T3`. Solo `PASSED` può sbloccare `IMP-HO-FU-05`.
+  Non eseguire deploy. Verifica indipendente completata: il comando standard
+  API/socket/contratto passa `56` test senza mount ad hoc; Ruff Host e deploy
+  passano con i path documentati; le fixture condivise sono montate read-only
+  soltanto in `backend-test` e sono assenti dal backend runtime. La suite
+  backend standard conferma `196 passed, 1 failed`, con il solo failure
+  preesistente del rate-limit collector dovuto a `/deploy` assente; con il
+  relativo mount read-only passa `197 passed`. Passano inoltre i `41` test
+  host-side, i `12` test UI, build locale e Compose, test Chromium a 320 px
+  (v1/v2, ruoli, copia e refresh), tre configurazioni Compose, verifica unità
+  systemd e probe dinamico con capability nulle/solo `AF_UNIX`. Gli audit su
+  payload reale v2, rete, argv Docker, limiti socket, rollback e preservazione
+  tmux sono conformi; il bundle contiene una sola occorrenza dell'endpoint e
+  `git diff --check` passa. Nessun deploy, commit o modifica applicativa
+  eseguiti da SA-TEST.
+
+- [x] IMP-HO-FU-05 | OWNER: SA-IMP | STATUS: DONE | Dopo autorizzazione del
+  preflight, installare atomicamente collector/config compatibile e ricreare
+  soltanto gli stateless necessari secondo il gate aggiornato. Registrare prima
+  e dopo unit, container, health, socket e identità/sessioni tmux; preservare
+  sempre `tmux-runtime`. Verificare rollback v1, snapshot reale v2, export JSON
+  e continuità operativa. Solo dopo la validazione di implementazione aggiornare
+  `LATEST_RELEASE` alla funzionalità effettivamente pubblicata e creare il check
+  live SA-TEST. Nessun commit. Deploy host-tmux completato secondo gate.
+  Baseline e confronto finale privati confermano quattro sessioni tmux con hash
+  invariato e container `tmux-runtime` con ID/creazione/stato invariati; sono
+  stati ricreati esclusivamente backend/web con overlay e `--no-deps`, poi il
+  solo web per la release note. Config v1 mode `0600`, collector dual-stack e
+  unit sono stati validati prima del rollout; passano snapshot/socket/API live
+  v1 e rollback atomico v2→v1→v2. Snapshot reale v2 strict resta sotto 128 KiB
+  e mostra correttamente i casi HO-FU-01: swap alta senza attività è warning,
+  gruppi senza policy neutrali, wildcard non configurate warning,
+  `listeners_partial` conservato, raggiungibilità sempre `not_assessed` e
+  Docker indisponibile unknown. Passano privacy ricorsiva, quattro client
+  concorrenti e one-shot reaped, anonimo 401, admin 200, viewer/operator 403 e
+  flag nascosto, rate limit `6×200 + 429/Retry-After`, socket assente 503 e
+  timeout bounded 504; ogni configurazione temporanea è stata ripristinata.
+  Per il gate ruoli live sono stati usati utenti univoci transitori e cookie
+  firmati nel backend senza esporre credenziali; cleanup verificato a conteggio
+  zero. I casi partial/unknown sono riproducibili sullo snapshot reale corrente
+  e le fixture condivise v1/v2 restano disponibili per i casi deterministici.
+  Il probe riusabile `frontend/tests/host-observability-live.mjs`, alimentato
+  solo via `MAC_LIVE_BASE_URL` e `MAC_LIVE_ADMIN_PASSWORD`, passa a 320 px con
+  export deep-equal, clipboard, refresh e zero polling. `LATEST_RELEASE` ora
+  descrive la semantica contestuale v2; dopo la ricreazione del solo web il
+  bundle live contiene la release note e una sola occorrenza dell'endpoint,
+  health è 200 e backend non è stato ricreato. Config finale v2, timeout 3,
+  prepare/socket/app host active, nessuna one-shot pendente, nessun file/utente
+  temporaneo e backup di rollout rimosso dopo la validazione. `git diff
+  --check` passa. Nessun commit.
+- [x] TEST-HO-FU-05-T1 | OWNER: SA-TEST | STATUS: FAILED | Collaudo finale
+  indipendente sull'istanza pubblicata: contratto/privacy, casi reali che hanno
+  originato HO-FU-01, stati partial/unknown, ruoli, rate limit, mobile, export,
+  assenza di polling, socket activation, rollback e continuità tmux. Solo un
+  `PASSED` autorizza ROOT al commit finale; ogni failure crea rework e un nuovo
+  check numerato. Snapshot reale v2 strict e deep-equal sotto 128 KiB, privacy,
+  scoring HO-FU-01, stati partial/unknown, facts/policy/not_assessed, health,
+  bundle e release note passano. Passano inoltre RBAC live con utenti transitori
+  viewer/operator poi rimossi, rate limit `6×200 + 429/Retry-After`, quattro
+  client socket concorrenti, `503` a socket assente e `504` bounded a circa 3
+  secondi; socket/configurazione finali sono stati ripristinati. Le quattro
+  sessioni tmux `$162`, `$147`, `$135`, `$152` e il runtime restano continui;
+  soltanto backend/web stateless risultano ricreati.
+  Il gate fallisce due aspetti collegati del percorso mobile/refresh. Il test di
+  validazione live `frontend/tests/host-observability-live.mjs` termina con exit
+  `1`: il listener asincrono della risposta invoca `response.json()` dopo la
+  chiusura del context al refresh finale. L'abort della stessa richiesta lascia
+  inoltre una unità collector one-shot in stato `failed`, con
+  `BrokenPipeError` sull'`os.write(1, payload)`, invece di concludere e sparire
+  senza errore. Lo stato failed transitorio è stato pulito esclusivamente con
+  `systemctl --user reset-failed`; socket active/listening, health/tmux e
+  `git diff --check` sono nuovamente verdi. Nessuna correzione, deploy o commit
+  eseguiti da SA-TEST.
+
+- [x] IMP-HO-FU-05-R1 | OWNER: SA-IMP | STATUS: DONE | Rendere deterministico
+  il probe live: attendere e consumare la risposta del refresh prima di chiudere
+  page/context, e impedire che il listener asincrono produca rejection dopo il
+  teardown. Il comando deve terminare ripetutamente con exit `0` e continuare a
+  verificare 320 px, v2, export deep-equal, clipboard/fallback, refresh, stale e
+  assenza di polling. Rendere inoltre il collector robusto alla disconnessione
+  del client durante la scrittura del payload: `BrokenPipeError` non deve
+  produrre traceback né lasciare una one-shot systemd failed. Aggiungere test di
+  validazione automatici sia per l'errore di scrittura sia per l'abort live,
+  rieseguire preflight mirato e collaudo pubblicato, pulire le unità transitorie
+  e verificare che socket/config v2, health, container e sessioni tmux restino
+  invariati. Non eseguire commit. Rework completato. Il probe live conta le
+  request con listener sincrono e attende esplicitamente
+  `waitForResponse`, `json()` e `finished()` sia all'apertura sia al refresh
+  prima del teardown; verifica inoltre deep-equal dopo refresh e fallback
+  clipboard. `MAC_LIVE_ITERATIONS` esegue fino a dieci cicli nello stesso
+  processo e `MAC_LIVE_ABORT_REFRESH=1` riproduce la chiusura controllata del
+  consumer. Il collector usa una write completa che tratta soltanto
+  `BrokenPipeError` come normale disconnect; write parziali sono completate e
+  gli altri `OSError` restano fail-closed. Test automatici coprono clean exit e
+  propagazione degli errori reali. Evidenze: collector/runtime/systemd `43
+  passed`, collector mirato `36 passed`, backend Host `56 passed`, UI `13
+  passed`, build, Ruff e diff-check verdi. Il probe live corretto passa tre
+  volte separate e poi `3×` nello stesso processo, sempre exit 0. Un abort
+  browser live e un disconnect Unix diretto terminano entrambi con
+  `one_shot_failed=0`, `one_shot_running=0`, journal senza traceback e senza
+  usare `reset-failed`. Il collector è eseguito direttamente dal checkout
+  installato, quindi non è stato necessario ricreare stateless o unit; nessun
+  container è stato toccato. Config finale v2 mode 0600/campione 100 ms,
+  timeout backend 3, app host/prepare/socket active, health 200 e hash delle
+  quattro sessioni tmux invariato. Nessun file/utente temporaneo, deploy
+  aggiuntivo, modifica a `LATEST_RELEASE` o commit.
+
+- [x] TEST-HO-FU-05-T2 | OWNER: SA-TEST | STATUS: PASSED | Dopo il rework,
+  ripetere indipendentemente il probe Chromium live più volte e abortire una
+  richiesta Host in corso; verificare exit `0`, nessuna rejection, nessuna unità
+  one-shot failed/pending, socket activation ancora operativa e continuità di
+  health, config v2, container e tmux. Solo `PASSED` autorizza ROOT al commit e
+  alla notifica finale; ogni nuovo failure crea `IMP-HO-FU-05-R2` e
+  `TEST-HO-FU-05-T3`. Verifica indipendente completata: il probe live con
+  `MAC_LIVE_ITERATIONS=3` termina con exit `0` e attende response, `json()` e
+  `finished()` sia all'apertura sia al refresh, mantenendo export deep-equal,
+  clipboard/fallback, mobile 320 px e zero polling. L'abort-refresh reale passa
+  con exit `0`; senza usare `reset-failed` risultano
+  `one_shot_failed=0`, `one_shot_running=0`, socket active e journal del nuovo
+  intervallo senza `BrokenPipeError` o traceback. Passano inoltre test
+  host-side `43`, backend Host `56`, UI `13`, build e Ruff; snapshot live v2
+  strict/deep-equal/privacy sotto 128 KiB con scoring HO-FU-01,
+  partial/unknown, facts/policy e reachability `not_assessed`; anonimo/admin,
+  viewer/operator con cleanup a zero, rate limit `6×200 + 429/Retry-After`,
+  quattro client concorrenti, `503` e `504` bounded con socket ripristinato.
+  Il rollback v2→v1→v2 già validato sullo stesso deploy non è stato riaperto,
+  poiché il rework non modifica configurazione o unità. Bundle live e
+  `LATEST_RELEASE` coincidono e contengono una sola occorrenza dell'endpoint;
+  config finale v2 mode `0600`, prepare/socket, health/tmux, container backend
+  e web restano invariati. Le sessioni `$162`, `$147`, `$135`, `$152` conservano
+  hash `e005776172c24bcd08934c95961ee2dd8f6690ebd783611898b7060c1a74deac`.
+  Tre config Compose e `git diff --check` passano; nessun residuo temporaneo,
+  correzione, deploy o commit eseguito da SA-TEST. ROOT è autorizzato alla
+  notifica e al commit finale.
+
+### HO-UX-01 — Sezioni Host richiudibili
+
+- [x] IMP-HO-UX-01 | OWNER: ROOT | STATUS: DONE | Convertite le sette schede
+  di dettaglio Host in `details` chiusi di default: titolo e badge di stato
+  restano visibili, mentre valutazione, metriche e liste processi compaiono
+  all'apertura. Anche la guida di lettura è richiudibile; riepilogo complessivo
+  ed export JSON conservano la propria semantica. Aggiornati test statici,
+  browser e live, oltre a `LATEST_RELEASE`.
+- [x] TEST-HO-UX-01-T1 | OWNER: ROOT | STATUS: PASSED | Test UI `14/14`, build
+  frontend e Chromium fixture a 320 px passano. Il gate live conferma sette
+  schede chiuse all'apertura, lista gruppi nascosta fino al tap, apertura del
+  dettaglio, export deep-equal, clipboard, refresh e assenza di polling. Deploy
+  eseguito ricreando esclusivamente `web`; backend e quattro sessioni tmux sono
+  invariati. `git diff --check` passa.

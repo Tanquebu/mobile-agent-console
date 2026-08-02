@@ -1,9 +1,10 @@
 # Contratto host observability v1
 
 Il collector host-side produce un solo oggetto JSON per connessione. Il modello
-Pydantic autorevole è `HostObservabilitySnapshot` in
-`backend/app/services/host_observability_contract.py`; campi extra e versioni
-diverse da `1` sono rifiutati. La validazione è non coercitiva: stringhe al
+Pydantic autorevole per questa variante è `HostObservabilitySnapshotV1` in
+`backend/app/services/host_observability_contract.py`; campi extra e forme v2
+mescolate nel payload v1 sono rifiutati. L'endpoint accetta anche il contratto
+v2 durante il rollout, documentato in `host-observability-v2.md`. La validazione è non coercitiva: stringhe al
 posto di numeri o booleani non sono convertite implicitamente e ogni valore
 timestamp di tipo non ammesso produce una normale `ValidationError` Pydantic.
 
@@ -79,6 +80,7 @@ singoli filesystem risalgono al componente e all'envelope.
 ## Configurazione privata
 
 `deploy/host-observability.example.json` documenta lo schema con dati fittizi.
-La copia reale rimane fuori dal repository e contiene path, porte attese, label,
+L'esempio corrente è v2; una configurazione v1 privata esistente continua a
+essere accettata. La copia reale rimane fuori dal repository e contiene path, porte attese, label,
 mapping dei nomi container e soglie. Il collector Docker usa esclusivamente
 `/usr/bin/docker ps -a --format ...` con argv fissi e `shell=False`.

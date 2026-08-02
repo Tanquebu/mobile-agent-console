@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
 HostStatus = Literal["ok", "warning", "critical", "unknown"]
@@ -13,7 +13,7 @@ SafeLabel = Annotated[
 SafeProcessName = Annotated[
     str, Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.+?\-]+$")
 ]
-HostReason = Literal[
+HostReasonV1 = Literal[
     "memory_unavailable",
     "memory_available_critical",
     "memory_available_low",
@@ -40,113 +40,46 @@ HostReason = Literal[
     "docker_output_invalid",
     "containers_problematic",
 ]
+HostReasonV2 = Literal[
+    "memory_unavailable",
+    "memory_available_critical",
+    "memory_available_low",
+    "swap_used_high",
+    "swap_sample_unavailable",
+    "swap_activity_high",
+    "swap_pressure_critical",
+    "load_unavailable",
+    "load_critical",
+    "load_high",
+    "filesystems_not_configured",
+    "filesystem_used_critical",
+    "filesystem_used_high",
+    "filesystem_unavailable",
+    "processes_unavailable",
+    "processes_partial",
+    "process_policy_count_critical",
+    "process_policy_count_high",
+    "process_policy_rss_critical",
+    "process_policy_rss_high",
+    "listeners_unavailable",
+    "listeners_partial",
+    "wildcard_listener_unexpected",
+    "tcp_listener_unexpected",
+    "docker_disabled",
+    "docker_unavailable",
+    "docker_output_excessive",
+    "docker_output_invalid",
+    "containers_problematic",
+]
 
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
-class Component(StrictModel):
-    status: HostStatus
-    reasons: list[HostReason] = Field(max_length=8)
-
-
-class MemoryComponent(Component):
-    total_bytes: int | None = Field(default=None, ge=0)
-    available_bytes: int | None = Field(default=None, ge=0)
-    available_percent: float | None = Field(default=None, ge=0, le=100)
-    swap_total_bytes: int | None = Field(default=None, ge=0)
-    swap_used_bytes: int | None = Field(default=None, ge=0)
-    swap_used_percent: float | None = Field(default=None, ge=0, le=100)
-
-
-class LoadComponent(Component):
-    one: float | None = Field(default=None, ge=0)
-    five: float | None = Field(default=None, ge=0)
-    fifteen: float | None = Field(default=None, ge=0)
-    cpu_count: int | None = Field(default=None, ge=1, le=65536)
-    normalized_one: float | None = Field(default=None, ge=0)
-
-
-class FilesystemItem(Component):
-    label: SafeLabel
-    total_bytes: int | None = Field(default=None, ge=0)
-    available_bytes: int | None = Field(default=None, ge=0)
-    used_percent: float | None = Field(default=None, ge=0, le=100)
-
-
-class FilesystemsComponent(Component):
-    items: list[FilesystemItem] = Field(max_length=16)
-
-
-class ProcessItem(StrictModel):
-    pid: int = Field(ge=1, le=2**31 - 1)
-    name: SafeProcessName
-    label: SafeLabel | None = None
-    rss_bytes: int = Field(ge=0)
-    age_seconds: int = Field(ge=0)
-
-
-class ProcessGroup(StrictModel):
-    name: SafeProcessName
-    label: SafeLabel | None = None
-    count: int = Field(ge=1, le=4096)
-    rss_bytes: int = Field(ge=0)
-    oldest_age_seconds: int = Field(ge=0)
-
-
-class ProcessesComponent(Component):
-    top: list[ProcessItem] = Field(max_length=10)
-    groups: list[ProcessGroup] = Field(max_length=20)
-    scanned: int = Field(ge=0, le=4096)
-    skipped: int = Field(ge=0, le=4096)
-    inaccessible: int = Field(ge=0, le=4096)
-    truncated: bool
-
-
-class ListenerItem(StrictModel):
-    port: int = Field(ge=1, le=65535)
-    address_scope: AddressScope
-    process_name: SafeProcessName | None = None
-    process_label: SafeLabel | None = None
-    expected: bool
-    status: Literal["ok", "warning", "critical"]
-
-
-class ListenersComponent(Component):
-    items: list[ListenerItem] = Field(max_length=50)
-    truncated: bool
-
-
-class ContainerProblem(StrictModel):
-    label: SafeLabel
-    status: Literal["warning", "critical"]
-    reason: Literal[
-        "container_unhealthy",
-        "container_starting",
-        "container_paused",
-        "container_state_unknown",
-    ]
-
-
-class DockerComponent(Component):
-    available: bool
-    problematic: list[ContainerProblem] = Field(max_length=50)
-    unmapped_problematic_count: int = Field(ge=0, le=1000)
-
-
-class HostObservabilitySnapshot(StrictModel):
-    schema_version: Literal[1]
+class TimestampedSnapshot(StrictModel):
     collected_at: datetime
     duration_ms: int = Field(ge=0, le=10000)
-    status: HostStatus
-    reasons: list[HostReason] = Field(max_length=8)
-    memory: MemoryComponent
-    load: LoadComponent
-    filesystems: FilesystemsComponent
-    processes: ProcessesComponent
-    listeners: ListenersComponent
-    docker: DockerComponent
 
     @field_validator("collected_at", mode="before")
     @classmethod
@@ -165,3 +98,218 @@ class HostObservabilitySnapshot(StrictModel):
         if parsed.tzinfo is None or parsed.utcoffset() != UTC.utcoffset(parsed):
             raise ValueError("collected_at must be timezone-aware UTC")
         return parsed.astimezone(UTC)
+
+
+class ComponentV1(StrictModel):
+    status: HostStatus
+    reasons: list[HostReasonV1] = Field(max_length=8)
+
+
+class MemoryComponentV1(ComponentV1):
+    total_bytes: int | None = Field(default=None, ge=0)
+    available_bytes: int | None = Field(default=None, ge=0)
+    available_percent: float | None = Field(default=None, ge=0, le=100)
+    swap_total_bytes: int | None = Field(default=None, ge=0)
+    swap_used_bytes: int | None = Field(default=None, ge=0)
+    swap_used_percent: float | None = Field(default=None, ge=0, le=100)
+
+
+class LoadComponentV1(ComponentV1):
+    one: float | None = Field(default=None, ge=0)
+    five: float | None = Field(default=None, ge=0)
+    fifteen: float | None = Field(default=None, ge=0)
+    cpu_count: int | None = Field(default=None, ge=1, le=65536)
+    normalized_one: float | None = Field(default=None, ge=0)
+
+
+class FilesystemItemV1(ComponentV1):
+    label: SafeLabel
+    total_bytes: int | None = Field(default=None, ge=0)
+    available_bytes: int | None = Field(default=None, ge=0)
+    used_percent: float | None = Field(default=None, ge=0, le=100)
+
+
+class FilesystemsComponentV1(ComponentV1):
+    items: list[FilesystemItemV1] = Field(max_length=16)
+
+
+class ProcessItem(StrictModel):
+    pid: int = Field(ge=1, le=2**31 - 1)
+    name: SafeProcessName
+    label: SafeLabel | None = None
+    rss_bytes: int = Field(ge=0)
+    age_seconds: int = Field(ge=0)
+
+
+class ProcessGroupV1(StrictModel):
+    name: SafeProcessName
+    label: SafeLabel | None = None
+    count: int = Field(ge=1, le=4096)
+    rss_bytes: int = Field(ge=0)
+    oldest_age_seconds: int = Field(ge=0)
+
+
+class ProcessesComponentV1(ComponentV1):
+    top: list[ProcessItem] = Field(max_length=10)
+    groups: list[ProcessGroupV1] = Field(max_length=20)
+    scanned: int = Field(ge=0, le=4096)
+    skipped: int = Field(ge=0, le=4096)
+    inaccessible: int = Field(ge=0, le=4096)
+    truncated: bool
+
+
+class ListenerItemV1(StrictModel):
+    port: int = Field(ge=1, le=65535)
+    address_scope: AddressScope
+    process_name: SafeProcessName | None = None
+    process_label: SafeLabel | None = None
+    expected: bool
+    status: Literal["ok", "warning", "critical"]
+
+
+class ListenersComponentV1(ComponentV1):
+    items: list[ListenerItemV1] = Field(max_length=50)
+    truncated: bool
+
+
+class ContainerProblem(StrictModel):
+    label: SafeLabel
+    status: Literal["warning", "critical"]
+    reason: Literal[
+        "container_unhealthy",
+        "container_starting",
+        "container_paused",
+        "container_state_unknown",
+    ]
+
+
+class DockerComponentV1(ComponentV1):
+    available: bool
+    problematic: list[ContainerProblem] = Field(max_length=50)
+    unmapped_problematic_count: int = Field(ge=0, le=1000)
+
+
+class HostObservabilitySnapshotV1(TimestampedSnapshot):
+    schema_version: Literal[1]
+    status: HostStatus
+    reasons: list[HostReasonV1] = Field(max_length=8)
+    memory: MemoryComponentV1
+    load: LoadComponentV1
+    filesystems: FilesystemsComponentV1
+    processes: ProcessesComponentV1
+    listeners: ListenersComponentV1
+    docker: DockerComponentV1
+
+
+class ComponentV2(StrictModel):
+    status: HostStatus
+    reasons: list[HostReasonV2] = Field(max_length=8)
+
+
+class SwapIoSample(StrictModel):
+    available: bool
+    duration_ms: int | None = Field(default=None, ge=1, le=1000)
+    pages_in_delta: int | None = Field(default=None, ge=0)
+    pages_out_delta: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def require_complete_available_sample(self) -> "SwapIoSample":
+        results = (self.duration_ms, self.pages_in_delta, self.pages_out_delta)
+        has_any_result = any(value is not None for value in results)
+        has_all_results = all(value is not None for value in results)
+        if (self.available and not has_all_results) or (
+            not self.available and has_any_result
+        ):
+            raise ValueError("swap sample availability and result are inconsistent")
+        return self
+
+
+class MemoryComponentV2(ComponentV2):
+    total_bytes: int | None = Field(default=None, ge=0)
+    available_bytes: int | None = Field(default=None, ge=0)
+    available_percent: float | None = Field(default=None, ge=0, le=100)
+    swap_total_bytes: int | None = Field(default=None, ge=0)
+    swap_used_bytes: int | None = Field(default=None, ge=0)
+    swap_used_percent: float | None = Field(default=None, ge=0, le=100)
+    swap_io_sample: SwapIoSample
+
+
+class LoadComponentV2(ComponentV2):
+    one: float | None = Field(default=None, ge=0)
+    five: float | None = Field(default=None, ge=0)
+    fifteen: float | None = Field(default=None, ge=0)
+    cpu_count: int | None = Field(default=None, ge=1, le=65536)
+    normalized_one: float | None = Field(default=None, ge=0)
+
+
+class FilesystemItemV2(ComponentV2):
+    label: SafeLabel
+    total_bytes: int | None = Field(default=None, ge=0)
+    available_bytes: int | None = Field(default=None, ge=0)
+    used_percent: float | None = Field(default=None, ge=0, le=100)
+
+
+class FilesystemsComponentV2(ComponentV2):
+    items: list[FilesystemItemV2] = Field(max_length=16)
+
+
+class ProcessGroupV2(StrictModel):
+    name: SafeProcessName
+    label: SafeLabel | None = None
+    count: int = Field(ge=1, le=4096)
+    rss_bytes: int = Field(ge=0)
+    oldest_age_seconds: int = Field(ge=0)
+    policy_status: Literal["not_configured", "within_limits", "violated"]
+
+
+class ProcessesComponentV2(ComponentV2):
+    top: list[ProcessItem] = Field(max_length=10)
+    groups: list[ProcessGroupV2] = Field(max_length=20)
+    scanned: int = Field(ge=0, le=4096)
+    skipped: int = Field(ge=0, le=4096)
+    inaccessible: int = Field(ge=0, le=4096)
+    truncated: bool
+
+
+class ListenerItemV2(StrictModel):
+    port: int = Field(ge=1, le=65535)
+    bind_scope: AddressScope
+    external_reachability: Literal["not_assessed"]
+    process_name: SafeProcessName | None = None
+    process_label: SafeLabel | None = None
+    policy_status: Literal["not_configured", "allowed", "violated"]
+    status: Literal["ok", "warning", "critical"]
+
+
+class ListenersComponentV2(ComponentV2):
+    items: list[ListenerItemV2] = Field(max_length=50)
+    truncated: bool
+
+
+class DockerComponentV2(ComponentV2):
+    available: bool
+    problematic: list[ContainerProblem] = Field(max_length=50)
+    unmapped_problematic_count: int = Field(ge=0, le=1000)
+
+
+class HostObservabilitySnapshotV2(TimestampedSnapshot):
+    schema_version: Literal[2]
+    status: HostStatus
+    reasons: list[HostReasonV2] = Field(max_length=8)
+    memory: MemoryComponentV2
+    load: LoadComponentV2
+    filesystems: FilesystemsComponentV2
+    processes: ProcessesComponentV2
+    listeners: ListenersComponentV2
+    docker: DockerComponentV2
+
+
+HostObservabilitySnapshot = Annotated[
+    HostObservabilitySnapshotV1 | HostObservabilitySnapshotV2,
+    Field(discriminator="schema_version"),
+]
+HOST_OBSERVABILITY_SNAPSHOT_ADAPTER = TypeAdapter(HostObservabilitySnapshot)
+
+
+def validate_host_observability_snapshot(payload: object) -> HostObservabilitySnapshot:
+    return HOST_OBSERVABILITY_SNAPSHOT_ADAPTER.validate_python(payload)

@@ -1,14 +1,16 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "thresholds": {
     "memory_available_warning_percent": 20,
     "memory_available_critical_percent": 10,
     "swap_used_warning_percent": 50,
-    "swap_used_critical_percent": 80,
     "load_per_cpu_warning": 1,
-    "load_per_cpu_critical": 2,
-    "process_group_warning_count": 5,
-    "process_group_critical_count": 10
+    "load_per_cpu_critical": 2
+  },
+  "swap_io_sample": {
+    "duration_ms": 100,
+    "warning_pages_delta": 1,
+    "critical_pages_delta": 128
   },
   "filesystems": [
     {
@@ -24,15 +26,25 @@
       "critical_percent": 90
     }
   ],
-  "expected_tcp_listeners": [
+  "tcp_listener_policies": [
     {
       "port": 4242,
-      "scopes": ["loopback", "tailscale"]
+      "allowed_scopes": ["loopback", "tailscale"]
     }
   ],
-  "process_labels": {
-    "example-worker": "Example worker",
-    "example-service": "Example service"
+  "process_policies": {
+    "example-worker": {
+      "label": "Example worker",
+      "warning_count": 8,
+      "critical_count": 12,
+      "warning_rss_bytes": 1073741824,
+      "critical_rss_bytes": 2147483648
+    },
+    "example-service": {
+      "label": "Example service",
+      "critical_count": 4,
+      "critical_rss_bytes": 1073741824
+    }
   },
   "docker": {
     "enabled": true,

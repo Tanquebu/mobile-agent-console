@@ -14,7 +14,7 @@ from app.services.host_observability_socket_client import (
 )
 from app.services.user_service import UserService
 from tests.fakes import FakeTmux
-from tests.test_host_observability_contract import valid_snapshot
+from tests.test_host_observability_contract import valid_snapshot, valid_snapshot_v2
 
 PASSWORD = "a-secure-test-password"
 SECRET = "a-secure-session-secret-value"
@@ -127,6 +127,20 @@ def test_admin_receives_strict_partial_snapshot_without_health_metrics() -> None
     assert client.get("/health").json() == {"status": "ok"}
 
 
+def test_admin_receives_v2_snapshot_without_wrapper_or_export_changes() -> None:
+    payload = valid_snapshot_v2()
+    stub = StubHostObservabilityClient(payload)
+    client = legacy_client(stub, host_observability_enabled=True)
+    login_legacy(client)
+
+    response = client.get("/api/v1/host-observability")
+
+    assert response.status_code == 200
+    assert response.json() == payload
+    listener = response.json()["listeners"]["items"][0]
+    assert listener["external_reachability"] == "not_assessed"
+
+
 def test_host_observability_maps_timeout_unavailable_and_invalid_payload(
     caplog,
 ) -> None:
@@ -150,6 +164,9 @@ def test_host_observability_maps_timeout_unavailable_and_invalid_payload(
     manipulated = valid_snapshot()
     manipulated["hostname"] = "private-host-must-not-leak"
     cases.append((manipulated, 503, "host_observability_invalid_response"))
+    unsupported = valid_snapshot_v2()
+    unsupported["schema_version"] = 99
+    cases.append((unsupported, 503, "host_observability_invalid_response"))
 
     caplog.set_level(logging.DEBUG)
     for result, status_code, code in cases:

@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "collected_at": "2026-08-02T10:00:00Z",
+  "duration_ms": 21,
+  "status": "warning",
+  "reasons": [],
+  "memory": {
+    "status": "warning", "reasons": [], "total_bytes": 2048, "available_bytes": 512, "available_percent": 25,
+    "swap_total_bytes": 1024, "swap_used_bytes": 700, "swap_used_percent": 68.4,
+    "swap_io_sample": { "available": false, "duration_ms": null, "pages_in_delta": null, "pages_out_delta": null }
+  },
+  "load": { "status": "ok", "reasons": [], "one": 0.4, "five": 0.3, "fifteen": 0.2, "cpu_count": 4, "normalized_one": 0.1 },
+  "filesystems": { "status": "ok", "reasons": [], "items": [{ "label": "System disk", "status": "ok", "reasons": [], "total_bytes": 4096, "available_bytes": 2048, "used_percent": 50 }] },
+  "processes": {
+    "status": "critical", "reasons": [], "top": [],
+    "groups": [
+      { "name": "agents", "label": "Agents", "count": 1, "rss_bytes": 1024, "oldest_age_seconds": 60, "policy_status": "not_configured" },
+      { "name": "workers", "label": "Workers", "count": 5, "rss_bytes": 8192, "oldest_age_seconds": 120, "policy_status": "violated" }
+    ],
+    "scanned": 6, "skipped": 0, "inaccessible": 0, "truncated": false
+  },
+  "listeners": {
+    "status": "critical", "reasons": ["wildcard_listener_unexpected"], "truncated": false,
+    "items": [
+      { "port": 22, "bind_scope": "loopback", "process_name": "sshd", "process_label": "ssh", "status": "ok", "policy_status": "allowed", "external_reachability": "not_assessed" },
+      { "port": 8080, "bind_scope": "wildcard", "process_name": null, "process_label": null, "status": "warning", "policy_status": "not_configured", "external_reachability": "not_assessed" },
+      { "port": 9090, "bind_scope": "other", "process_name": "server", "process_label": "metrics", "status": "critical", "policy_status": "violated", "external_reachability": "not_assessed" }
+    ]
+  },
+  "docker": { "status": "unknown", "available": false, "reasons": [], "problematic": [], "unmapped_problematic_count": 0 }
+}

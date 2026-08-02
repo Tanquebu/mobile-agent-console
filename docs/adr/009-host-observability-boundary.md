@@ -2,9 +2,9 @@
 
 ## Stato
 
-Accettata. Il contratto v1 è stato aggiunto in HO-02 e l'endpoint HTTP
-admin-only opt-in in HO-03; la UI resta fuori da questa decisione e viene
-affrontata nella fase successiva.
+Accettata. Il contratto v1 è stato aggiunto in HO-02; il follow-up HO-FU-01
+introduce il contratto v2 con rollout compatibile v1/v2. Endpoint HTTP e UI
+restano nello stesso boundary admin-only, opt-in e on-demand.
 
 ## Contesto
 
@@ -45,6 +45,13 @@ HO-02 sostituisce l'handshake dello spike con una fotografia v1 minimizzata.
 Il collector resta one-shot e non espone un endpoint API: memoria, processi,
 listener, filesystem e Docker opzionale attraversano soltanto il socket Unix.
 
+HO-FU-01 mantiene la v1 durante il rollout e definisce una v2 che separa il
+`bind_scope` locale dalla raggiungibilità esterna sempre `not_assessed`, rende
+esplicita la disponibilità del campione swap e pubblica soltanto l'esito delle
+policy processo, mai le soglie private. La configurazione v2 può esprimere
+policy locali per porta/scope e per count/RSS aggregato; non può attestare un
+firewall. Non vengono aggiunte sonde, API cloud, credenziali o rete in uscita.
+
 ## Conseguenze e limiti
 
 - Socket activation fornisce raccolta realmente on-demand e concorrenza senza
@@ -71,7 +78,8 @@ listener, filesystem e Docker opzionale attraversano soltanto il socket Unix.
   falliscono o vengono ignorate; il collector conserva filesystem/home
   protetti e le restrizioni kernel applicabili. Socket e directory restano
   `0660`/`0750`, con concorrenza e trigger limitati.
-- Il backend valida nuovamente il JSON con lo schema HO-02; API admin-only e
+- Il backend valida nuovamente il JSON con l'unione discriminata v1/v2; versioni
+  future, payload misti e campi extra falliscono chiuso. API admin-only e
   rate limit sono in HO-03, mentre la UI HO-04 resta on-demand e senza polling.
 
 ## Alternative scartate

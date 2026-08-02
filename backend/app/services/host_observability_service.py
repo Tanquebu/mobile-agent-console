@@ -1,6 +1,9 @@
 from pydantic import ValidationError
 
-from .host_observability_contract import HostObservabilitySnapshot
+from .host_observability_contract import (
+    HostObservabilitySnapshot,
+    validate_host_observability_snapshot,
+)
 from .host_observability_socket_client import (
     HostObservabilitySocketClient,
     HostObservabilitySocketResponseError,
@@ -35,6 +38,6 @@ class HostObservabilityService:
         except HostObservabilitySocketResponseError as exc:
             raise HostObservabilityInvalidResponse from exc
         try:
-            return HostObservabilitySnapshot.model_validate(payload)
+            return validate_host_observability_snapshot(payload)
         except ValidationError as exc:
             raise HostObservabilityInvalidResponse from exc

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "collected_at": "2026-08-02T10:00:00Z",
+  "duration_ms": 21,
+  "status": "warning",
+  "reasons": [],
+  "memory": { "status": "ok", "reasons": [], "total_bytes": 1024, "available_bytes": 512, "available_percent": 50, "swap_total_bytes": 0, "swap_used_bytes": 0, "swap_used_percent": 0 },
+  "load": { "status": "ok", "reasons": [], "one": 0.2, "five": 0.2, "fifteen": 0.2, "cpu_count": 2, "normalized_one": 0.1 },
+  "filesystems": { "status": "ok", "reasons": [], "items": [{ "label": "System disk", "status": "ok", "reasons": [], "total_bytes": 4096, "available_bytes": 2048, "used_percent": 50 }] },
+  "processes": {
+    "status": "ok", "reasons": [],
+    "top": [{ "pid": 10, "name": "codex", "label": "Agent", "rss_bytes": 1024, "age_seconds": 60 }],
+    "groups": [{ "name": "agents", "label": "Agents", "count": 1, "rss_bytes": 1024, "oldest_age_seconds": 60 }],
+    "scanned": 1, "skipped": 0, "inaccessible": 0, "truncated": false
+  },
+  "listeners": {
+    "status": "critical", "reasons": ["wildcard_listener_unexpected"], "truncated": false,
+    "items": [{ "port": 8081, "address_scope": "wildcard", "process_name": null, "process_label": null, "expected": false, "status": "critical" }]
+  },
+  "docker": { "status": "unknown", "available": false, "reasons": ["docker_unavailable"], "problematic": [], "unmapped_problematic_count": 0 }
+}

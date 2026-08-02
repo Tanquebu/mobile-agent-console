@@ -5,6 +5,7 @@ import test from "node:test";
 const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 const api = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
 const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+const liveProbe = readFileSync(new URL("host-observability-live.mjs", import.meta.url), "utf8");
 const hostView = app.slice(
   app.indexOf("function HostView("),
   app.indexOf("function SessionList("),
@@ -34,6 +35,22 @@ test("Host carica on-open e manualmente senza polling", () => {
   assert.ok(
     (sessionList.match(/if \(showHost\) return;/g)?.length ?? 0) >= 3,
     "i poll della dashboard devono fermarsi mentre Host è aperta",
+  );
+});
+
+test("il probe live consuma le response prima del teardown", () => {
+  assert.match(liveProbe, /initialResponsePromise = page\.waitForResponse/);
+  assert.match(liveProbe, /refreshResponsePromise = page\.waitForResponse/);
+  assert.match(liveProbe, /await initialResponse\.json\(\)/);
+  assert.match(liveProbe, /await refreshResponse\.json\(\)/);
+  assert.match(liveProbe, /await refreshResponse\.finished\(\)/);
+  assert.match(liveProbe, /MAC_LIVE_ITERATIONS/);
+  assert.match(liveProbe, /iteration < iterations/);
+  assert.match(liveProbe, /MAC_LIVE_ABORT_REFRESH/);
+  assert.match(liveProbe, /await abortRequestPromise[\s\S]*await context\.close\(\)/);
+  assert.doesNotMatch(liveProbe, /page\.on\("response", async/);
+  assert.ok(
+    liveProbe.indexOf("await refreshResponse.finished()") < liveProbe.indexOf("await context.close()"),
   );
 });
 
@@ -80,6 +97,56 @@ test("stati parziali, stale, empty e sezioni richieste restano visibili", () => 
   assert.match(hostView, /<HostReasons reasons=\{snapshot\.reasons\}/);
 });
 
+test("le sezioni Host partono chiuse e mostrano titolo e stato nel summary", () => {
+  const hostCard = app.slice(app.indexOf("function HostCard("), app.indexOf("function HostMetric("));
+  assert.match(hostCard, /<details className=\{`host-card status-\$\{component\.status\}`\}>/);
+  assert.match(hostCard, /<summary>[\s\S]*<h2>\{title\}<\/h2>[\s\S]*<HostStatusBadge status=\{component\.status\}/);
+  assert.match(hostCard, /<div className="host-card-body">/);
+  assert.doesNotMatch(hostCard, /<details[^>]*\sopen(?:=|\s|>)/);
+  assert.match(hostView, /<details className="host-reading-guide">[\s\S]*<summary id="host-reading-guide-title">/);
+  assert.match(styles, /\.host-card > summary \{[^}]*min-height: 48px/);
+  assert.match(styles, /\.host-card-body \{[^}]*border-top:/);
+});
+
+test("v1 e v2 distinguono fatti locali, valutazione e dati non accertati", () => {
+  for (const text of [
+    "Come leggere la fotografia",
+    "Fatti locali",
+    "Valutazione",
+    "Non accertato",
+    "v1 legacy",
+    "Campione attività swap",
+    "Policy locale non configurata",
+    "Policy locale violata",
+    "Raggiungibilità esterna: non accertata",
+  ]) assert.ok(app.includes(text), `testo v1/v2 mancante: ${text}`);
+  assert.match(hostView, /snapshot\.schema_version === 1 \? "v1 legacy" : "v2"/);
+  assert.match(hostView, /snapshot\.schema_version === 2[\s\S]*swap_io_sample/);
+  assert.match(hostView, /snapshot\.schema_version === 2[\s\S]*snapshot\.listeners\.items/);
+  assert.doesNotMatch(hostView, /raggiungibil\w* (?:sicura|chiusa)|porta (?:sicura|chiusa)/i);
+});
+
+test("la valutazione senza reason è coerente con ciascuno status", () => {
+  assert.match(app, /ok: "Nessuna anomalia rilevata dai controlli disponibili\."/);
+  assert.match(app, /warning: "Attenzione rilevata; il collector non ha fornito un dettaglio della valutazione\."/);
+  assert.match(app, /critical: "Stato critico rilevato; il collector non ha fornito un dettaglio della valutazione\."/);
+  assert.match(app, /unknown: "Valutazione non disponibile: l’esito non è accertato\."/);
+  assert.match(app, /HOST_EMPTY_ASSESSMENT_LABEL\[component\.status\]/);
+  assert.doesNotMatch(
+    app.slice(app.indexOf("const HOST_EMPTY_ASSESSMENT_LABEL"), app.indexOf("function HostStatusBadge")),
+    /(?:warning|critical|unknown):[^\n]*(?:nessuna anomalia|sicuro|chiuso)/i,
+  );
+});
+
+test("v2 conserva ogni bind locale e separa l'esito della policy", () => {
+  assert.match(hostView, /Bind locale:/);
+  assert.match(hostView, /external_reachability/);
+  assert.match(hostView, /HOST_LISTENER_POLICY_LABEL\[listener\.policy_status\]/);
+  assert.match(hostView, /HOST_PROCESS_POLICY_LABEL\[group\.policy_status\]/);
+  assert.match(hostView, /non verifica la raggiungibilità dalla rete esterna/);
+  assert.match(hostView, /snapshot\.schema_version === 2\s*\? snapshot\.listeners\.items/);
+});
+
 test("l'export serializza esclusivamente l'ultimo snapshot valido senza fetch", () => {
   assert.match(hostView, /JSON\.stringify\(snapshot, null, 2\)/);
   assert.match(hostView, /value=\{snapshotJson\}[\s\S]*readOnly/);
@@ -119,4 +186,8 @@ test("layout mobile-first e controlli accessibili sono dichiarati", () => {
   assert.match(hostView, /aria-live="polite"/);
   assert.match(hostView, /role="alert"/);
   assert.match(hostView, /aria-label="Torna alle sessioni"/);
+  assert.match(hostView, /aria-labelledby="host-reading-guide-title"/);
+  assert.match(hostView, /aria-label="Campione attività swap"/);
+  assert.match(styles, /\.host-process-list \.host-policy \{[^}]*grid-column: 1 \/ -1/);
+  assert.match(styles, /\.host-policy, \.host-not-assessed \{[^}]*overflow-wrap: anywhere/);
 });

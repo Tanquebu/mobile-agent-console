@@ -285,6 +285,13 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .host-summary h2 { margin: 3px 0 2px; font-size: 1.4rem; }
 .host-summary small, .host-note { color: #91a397; font-size: .72rem; }
 .host-summary > .host-reasons, .host-summary > .host-component-statuses { grid-column: 1 / -1; }
+.host-reading-guide { min-width: 0; overflow: hidden; border: 1px solid #31443a; border-radius: 16px; background: #101713; }
+.host-reading-guide > summary { min-height: 44px; padding: 12px 14px; color: #edf5ef; font-size: .92rem; font-weight: 800; cursor: pointer; }
+.host-reading-guide > summary::marker { color: #7ea58c; }
+.host-reading-guide dl { display: grid; gap: 8px; margin: 0; border-top: 1px solid #31443a; padding: 12px 14px 14px; }
+.host-reading-guide dl > div { min-width: 0; border-left: 2px solid #4f7a5c; padding-left: 9px; }
+.host-reading-guide dt { color: #b8d7c1; font-size: .7rem; font-weight: 800; }
+.host-reading-guide dd { margin: 3px 0 0; color: #91a397; font-size: .7rem; overflow-wrap: anywhere; }
 .host-component-statuses { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .host-component-statuses span { display: flex; align-items: center; gap: 6px; min-width: 0; color: #a9bcaf; font-size: .7rem; }
 .host-component-statuses i { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: #91a397; }
@@ -304,9 +311,15 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .host-json-export button { min-height: 44px; width: fit-content; border: 1px solid #4f7a5c; border-radius: 12px; padding: 0 14px; background: #1b2820; color: #9be5b3; font-weight: 750; }
 .host-copy-feedback { min-height: 1.05em; color: #b8c9bd !important; }
 .host-grid { display: grid; gap: 10px; }
-.host-card { display: grid; gap: 10px; }
-.host-card > header, .host-item > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.host-card { overflow: hidden; padding: 0; }
+.host-card > summary { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; cursor: pointer; }
+.host-card > summary::marker { color: #7ea58c; }
+.host-card-body { display: grid; gap: 10px; border-top: 1px solid #293a30; padding: 12px 14px 14px; }
+.host-item > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .host-card h2 { margin: 0; font-size: 1rem; }
+.host-assessment { display: grid; gap: 5px; border-radius: 10px; padding: 9px 10px; background: #101713; }
+.host-assessment > p { margin: 0; color: #91a397; font-size: .72rem; }
+.host-facts-heading { margin: 0; color: #b8d7c1; font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; }
 .host-card.status-critical, .host-summary.status-critical { border-color: #704039; }
 .host-card.status-warning, .host-summary.status-warning { border-color: #665b32; }
 .host-card.status-unknown, .host-summary.status-unknown { border-color: #4b5660; }
@@ -321,6 +334,14 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .host-metrics > div { min-width: 0; border-radius: 10px; padding: 9px; background: #101713; }
 .host-metrics dt { color: #7ea58c; font-size: .65rem; }
 .host-metrics dd { margin: 3px 0 0; overflow-wrap: anywhere; color: #edf5ef; font-size: .88rem; font-weight: 750; }
+.host-sample { display: grid; min-width: 0; gap: 8px; border: 1px solid #31443a; border-radius: 12px; padding: 10px; background: #101713; }
+.host-sample h4, .host-sample p { margin: 0; }
+.host-sample h4 { color: #b8d7c1; font-size: .78rem; }
+.host-sample p { color: #b8c9bd; font-size: .72rem; overflow-wrap: anywhere; }
+.host-sample dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 0; }
+.host-sample dl > div { min-width: 0; }
+.host-sample dt { color: #7ea58c; font-size: .62rem; }
+.host-sample dd { margin: 2px 0 0; color: #edf5ef; font-size: .75rem; font-weight: 750; overflow-wrap: anywhere; }
 .host-note, .host-empty { margin: 0; }
 .host-empty { color: #91a397; font-size: .78rem; }
 .host-item-grid { display: grid; gap: 8px; }
@@ -333,10 +354,16 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .host-process-list { display: grid; gap: 6px; }
 .host-process-list article { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; border-bottom: 1px solid #26352c; padding: 6px 0 10px; }
 .host-process-list article:last-child { border-bottom: 0; padding-bottom: 2px; }
+.host-process-list .host-policy { grid-column: 1 / -1; margin: 0; text-align: left; }
 .host-process-list article > span { display: grid; min-width: 0; }
 .host-process-list article > span:last-child { text-align: right; }
 .host-process-list strong { overflow: hidden; color: #edf5ef; font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
 .host-process-list small { color: #91a397; font-size: .65rem; }
+.host-policy, .host-not-assessed { border-radius: 8px; padding: 5px 7px; overflow-wrap: anywhere; font-size: .68rem !important; }
+.host-policy { background: #1a241e; color: #b8c9bd !important; }
+.host-policy.policy-violated { background: #38231f; color: #ffb4ab !important; }
+.host-policy.policy-within_limits, .host-policy.policy-allowed { background: #193225; color: #9bd9ad !important; }
+.host-not-assessed { background: #252c32; color: #c1cad3 !important; }
 @media (min-width: 720px) {
   body { padding: 24px; background: #080b09; }
   .shell, .console { min-height: calc(100vh - 48px); border: 1px solid #26352c; border-radius: 20px; }
@@ -346,6 +373,7 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
   .snapshot-session { grid-template-columns: minmax(0, 1fr) minmax(180px, .8fr); }
   .host-grid, .host-item-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .host-component-statuses { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .host-reading-guide dl { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (min-width: 980px) {

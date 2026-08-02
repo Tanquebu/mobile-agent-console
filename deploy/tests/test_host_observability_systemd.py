@@ -13,6 +13,18 @@ UNITS = [
 
 
 class HostObservabilitySystemdTest(unittest.TestCase):
+    def test_backend_test_mounts_shared_browser_fixtures_read_only(self) -> None:
+        compose = (REPOSITORY_ROOT / "compose.yaml").read_text(encoding="utf-8")
+        backend_test = compose.split("  backend-test:\n", 1)[1].split(
+            "  frontend-build:\n", 1
+        )[0]
+
+        self.assertIn("source: ./frontend/tests/fixtures", backend_test)
+        self.assertIn("target: /frontend/tests/fixtures", backend_test)
+        self.assertIn("read_only: true", backend_test)
+        production_backend = compose.split("  backend:\n", 1)[1].split("  web:\n", 1)[0]
+        self.assertNotIn("frontend/tests/fixtures", production_backend)
+
     def test_user_transaction_has_no_ordering_cycle(self) -> None:
         systemd_analyze = shutil.which("systemd-analyze")
         if systemd_analyze is None:

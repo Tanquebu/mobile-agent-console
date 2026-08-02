@@ -161,7 +161,7 @@ runtime fail-closed. Restano `NoNewPrivileges`, `RestrictNamespaces`,
 `RestrictSUIDSGID`, `RestrictAddressFamilies=AF_UNIX`, umask `0077` e nessuna
 identità privilegiata. Collector e socket conservano l'hardening filesystem.
 
-Il collector v1 legge soltanto `meminfo`, `loadavg`, `uptime`, statistiche e fd
+Il collector host observability legge soltanto `meminfo`, `loadavg`, `uptime`, statistiche e fd
 dei processi, tabelle TCP e filesystem configurati. Non legge cmdline,
 environment o working directory. IP e indirizzi diventano scope tipizzati;
 path e nomi reali dei container restano nella configurazione privata `0600`.
@@ -175,7 +175,14 @@ con limite e confronto dei metadati pre/post per rilevare sostituzioni in race.
 La risposta è limitata a 128 KiB e la unit a cinque secondi. Un errore parziale
 produce `unknown` nel solo componente coinvolto e non viene trasformato in
 `ok`; il contratto completo e i limiti sono in
-`docs/contracts/host-observability-v1.md`.
+`docs/contracts/host-observability-v1.md` e
+`docs/contracts/host-observability-v2.md`. La v2 aggiunge un campione locale e
+limitato dei contatori swap e policy private per porta/scope e aggregati
+count/RSS. Il payload espone solo delta, esito policy e scope normalizzati:
+nessuna soglia privata, attestazione firewall, raggiungibilità presunta, sonda
+esterna, API cloud o credenziale attraversa il boundary. Backend e frontend
+accettano v1/v2 durante il rollout; versioni future, forme miste e campi extra
+falliscono chiuso senza essere loggati.
 
 Il collector dello stato sessioni legge processi e transcript esclusivamente
 sull'host. Il file atomico risultante contiene solo identificatore numerico

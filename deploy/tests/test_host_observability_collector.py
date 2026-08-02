@@ -46,6 +46,40 @@ def base_config(**overrides):
     return payload
 
 
+def base_config_v2(**overrides):
+    payload = {
+        "schema_version": 2,
+        "thresholds": {
+            "memory_available_warning_percent": 20,
+            "memory_available_critical_percent": 10,
+            "swap_used_warning_percent": 50,
+            "load_per_cpu_warning": 1,
+            "load_per_cpu_critical": 2,
+        },
+        "swap_io_sample": {
+            "duration_ms": 100,
+            "warning_pages_delta": 1,
+            "critical_pages_delta": 128,
+        },
+        "filesystems": [],
+        "tcp_listener_policies": [
+            {"port": 4242, "allowed_scopes": ["loopback", "tailscale"]}
+        ],
+        "process_policies": {
+            "example-worker": {
+                "label": "Example worker",
+                "warning_count": 8,
+                "critical_count": 12,
+                "warning_rss_bytes": 1_073_741_824,
+                "critical_rss_bytes": 2_147_483_648,
+            }
+        },
+        "docker": {"enabled": False, "container_labels": {}},
+    }
+    payload.update(overrides)
+    return payload
+
+
 def process_stat(pid: int, name: str, start_ticks: int, rss_pages: int) -> str:
     fields = ["0"] * 22
     fields[0] = "S"
@@ -92,9 +126,39 @@ def make_proc_root(root: Path) -> Path:
     )
     (proc_root / "loadavg").write_text("2.00 1.50 1.00 1/100 42\n", encoding="ascii")
     (proc_root / "uptime").write_text("10000.00 0.00\n", encoding="ascii")
+    write_vmstat(proc_root, pages_in=100, pages_out=200)
     (proc_root / "net" / "tcp").write_text(TCP_HEADER, encoding="ascii")
     (proc_root / "net" / "tcp6").write_text(TCP_HEADER, encoding="ascii")
     return proc_root
+
+
+def write_memory(
+    proc_root: Path,
+    *,
+    total_kb: int = 1_000_000,
+    available_kb: int = 500_000,
+    swap_total_kb: int = 1_000_000,
+    swap_free_kb: int = 900_000,
+) -> None:
+    (proc_root / "meminfo").write_text(
+        f"MemTotal:       {total_kb} kB\n"
+        f"MemAvailable:   {available_kb} kB\n"
+        f"SwapTotal:      {swap_total_kb} kB\n"
+        f"SwapFree:       {swap_free_kb} kB\n",
+        encoding="ascii",
+    )
+
+
+def write_vmstat(proc_root: Path, *, pages_in: int, pages_out: int) -> None:
+    (proc_root / "vmstat").write_text(
+        f"nr_free_pages 100\npswpin {pages_in}\npswpout {pages_out}\n",
+        encoding="ascii",
+    )
+
+
+def sequence_clock(*values: float):
+    remaining = iter(values)
+    return lambda: next(remaining)
 
 
 def statvfs_with_usage(used_percent: int):
@@ -104,6 +168,467 @@ def statvfs_with_usage(used_percent: int):
 
 
 class HostObservabilityCollectorTest(unittest.TestCase):
+    def test_consumer_disconnect_during_final_write_exits_cleanly(self) -> None:
+        snapshot = {"schema_version": 2, "status": "ok"}
+        with (
+            patch.dict(
+                collector.os.environ,
+                {"MAC_HOST_OBSERVABILITY_CONFIG_FILE": "/private/config.json"},
+            ),
+            patch.object(collector, "load_config", return_value=object()),
+            patch.object(collector, "collect_snapshot", return_value=snapshot),
+            patch.object(collector.os, "write", side_effect=BrokenPipeError),
+        ):
+            self.assertIsNone(collector.main())
+
+    def test_final_write_keeps_unexpected_io_errors_fail_closed(self) -> None:
+        with patch.object(
+            collector.os, "write", side_effect=OSError("write failed")
+        ), self.assertRaisesRegex(OSError, "write failed"):
+            collector.write_response(b"payload")
+
+    def test_v2_high_swap_without_memory_pressure_is_warning_not_critical(self) -> None:
+        with TemporaryDirectory() as temporary:
+            proc_root = make_proc_root(Path(temporary))
+            write_memory(proc_root, available_kb=500_000, swap_free_kb=100_000)
+            result = collector.read_memory(
+                proc_root,
+                collector.parse_config(base_config_v2()).thresholds,
+                swap_io_config=collector.SwapIoSampleConfig(),
+                sleep=lambda _seconds: None,
+                monotonic=sequence_clock(10, 10.1),
+            )
+
+        self.assertEqual(result["status"], "warning")
+        self.assertIn("swap_used_high", result["reasons"])
+        self.assertNotIn("swap_pressure_critical", result["reasons"])
+        self.assertEqual(result["swap_io_sample"]["pages_in_delta"], 0)
+        self.assertEqual(result["swap_io_sample"]["pages_out_delta"], 0)
+
+    def test_v2_memory_pressure_and_swap_io_at_boundary_are_critical(self) -> None:
+        with TemporaryDirectory() as temporary:
+            proc_root = make_proc_root(Path(temporary))
+            write_memory(proc_root, available_kb=100_000, swap_free_kb=100_000)
+            sleeps: list[float] = []
+
+            def advance_swap(seconds: float) -> None:
+                sleeps.append(seconds)
+                write_vmstat(proc_root, pages_in=100, pages_out=328)
+
+            config = collector.parse_config(
+                base_config_v2(
+                    swap_io_sample={
+                        "duration_ms": 100,
+                        "warning_pages_delta": 1,
+                        "critical_pages_delta": 128,
+                    },
+                    docker={"enabled": True, "container_labels": {}},
+                )
+            )
+            add_process(proc_root, 1, "shell", 10)
+            snapshot = collector.collect_snapshot(
+                config,
+                proc_root=proc_root,
+                statvfs=os.statvfs,
+                docker_runner=lambda: (_ for _ in ()).throw(PermissionError()),
+                cpu_count=4,
+                page_size=4096,
+                clock_ticks=100,
+                sleep=advance_swap,
+                monotonic=sequence_clock(1, 1.01, 1.11, 1.12),
+            )
+
+        self.assertEqual(sleeps, [0.1])
+        self.assertEqual(snapshot["schema_version"], 2)
+        self.assertEqual(snapshot["duration_ms"], 120)
+        self.assertEqual(snapshot["memory"]["status"], "critical")
+        self.assertEqual(snapshot["memory"]["swap_io_sample"]["duration_ms"], 100)
+        self.assertIn("swap_pressure_critical", snapshot["memory"]["reasons"])
+        self.assertEqual(snapshot["docker"]["status"], "unknown")
+        self.assertIn("docker_unavailable", snapshot["reasons"])
+        self.assertEqual(snapshot["status"], "critical")
+        self.assertIn("swap_pressure_critical", snapshot["reasons"])
+        serialized = json.dumps(snapshot)
+        self.assertLess(len(serialized.encode()), collector.MAX_RESPONSE_BYTES)
+        self.assertNotIn("allowed_scopes", serialized)
+        self.assertNotIn("critical_pages_delta", serialized)
+        self.assertNotIn("/srv/", serialized)
+
+    def test_v2_swap_sample_unavailable_partial_reset_and_timeout_are_unknown(self) -> None:
+        with TemporaryDirectory() as temporary:
+            proc_root = make_proc_root(Path(temporary))
+            write_memory(proc_root, swap_free_kb=900_000)
+            config = collector.parse_config(base_config_v2()).swap_io_sample
+            cases = []
+
+            (proc_root / "vmstat").unlink()
+            cases.append(
+                collector.read_memory(
+                    proc_root,
+                    collector.Thresholds(),
+                    swap_io_config=config,
+                    sleep=lambda _seconds: self.fail("sleep after unavailable first read"),
+                    monotonic=sequence_clock(),
+                )
+            )
+
+            write_vmstat(proc_root, pages_in=100, pages_out=200)
+
+            def partial_second_read(_seconds: float) -> None:
+                (proc_root / "vmstat").write_text("pswpin 101\n", encoding="ascii")
+
+            cases.append(
+                collector.read_memory(
+                    proc_root,
+                    collector.Thresholds(),
+                    swap_io_config=config,
+                    sleep=partial_second_read,
+                    monotonic=sequence_clock(1),
+                )
+            )
+
+            write_vmstat(proc_root, pages_in=100, pages_out=200)
+            cases.append(
+                collector.read_memory(
+                    proc_root,
+                    collector.Thresholds(),
+                    swap_io_config=config,
+                    sleep=lambda _seconds: (_ for _ in ()).throw(TimeoutError()),
+                    monotonic=sequence_clock(1),
+                )
+            )
+
+            write_vmstat(proc_root, pages_in=100, pages_out=200)
+
+            def reset_counters(_seconds: float) -> None:
+                write_vmstat(proc_root, pages_in=99, pages_out=199)
+
+            cases.append(
+                collector.read_memory(
+                    proc_root,
+                    collector.Thresholds(),
+                    swap_io_config=config,
+                    sleep=reset_counters,
+                    monotonic=sequence_clock(1, 1.1),
+                )
+            )
+
+            write_vmstat(proc_root, pages_in=100, pages_out=200)
+            cases.append(
+                collector.read_memory(
+                    proc_root,
+                    collector.Thresholds(),
+                    swap_io_config=config,
+                    sleep=lambda _seconds: None,
+                    monotonic=sequence_clock(1, 2.001),
+                )
+            )
+
+        for result in cases:
+            with self.subTest(result=result):
+                self.assertEqual(result["status"], "unknown")
+                self.assertEqual(
+                    result["swap_io_sample"],
+                    {
+                        "available": False,
+                        "duration_ms": None,
+                        "pages_in_delta": None,
+                        "pages_out_delta": None,
+                    },
+                )
+                self.assertIn("swap_sample_unavailable", result["reasons"])
+
+    def test_v2_swap_sample_rejects_unbounded_duration_without_sleeping(self) -> None:
+        with TemporaryDirectory() as temporary:
+            proc_root = make_proc_root(Path(temporary))
+            sleeps: list[float] = []
+            result = collector.sample_swap_io(
+                proc_root,
+                collector.SwapIoSampleConfig(duration_ms=501),
+                sleep=sleeps.append,
+                monotonic=sequence_clock(),
+            )
+
+        self.assertFalse(result["available"])
+        self.assertEqual(sleeps, [])
+
+    def test_v2_unconfigured_process_groups_are_visible_and_neutral(self) -> None:
+        with TemporaryDirectory() as temporary:
+            proc_root = make_proc_root(Path(temporary))
+            for index in range(12):
+                add_process(proc_root, 100 + index, "node", 64)
+            result, _samples = collector.read_processes(
+                proc_root,
+                collector.parse_config(base_config_v2(process_policies={})),
+                page_size=4096,
+                clock_ticks=100,
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["reasons"], [])
+        self.assertEqual(result["groups"][0]["count"], 12)
+        self.assertEqual(result["groups"][0]["policy_status"], "not_configured")
+
+    def test_v2_process_policies_apply_count_and_aggregate_rss_boundaries(self) -> None:
+        with TemporaryDirectory() as temporary:
+            proc_root = make_proc_root(Path(temporary))
+            for index in range(3):
+                add_process(proc_root, 100 + index, "node", 1)
+            count_config = collector.parse_config(
+                base_config_v2(
+                    process_policies={
+                        "node": {"warning_count": 3, "critical_count": 4}
+                    }
+                )
+            )
+            count_result, _samples = collector.read_processes(
+                proc_root, count_config, page_size=4096, clock_ticks=100
+            )
+            rss_config = collector.parse_config(
+                base_config_v2(
+                    process_policies={
+                        "node": {
+                            "warning_rss_bytes": 8_192,
+                            "critical_rss_bytes": 12_288,
+                        }
+                    }
+                )
+            )
+            rss_result, _samples = collector.read_processes(
+                proc_root, rss_config, page_size=4096, clock_ticks=100
+            )
+
+        self.assertEqual(count_result["status"], "warning")
+        self.assertIn("process_policy_count_high", count_result["reasons"])
+        self.assertEqual(count_result["groups"][0]["policy_status"], "violated")
+        self.assertEqual(rss_result["status"], "critical")
+        self.assertIn("process_policy_rss_critical", rss_result["reasons"])
+        self.assertEqual(rss_result["groups"][0]["rss_bytes"], 12_288)
+
+    def test_v2_process_policy_thresholds_are_inclusive_and_below_is_ok(self) -> None:
+        values = {"count": 3, "rss_bytes": 12_288, "oldest_age_seconds": 1}
+        cases = [
+            (
+                collector.ProcessPolicy(warning_count=3),
+                "warning",
+                "process_policy_count_high",
+            ),
+            (
+                collector.ProcessPolicy(critical_count=3),
+                "critical",
+                "process_policy_count_critical",
+            ),
+            (
+                collector.ProcessPolicy(warning_rss_bytes=12_288),
+                "warning",
+                "process_policy_rss_high",
+            ),
+            (
+                collector.ProcessPolicy(critical_rss_bytes=12_288),
+                "critical",
+                "process_policy_rss_critical",
+            ),
+            (collector.ProcessPolicy(critical_count=4), "ok", None),
+        ]
+
+        for policy, expected_status, expected_reason in cases:
+            with self.subTest(policy=policy):
+                status, reasons = collector.evaluate_process_policy(values, policy)
+                self.assertEqual(status, expected_status)
+                if expected_reason is None:
+                    self.assertEqual(reasons, [])
+                else:
+                    self.assertIn(expected_reason, reasons)
+
+    def test_v2_process_scan_truncation_is_partial_not_negative_evidence(self) -> None:
+        with TemporaryDirectory() as temporary:
+            proc_root = make_proc_root(Path(temporary))
+            for index in range(3):
+                add_process(proc_root, 100 + index, "node", 1)
+            with patch.object(collector, "MAX_PROCESSES_SCANNED", 2):
+                result, _samples = collector.read_processes(
+                    proc_root,
+                    collector.parse_config(base_config_v2(process_policies={})),
+                    page_size=4096,
+                    clock_ticks=100,
+                )
+
+        self.assertTrue(result["truncated"])
+        self.assertEqual(result["status"], "unknown")
+        self.assertIn("processes_partial", result["reasons"])
+
+    def test_v2_wildcard_default_warning_and_local_policy_violation_critical(self) -> None:
+        with TemporaryDirectory() as temporary:
+            proc_root = make_proc_root(Path(temporary))
+            add_process(proc_root, 10, "node", 1, socket_inode="12345")
+            (proc_root / "net" / "tcp").write_text(
+                TCP_HEADER + tcp_row("00000000", 4242, "12345"),
+                encoding="ascii",
+            )
+            samples = [collector.ProcessSample(10, "node", 4096, 1)]
+            unconfigured = collector.read_listeners(
+                proc_root,
+                collector.parse_config(base_config_v2(tcp_listener_policies=[])),
+                samples,
+            )
+            violated = collector.read_listeners(
+                proc_root,
+                collector.parse_config(
+                    base_config_v2(
+                        tcp_listener_policies=[
+                            {"port": 4242, "allowed_scopes": ["loopback"]}
+                        ]
+                    )
+                ),
+                samples,
+            )
+
+        self.assertEqual(unconfigured["status"], "warning")
+        self.assertEqual(unconfigured["items"][0]["policy_status"], "not_configured")
+        self.assertEqual(unconfigured["items"][0]["bind_scope"], "wildcard")
+        self.assertEqual(
+            unconfigured["items"][0]["external_reachability"], "not_assessed"
+        )
+        self.assertEqual(violated["status"], "critical")
+        self.assertEqual(violated["items"][0]["policy_status"], "violated")
+
+    def test_v2_listener_ownership_and_tcp_read_partial_are_unknown_not_critical(self) -> None:
+        with TemporaryDirectory() as temporary:
+            proc_root = make_proc_root(Path(temporary))
+            (proc_root / "net" / "tcp").write_text(
+                TCP_HEADER + tcp_row("0100007F", 4242, "unmapped"),
+                encoding="ascii",
+            )
+            config = collector.parse_config(base_config_v2())
+            ownership = collector.read_listeners(proc_root, config, [])
+            (proc_root / "net" / "tcp6").unlink()
+            partial_read = collector.read_listeners(proc_root, config, [])
+
+        self.assertEqual(ownership["items"][0]["status"], "ok")
+        self.assertEqual(ownership["status"], "unknown")
+        self.assertIn("listeners_partial", ownership["reasons"])
+        self.assertNotEqual(partial_read["status"], "critical")
+        self.assertIn("listeners_partial", partial_read["reasons"])
+
+    def test_v2_docker_unavailable_remains_unknown_and_never_makes_snapshot_critical(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as temporary:
+            proc_root = make_proc_root(Path(temporary))
+            write_memory(proc_root)
+            add_process(proc_root, 1, "shell", 1)
+            config = collector.parse_config(
+                base_config_v2(
+                    process_policies={},
+                    docker={"enabled": True, "container_labels": {}},
+                )
+            )
+            snapshot = collector.collect_snapshot(
+                config,
+                proc_root=proc_root,
+                statvfs=os.statvfs,
+                docker_runner=lambda: (_ for _ in ()).throw(PermissionError()),
+                cpu_count=4,
+                page_size=4096,
+                clock_ticks=100,
+                sleep=lambda _seconds: None,
+                monotonic=sequence_clock(1, 1.01, 1.11, 1.12),
+            )
+
+        self.assertEqual(snapshot["docker"]["status"], "unknown")
+        self.assertIn("docker_unavailable", snapshot["docker"]["reasons"])
+        self.assertNotEqual(snapshot["status"], "critical")
+        self.assertIn("docker_unavailable", snapshot["reasons"])
+
+    def test_checked_in_v2_example_is_valid_and_contains_only_synthetic_values(self) -> None:
+        example_path = SCRIPT.with_name("host-observability.example.json")
+        payload = json.loads(example_path.read_text(encoding="utf-8"))
+
+        config = collector.parse_config(payload)
+
+        self.assertEqual(config.schema_version, 2)
+        self.assertEqual(config.expected_listeners[0].port, 4242)
+        self.assertTrue(all("example" in path.label.lower() for path in config.filesystems))
+
+    def test_config_v1_fallback_and_v2_policies_are_both_accepted(self) -> None:
+        legacy = collector.parse_config(base_config())
+        evolved = collector.parse_config(base_config_v2())
+
+        self.assertEqual(legacy.schema_version, 1)
+        self.assertEqual(legacy.process_policies, {})
+        self.assertEqual(evolved.schema_version, 2)
+        self.assertEqual(evolved.swap_io_sample.duration_ms, 100)
+        self.assertEqual(
+            evolved.expected_listeners[0].scopes,
+            frozenset({"loopback", "tailscale"}),
+        )
+        policy = evolved.process_policies["example-worker"]
+        self.assertEqual(policy.critical_count, 12)
+        self.assertEqual(policy.critical_rss_bytes, 2_147_483_648)
+        self.assertEqual(evolved.process_labels["example-worker"], "Example worker")
+        high_swap_warning = collector.parse_config(
+            base_config_v2(thresholds={"swap_used_warning_percent": 90})
+        )
+        self.assertEqual(high_swap_warning.thresholds.swap_used_warning_percent, 90)
+
+    def test_config_versions_fail_closed_on_mixed_unknown_or_invalid_fields(self) -> None:
+        invalid = [
+            base_config(schema_version=3),
+            base_config(schema_version=True),
+            {**base_config(), "process_policies": {}},
+            {**base_config_v2(), "process_labels": {}},
+            {
+                **base_config_v2(),
+                "thresholds": {"process_group_critical_count": 10},
+            },
+            {
+                **base_config_v2(),
+                "tcp_listener_policies": [
+                    {"port": 4242, "allowed_scopes": ["loopback"], "firewall": "closed"}
+                ],
+            },
+            {
+                **base_config_v2(),
+                "process_policies": {"worker": {"label": "Only a label"}},
+            },
+            {
+                **base_config_v2(),
+                "process_policies": {
+                    "worker": {"warning_count": 20, "critical_count": 10}
+                },
+            },
+            {
+                **base_config_v2(),
+                "process_policies": {"worker": {"critical_count": 4097}},
+            },
+            {
+                **base_config_v2(),
+                "process_policies": {"worker": {"critical_rss_bytes": 2**63}},
+            },
+            {
+                **base_config_v2(),
+                "swap_io_sample": {
+                    "duration_ms": 501,
+                    "warning_pages_delta": 1,
+                    "critical_pages_delta": 128,
+                },
+            },
+        ]
+        for payload in invalid:
+            with self.subTest(payload=payload), self.assertRaises(
+                collector.CollectorConfigError
+            ):
+                collector.parse_config(payload)
+
+    def test_config_v2_process_policy_limit_is_bounded(self) -> None:
+        policies = {
+            f"worker-{index}": {"critical_count": 10}
+            for index in range(collector.MAX_PROCESS_LABELS + 1)
+        }
+
+        with self.assertRaises(collector.CollectorConfigError):
+            collector.parse_config(base_config_v2(process_policies=policies))
+
     def test_nine_node_processes_are_visible_and_aggregated(self) -> None:
         with TemporaryDirectory() as temporary:
             proc_root = make_proc_root(Path(temporary))

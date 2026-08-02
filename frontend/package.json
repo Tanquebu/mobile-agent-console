@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "test:host": "node --test tests/host-observability-ui.test.mjs",
+    "test:host:browser": "node tests/host-observability-browser.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@types/react": "^19.1.0",
-    "@types/react-dom": "^19.1.0"
+    "@types/react-dom": "^19.1.0",
+    "playwright": "1.61.1"
   }
 }

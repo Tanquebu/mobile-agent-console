@@ -95,6 +95,11 @@ services:
     build:
       context: backend
       target: test
+    volumes:
+      - type: bind
+        source: ./frontend/tests/fixtures
+        target: /frontend/tests/fixtures
+        read_only: true
     environment:
       MAC_LOGIN_PASSWORD: test-password-at-least-16
       MAC_SESSION_SECRET: test-session-secret-at-least-16

@@ -113,14 +113,15 @@ systemctl --user restart mobile-agent-console-host-observability.socket
      /usr/bin/python3 -c 'import socket; rows=dict(line.rstrip().split(":\t",1) for line in open("/proc/self/status") if line.startswith(("CapInh:","CapPrm:","CapEff:","CapAmb:"))); assert all(int(rows[k],16)==0 for k in ("CapPrm","CapEff","CapAmb")); socket.socket(socket.AF_UNIX).close(); blocked=False; exec("try:\n socket.socket(socket.AF_INET)\nexcept OSError:\n blocked=True"); assert blocked'
    ```
 
-3. Connettersi direttamente e verificare la fotografia v1 completa:
+3. Connettersi direttamente e verificare la fotografia v1 o v2 completa:
 
    ```bash
    python3 -c 'import json,os,socket; s=socket.socket(socket.AF_UNIX); s.connect("/run/user/%d/mobile-agent-console/host-observability.sock" % os.getuid()); p=json.loads(b"".join(iter(lambda:s.recv(65536),b""))); print(p["schema_version"],p["status"],len(p["processes"]["top"]),len(p["listeners"]["items"]))'
    ```
 
-   Atteso: schema `1`, stato tipizzato e liste entro i limiti. Validare l'intero
-   payload con `HostObservabilitySnapshot`, non solo i campi stampati. Ripetere
+   Atteso: schema `1` oppure `2`, stato tipizzato e liste entro i limiti.
+   Validare l'intero payload con `validate_host_observability_snapshot`, non
+   solo i campi stampati. Ripetere
    con almeno quattro client contemporanei e verificare quattro fotografie
    valide e quattro istanze one-shot terminate.
 
@@ -141,7 +142,7 @@ Avviare/ripubblicare solo il backend con l'overlay, preservando `tmux-runtime`:
 ```bash
 docker compose -f compose.yaml -f compose.host-observability.yaml up -d --no-deps backend
 docker compose -f compose.yaml -f compose.host-observability.yaml exec backend id
-docker compose -f compose.yaml -f compose.host-observability.yaml exec backend python -c 'import asyncio; from app.services.host_observability_contract import HostObservabilitySnapshot; from app.services.host_observability_socket_client import HostObservabilitySocketClient; p=asyncio.run(HostObservabilitySocketClient("/host-observability/host-observability.sock").fetch()); s=HostObservabilitySnapshot.model_validate(p); print(s.schema_version,s.status,len(s.processes.top))'
+docker compose -f compose.yaml -f compose.host-observability.yaml exec backend python -c 'import asyncio; from app.services.host_observability_contract import validate_host_observability_snapshot; from app.services.host_observability_socket_client import HostObservabilitySocketClient; p=asyncio.run(HostObservabilitySocketClient("/host-observability/host-observability.sock").fetch()); s=validate_host_observability_snapshot(p); print(s.schema_version,s.status,len(s.processes.top))'
 ```
 
 Atteso: UID/GID container `10001:10001` e handshake riuscito. In Docker rootful
@@ -155,7 +156,7 @@ Usare anche l'override host senza avviare o ricreare `tmux-runtime`:
 ```bash
 docker compose -f compose.yaml -f compose.host.yaml -f compose.host-observability.yaml up -d --no-deps backend
 docker compose -f compose.yaml -f compose.host.yaml -f compose.host-observability.yaml exec backend id
-docker compose -f compose.yaml -f compose.host.yaml -f compose.host-observability.yaml exec backend python -c 'import asyncio; from app.services.host_observability_contract import HostObservabilitySnapshot; from app.services.host_observability_socket_client import HostObservabilitySocketClient; p=asyncio.run(HostObservabilitySocketClient("/host-observability/host-observability.sock").fetch()); s=HostObservabilitySnapshot.model_validate(p); print(s.schema_version,s.status,len(s.processes.top))'
+docker compose -f compose.yaml -f compose.host.yaml -f compose.host-observability.yaml exec backend python -c 'import asyncio; from app.services.host_observability_contract import validate_host_observability_snapshot; from app.services.host_observability_socket_client import HostObservabilitySocketClient; p=asyncio.run(HostObservabilitySocketClient("/host-observability/host-observability.sock").fetch()); s=validate_host_observability_snapshot(p); print(s.schema_version,s.status,len(s.processes.top))'
 ```
 
 Atteso: identità configurata dalla modalità host, handshake riuscito e sessioni
@@ -169,6 +170,10 @@ normalmente all'owner host; confermarlo con un connect reale, non presumerlo.
   la unit preparatoria e la socket per ripristinare le ACL dichiarate.
 - Fermare la socket unit: il client deve produrre l'errore tipizzato
   `host collector unavailable` entro il timeout configurato.
+- Chiudere il consumer durante la scrittura finale (per esempio annullando un
+  refresh Host): la one-shot deve terminare senza traceback o stato `failed`.
+  Un `BrokenPipeError` dovuto alla disconnessione non è un errore di raccolta;
+  gli altri errori di scrittura devono invece restare fail-closed.
 - Una risposta oltre 128 KiB, bloccata o non JSON deve essere rifiutata dai test
   automatici e non deve propagare il contenuto grezzo.
 - Un UID mappato errato deve produrre `PermissionError`; segnare il gate
@@ -195,7 +200,9 @@ normalmente all'owner host; confermarlo con un connect reale, non presumerlo.
 - Simulare contatori `statvfs` incoerenti e soglie warning/critical: lo stato e
   le ragioni devono propagarsi dall'item filesystem al componente e
   all'envelope.
-- Confrontare il payload con `docs/contracts/host-observability-v1.md`: vietati
+- Confrontare il payload con il contratto della versione dichiarata in
+  `docs/contracts/host-observability-v1.md` o
+  `docs/contracts/host-observability-v2.md`: vietati
   cmdline, path, username, hostname, IP, inode, container name/ID/image e
   `stderr`; un componente indisponibile deve essere `unknown`, mai `ok`.
 
@@ -207,7 +214,8 @@ Con overlay attivo, autenticarsi come admin e invocare:
 curl --fail-with-body --cookie cookies.txt https://HOST/api/v1/host-observability
 ```
 
-Validare la risposta completa con `HostObservabilitySnapshot`. Verificare
+Validare la risposta completa con `validate_host_observability_snapshot`.
+Verificare
 inoltre in modo indipendente:
 
 - flag disattivato: `404` e nessuna connessione al socket;
@@ -234,12 +242,21 @@ systemd-analyze --user verify deploy/systemd/mobile-agent-console-host-observabi
 docker compose run --rm backend-test ruff check --no-cache app/config.py app/services/host_observability_contract.py app/services/host_observability_service.py app/services/host_observability_socket_client.py tests/test_host_observability_api.py tests/test_host_observability_contract.py tests/test_host_observability_socket_client.py
 docker run --rm -v "$PWD/deploy:/deploy:ro" mobile-agent-console-backend-test ruff check --no-cache /deploy/host-observability-collector.py /deploy/host-observability-runtime.py /deploy/host-observability-spike.py /deploy/tests/test_host_observability_collector.py /deploy/tests/test_host_observability_runtime.py /deploy/tests/test_host_observability_systemd.py
 cd frontend && npm run test:host && cd ..
+cd frontend && npm run test:host:browser && cd ..
 docker compose run --rm frontend-build
 docker compose config --quiet
 MAC_HOST_OBSERVABILITY_SOCKET_DIR="/run/user/$(id -u)/mobile-agent-console" docker compose -f compose.yaml -f compose.host-observability.yaml config --quiet
 MAC_HOST_OBSERVABILITY_SOCKET_DIR="/run/user/$(id -u)/mobile-agent-console" docker compose -f compose.yaml -f compose.host.yaml -f compose.host-observability.yaml config --quiet
 git diff --check
 ```
+
+Il mount `./frontend/tests/fixtures:/frontend/tests/fixtures:ro` è dichiarato
+esclusivamente sul servizio di profilo `backend-test`: permette al test
+Pydantic e al test browser di leggere gli stessi JSON senza copie divergenti e
+non aggiunge filesystem o mount al backend di produzione. I nomi dei test
+deploy nei comandi Ruff usano underscore e devono corrispondere ai file reali
+`test_host_observability_runtime.py` e
+`test_host_observability_systemd.py`.
 
 ## Gate UI mobile HO-04
 
@@ -287,14 +304,76 @@ spento, viewer e operator:
   insieme allo stato stale. Apertura, copia e fallback non devono aggiungere GET
   oltre a quelli già previsti per apertura e refresh manuale;
 - verificare timestamp/durata, severity globale e per componente,
-  memoria/swap, load, filesystem, gruppi e top processi, sole porte inattese,
-  container problematici e conteggio dei problematici senza label.
+  memoria/swap, load, filesystem, gruppi e top processi, container problematici
+  e conteggio dei problematici senza label. Con payload v1 devono comparire le
+  sole porte inattese e l'assenza di policy/raggiungibilità deve essere
+  dichiarata; con payload v2 devono comparire tutti i bind locali, separati
+  dall'esito di policy e da `Raggiungibilità esterna: non accertata`. Non devono
+  comparire testi che trasformino `not_assessed` in sicuro, chiuso o non
+  raggiungibile.
 
-Il test nativo senza dipendenze `npm run test:host` controlla gating, assenza di
+Il test nativo `npm run test:host` controlla gating, assenza di
 polling Host, sospensione dei polling dashboard, lifecycle concorrente,
 preservazione dello snapshot, serializzazione JSON esatta, Clipboard API,
-fallback manuale e marker accessibili; viene eseguito anche durante la build
-dell'immagine frontend.
+fallback manuale e marker accessibili. `npm run test:host:browser` ripete in
+Chromium a 320 px i flussi v1/v2, ruoli, copia/fallback, refresh/stale, touch
+target e overflow; viene eseguito con un browser Playwright installato (oppure
+con l'immagine Playwright della versione dichiarata in `package.json`).
+Sul live, `MAC_LIVE_ITERATIONS=3` rende ripetibile il probe
+`frontend/tests/host-observability-live.mjs`; con
+`MAC_LIVE_ABORT_REFRESH=1` chiude intenzionalmente il consumer durante un
+refresh. Dopo il comando devono risultare zero unità collector running e zero
+failed senza ricorrere a `reset-failed`.
+
+## Matrice live v1/v2 e rollback
+
+Il rollout deve attraversare tutte le righe senza cambiare endpoint e senza
+ricreare `tmux-runtime`:
+
+| Config collector | Output atteso | Backend/API | Vista ed export |
+| --- | --- | --- | --- |
+| v1 legacy | `schema_version=1`, nessun campo v2 | validazione v1, risposta senza wrapper | fallback v1, sole porte inattese, JSON deep-equal |
+| v2 con policy non configurate | `schema_version=2`, policy neutrali e `external_reachability=not_assessed` | validazione v2 sullo stesso endpoint | fatti separati dalla valutazione, tutti i bind locali |
+| v2 con stati misti | warning/critical solo ai boundary configurati; partial/unknown conservati | severity e reason invariati, nessuna persistenza | nessun unknown/not-assessed presentato come esito sicuro |
+| rollback a config v1 | ritorno a un payload v1 valido | il backend dual-stack continua a rispondere | ritorno deterministico al fallback v1 |
+
+Config con versione futura, campi misti v1/v2 o output che non corrisponde alla
+versione dichiarata deve fallire chiusa prima del deploy. Per ogni riga
+registrare privatamente versione, status, dimensione sotto 128 KiB e hash del
+payload sanitizzato; non copiare inventario host nel gate versionato.
+
+### Ordine atomico di pubblicazione
+
+1. Registrare ID/stato di `tmux-runtime`, ID delle sessioni tmux e hash dei
+   listener prima di ogni mutazione. Salvare fuori dal repository copie della
+   configurazione v1, collector e unit installati.
+2. Installare prima il collector dual-stack e le unit con file temporanei sullo
+   stesso filesystem, mode/owner finali e rename atomico. Lasciare attiva la
+   configurazione v1 e verificare ancora la prima riga della matrice.
+3. Pubblicare backend e web dual-stack ricreando esclusivamente questi servizi
+   stateless con `--no-deps`; non fermare, ricreare o includere
+   `tmux-runtime` nel comando.
+4. Solo dopo health/API/UI v1 verdi, preparare la configurazione v2 privata in
+   un file temporaneo nella stessa directory, applicare owner e mode `0600`,
+   validarla offline e sostituirla con rename atomico. Ricaricare/restartare
+   soltanto prepare/socket se necessario e percorrere le righe v2 della
+   matrice.
+5. Confrontare ID/stato tmux, sessioni e hash listener con il preflight dopo
+   ogni passaggio. Qualunque variazione inattesa blocca il rollout.
+
+### Ordine atomico di rollback
+
+1. Ripristinare per prima la configurazione v1 con rename atomico: il collector
+   dual-stack deve tornare subito a produrre v1, ancora accettato dal backend.
+2. Verificare socket, payload v1, API ed export; poi, soltanto se necessario,
+   ripristinare atomicamente collector/unit precedenti e fare
+   `daemon-reload`/restart delle sole unit di osservabilità.
+3. Se occorre tornare allo stack applicativo precedente, rimuovere l'overlay e
+   ricreare soltanto `backend web` con `--no-deps`. Non eseguire mai `down` e
+   non includere `tmux-runtime`.
+4. Concludere soltanto dopo aver riconfermato gli identificatori preflight,
+   tutte le sessioni tmux, health, assenza di nuove porte e disattivazione o
+   stato previsto delle unit Host.
 
 ## Gate end-to-end candidato HO-05/HO-06
 
