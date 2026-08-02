@@ -137,6 +137,28 @@ def test_limit_caps_the_number_of_ranked_entries_not_raw_buckets(tmp_path: Path)
     assert len(report.buckets) == 10
 
 
+def test_non_utc_offset_timestamp_is_discarded(tmp_path: Path) -> None:
+    path = tmp_path / "history.jsonl"
+    now = datetime.now(UTC)
+    # Stesso istante di `now`, ma scritto con un offset esplicito +02:00
+    # invece che Z: deve essere scartato riga per riga, non accettato con
+    # l'offset originale né normalizzato in silenzio.
+    non_utc = (now + timedelta(hours=2)).replace(tzinfo=None).isoformat() + "+02:00"
+    write_lines(
+        path,
+        [
+            json.dumps(usage_row(non_utc, session_uuid="offset")),
+            json.dumps(usage_row(now.isoformat(), session_uuid="utc")),
+        ],
+    )
+    report = SessionUsageService(str(path)).read(hours=6, limit=50)
+    # La riga con offset esplicito non-UTC va scartata riga per riga (contratto
+    # budget-history-v1), non normalizzata né propagata come eccezione.
+    assert len(report.buckets) == 1
+    assert report.buckets[0].session_uuid == "utc"
+    assert report.buckets[0].bucket_start.utcoffset() == timedelta(0)
+
+
 def test_naive_timestamp_is_normalized_to_utc(tmp_path: Path) -> None:
     path = tmp_path / "history.jsonl"
     naive = datetime.now(UTC).replace(tzinfo=None)

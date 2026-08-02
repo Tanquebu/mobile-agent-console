@@ -97,6 +97,27 @@ def test_naive_timestamp_is_normalized_to_utc(tmp_path: Path) -> None:
     assert history.samples[0].sampled_at.tzinfo is not None
 
 
+def test_non_utc_offset_timestamp_is_discarded(tmp_path: Path) -> None:
+    path = tmp_path / "history.jsonl"
+    now = datetime.now(UTC)
+    # Stesso istante di `now`, ma scritto con un offset esplicito +02:00
+    # invece che Z: deve essere scartato riga per riga, non accettato con
+    # l'offset originale né normalizzato in silenzio.
+    non_utc = (now + timedelta(hours=2)).replace(tzinfo=None).isoformat() + "+02:00"
+    write_lines(
+        path,
+        [
+            json.dumps(sample_row(non_utc)),
+            json.dumps(sample_row(now.isoformat())),
+        ],
+    )
+    history = RateLimitHistoryService(str(path)).read(hours=24, limit=100)
+    # La riga con offset esplicito non-UTC va scartata riga per riga (contratto
+    # budget-history-v1), non normalizzata né propagata come eccezione.
+    assert len(history.samples) == 1
+    assert all(sample.sampled_at.utcoffset() == timedelta(0) for sample in history.samples)
+
+
 def test_read_respects_a_byte_tail_cap(tmp_path: Path) -> None:
     path = tmp_path / "history.jsonl"
     now = datetime.now(UTC)

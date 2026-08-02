@@ -26,7 +26,11 @@ class SessionUsageRow(BaseModel):
     @field_validator("bucket_start")
     @classmethod
     def require_utc(cls, value: datetime) -> datetime:
-        return value if value.tzinfo else value.replace(tzinfo=UTC)
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        if value.utcoffset() != timedelta(0):
+            raise ValueError("bucket_start must be UTC")
+        return value
 
     @property
     def ranking_tokens(self) -> int:

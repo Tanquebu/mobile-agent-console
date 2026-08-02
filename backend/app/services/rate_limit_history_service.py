@@ -26,7 +26,11 @@ class RateLimitSample(BaseModel):
     @field_validator("sampled_at")
     @classmethod
     def require_utc(cls, value: datetime) -> datetime:
-        return value if value.tzinfo else value.replace(tzinfo=UTC)
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        if value.utcoffset() != timedelta(0):
+            raise ValueError("sampled_at must be UTC")
+        return value
 
 
 class RateLimitHistory(BaseModel):
