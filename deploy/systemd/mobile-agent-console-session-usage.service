@@ -1,0 +1,9 @@
+[Unit]
+Description=Collect Mobile Agent Console per-session token usage
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/mobile-agent-console/environment
+ExecStart=/usr/bin/python3 ${MAC_INSTALL_DIR}/deploy/session-usage-collector.py --output ${MAC_WORKSPACE_ROOT}/.mobile-agent-console/session-usage-history.jsonl --cursor-file %h/.local/state/mobile-agent-console/session-usage-cursors.json --tmux-socket-file /tmp/tmux-%U/default --claude-projects-root %h/.claude/projects --claude-context-cache %h/.claude/context-window-cache --codex-sessions-root %h/.codex/sessions
+UMask=0077
+NoNewPrivileges=yes
