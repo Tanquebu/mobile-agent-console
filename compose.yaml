@@ -51,6 +51,9 @@ services:
       MAC_BACKUPS_ROOT: /workspace/.mobile-agent-console/backups
       MAC_BACKUP_RETENTION: ${MAC_BACKUP_RETENTION:-10}
       MAC_PROVIDER_RATE_LIMITS_PATH: /workspace/.mobile-agent-console/provider-rate-limits.json
+      MAC_PROVIDER_RATE_LIMITS_HISTORY_PATH: /workspace/.mobile-agent-console/provider-rate-limits-history.jsonl
+      MAC_SESSION_USAGE_ENABLED: ${MAC_SESSION_USAGE_ENABLED:-false}
+      MAC_SESSION_USAGE_PATH: /workspace/.mobile-agent-console/session-usage-history.jsonl
       MAC_PROVIDER_SESSION_STATES_PATH: /workspace/.mobile-agent-console/provider-session-states.json
       MAC_CLAUDE_HISTORY_ENABLED: ${MAC_CLAUDE_HISTORY_ENABLED:-false}
       MAC_CLAUDE_HISTORY_PATH: /workspace/.mobile-agent-console/claude-history.json

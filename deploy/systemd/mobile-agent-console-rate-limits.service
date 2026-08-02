@@ -4,7 +4,7 @@ Description=Collect Mobile Agent Console provider rate limits
 [Service]
 Type=oneshot
 EnvironmentFile=%h/.config/mobile-agent-console/environment
-ExecStart=/usr/bin/python3 ${MAC_INSTALL_DIR}/deploy/rate-limit-collector.py --output ${MAC_WORKSPACE_ROOT}/.mobile-agent-console/provider-rate-limits.json --claude-script %h/.claude/rate-limit.sh --codex-script %h/.codex/rate-limit.sh
+ExecStart=/usr/bin/python3 ${MAC_INSTALL_DIR}/deploy/rate-limit-collector.py --output ${MAC_WORKSPACE_ROOT}/.mobile-agent-console/provider-rate-limits.json --history-output ${MAC_WORKSPACE_ROOT}/.mobile-agent-console/provider-rate-limits-history.jsonl --claude-script %h/.claude/rate-limit.sh --codex-script %h/.codex/rate-limit.sh
 UMask=0077
 NoNewPrivileges=yes
 PrivateTmp=yes

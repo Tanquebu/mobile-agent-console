@@ -6,6 +6,19 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _validate_absolute_socket_path(value: str, label: str) -> str:
+    if "\x00" in value:
+        raise ValueError(f"{label} must be an absolute path")
+    path = Path(value)
+    if (
+        not path.is_absolute()
+        or str(path) != value
+        or any(part in {".", ".."} for part in value.split("/"))
+    ):
+        raise ValueError(f"{label} must be an absolute path")
+    return value
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="MAC_", extra="ignore", enable_decoding=False
@@ -46,6 +59,27 @@ class Settings(BaseSettings):
     provider_rate_limits_path: str = (
         "/workspace/.mobile-agent-console/provider-rate-limits.json"
     )
+    provider_rate_limits_history_path: str = (
+        "/workspace/.mobile-agent-console/provider-rate-limits-history.jsonl"
+    )
+    rate_limit_history_max_hours: int = Field(default=168, ge=1, le=336)
+    session_usage_enabled: bool = False
+    session_usage_path: str = (
+        "/workspace/.mobile-agent-console/session-usage-history.jsonl"
+    )
+    session_usage_max_hours: int = Field(default=168, ge=1, le=336)
+    session_usage_max_limit: int = Field(default=500, ge=1, le=5000)
+    rate_limit_fresh_enabled: bool = False
+    rate_limit_fresh_socket_file: str = "/rate-limit-fresh/rate-limit-fresh.sock"
+    # Il campione fresh interroga un provider per volta con una curl da 20s
+    # ciascuna: il tetto deve restare sopra il caso peggiore dei due script,
+    # coerente con RuntimeMaxSec=90 della unit socket-activated.
+    rate_limit_fresh_timeout_seconds: float = Field(default=60.0, ge=0.1, le=120.0)
+    rate_limit_fresh_max_response_bytes: int = Field(
+        default=128 * 1024, ge=1024, le=512 * 1024
+    )
+    rate_limit_fresh_rate_limit: int = Field(default=4, ge=1, le=1000)
+    rate_limit_fresh_rate_window_seconds: int = Field(default=300, ge=1, le=3600)
     provider_session_states_path: str = (
         "/workspace/.mobile-agent-console/provider-session-states.json"
     )
@@ -114,16 +148,12 @@ class Settings(BaseSettings):
     @field_validator("host_observability_socket_file")
     @classmethod
     def validate_host_observability_socket_file(cls, value: str) -> str:
-        if "\x00" in value:
-            raise ValueError("host observability socket file must be an absolute path")
-        path = Path(value)
-        if (
-            not path.is_absolute()
-            or str(path) != value
-            or any(part in {".", ".."} for part in value.split("/"))
-        ):
-            raise ValueError("host observability socket file must be an absolute path")
-        return value
+        return _validate_absolute_socket_path(value, "host observability socket file")
+
+    @field_validator("rate_limit_fresh_socket_file")
+    @classmethod
+    def validate_rate_limit_fresh_socket_file(cls, value: str) -> str:
+        return _validate_absolute_socket_path(value, "rate limit fresh socket file")
 
     def read_secret(self, direct: str | None, file_path: str | None, label: str) -> str:
         value = Path(file_path).read_text().strip() if file_path else direct

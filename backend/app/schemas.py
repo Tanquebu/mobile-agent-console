@@ -11,6 +11,8 @@ class ConfigView(BaseModel):
     workspace_presets: dict[str, str]
     claude_history_enabled: bool = False
     host_observability_enabled: bool = False
+    rate_limit_fresh_enabled: bool = False
+    session_usage_enabled: bool = False
 
 
 class SessionView(BaseModel):

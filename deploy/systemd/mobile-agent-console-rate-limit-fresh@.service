@@ -1,0 +1,46 @@
+[Unit]
+Description=Mobile Agent Console rate limit fresh one-shot sample
+Documentation=https://github.com/Tanquebu/mobile-agent-console
+Requires=mobile-agent-console-rate-limit-fresh.socket
+After=mobile-agent-console-rate-limit-fresh.socket
+
+[Service]
+Type=exec
+Environment=MAC_INSTALL_DIR=%h/.local/share/mobile-agent-console
+EnvironmentFile=%h/.config/mobile-agent-console/environment
+ExecStart=/usr/bin/python3 ${MAC_INSTALL_DIR}/deploy/rate-limit-collector.py \
+  --output ${MAC_WORKSPACE_ROOT}/.mobile-agent-console/provider-rate-limits.json \
+  --history-output ${MAC_WORKSPACE_ROOT}/.mobile-agent-console/provider-rate-limits-history.jsonl \
+  --claude-script %h/.claude/rate-limit.sh \
+  --codex-script %h/.codex/rate-limit.sh \
+  --fresh --stdout
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+NoNewPrivileges=yes
+PrivateTmp=yes
+# L'hardening diverge da quello del collector di osservabilità host per tre
+# ragioni concrete, non per disattenzione:
+#   - ProtectSystem=full invece di strict: questa unit scrive lo snapshot e lo
+#     storico sotto MAC_WORKSPACE_ROOT, che non è esprimibile in ReadWritePaths
+#     perché i valori di EnvironmentFile non vengono espansi in quella direttiva;
+#   - ProtectHome non è impostato: lo script quote legge le credenziali e
+#     aggiorna la propria cache sotto la home dell'utente;
+#   - le famiglie di indirizzi includono AF_INET/AF_INET6: l'intero scopo del
+#     campione fresh è interrogare l'API del provider, quindi la sola AF_UNIX
+#     lo renderebbe impossibile.
+# MemoryDenyWriteExecute resta volutamente assente: lo script quote esegue
+# Node, il cui JIT richiede mappature scrivibili ed eseguibili.
+ProtectSystem=full
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RemoveIPC=yes
+SystemCallArchitectures=native
+UMask=0077
+LockPersonality=yes
+# Due script, ciascuno con timeout di 30s lato collector e curl a 20s.
+RuntimeMaxSec=90

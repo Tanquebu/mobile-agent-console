@@ -1,0 +1,21 @@
+# Overlay opt-in per lo storico del consumo di budget (ADR 010), componibile
+# sia con compose.yaml sia con compose.host.yaml.
+#
+# Lo storico della quota funziona senza questo overlay: il collector a timer
+# scrive il JSONL e il backend lo legge dal workspace già montato. L'overlay
+# serve soltanto ad abilitare l'aggiornamento fresh su richiesta, che passa da
+# un socket Unix preparato dalla stessa user unit dell'osservabilità host.
+services:
+  backend:
+    environment:
+      MAC_SESSION_USAGE_ENABLED: ${MAC_SESSION_USAGE_ENABLED:-true}
+      MAC_RATE_LIMIT_FRESH_ENABLED: "true"
+      MAC_RATE_LIMIT_FRESH_SOCKET_FILE: /rate-limit-fresh/rate-limit-fresh.sock
+      MAC_RATE_LIMIT_FRESH_TIMEOUT_SECONDS: ${MAC_RATE_LIMIT_FRESH_TIMEOUT_SECONDS:-60}
+      MAC_RATE_LIMIT_FRESH_MAX_RESPONSE_BYTES: ${MAC_RATE_LIMIT_FRESH_MAX_RESPONSE_BYTES:-65536}
+      MAC_RATE_LIMIT_FRESH_RATE_LIMIT: ${MAC_RATE_LIMIT_FRESH_RATE_LIMIT:-4}
+      MAC_RATE_LIMIT_FRESH_RATE_WINDOW_SECONDS: ${MAC_RATE_LIMIT_FRESH_RATE_WINDOW_SECONDS:-300}
+    volumes:
+      # Stessa directory runtime dell'osservabilità host, montata su un
+      # mountpoint proprio così che le due funzioni restino indipendenti.
+      - ${MAC_HOST_OBSERVABILITY_SOCKET_DIR:?set MAC_HOST_OBSERVABILITY_SOCKET_DIR in .env}:/rate-limit-fresh:ro

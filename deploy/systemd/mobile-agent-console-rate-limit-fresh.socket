@@ -1,0 +1,25 @@
+[Unit]
+Description=Mobile Agent Console rate limit fresh sample socket
+Documentation=https://github.com/Tanquebu/mobile-agent-console
+# Riusa la stessa directory runtime e la stessa unit di preparazione ACL
+# dell'osservabilità host: i permessi nominali sull'UID effettivo del backend
+# sono identici e le ACL predefinite della directory vengono ereditate da
+# questo socket a ogni attivazione (ADR 009, ADR 010).
+Requires=mobile-agent-console-host-observability-prepare.service
+After=mobile-agent-console-host-observability-prepare.service
+
+[Socket]
+ListenStream=%t/mobile-agent-console/rate-limit-fresh.sock
+Accept=yes
+SocketMode=0660
+DirectoryMode=0750
+RemoveOnStop=yes
+Backlog=4
+# L'aggiornamento forzato costa una chiamata remota: la concorrenza resta
+# minima e il burst è molto più stretto di quello dell'osservabilità host.
+MaxConnections=2
+TriggerLimitIntervalSec=300
+TriggerLimitBurst=8
+
+[Install]
+WantedBy=sockets.target

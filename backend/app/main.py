@@ -94,7 +94,16 @@ from .services.output_delta import line_delta
 from .services.provider_session_state_service import ProviderSessionStateService
 from .services.push_service import PushService
 from .services.rate_limit import FixedWindowRateLimiter
+from .services.rate_limit_fresh_client import (
+    RateLimitFreshClient,
+    RateLimitFreshResponseError,
+    RateLimitFreshResult,
+    RateLimitFreshTimeout,
+    RateLimitFreshUnavailable,
+)
+from .services.rate_limit_history_service import RateLimitHistory, RateLimitHistoryService
 from .services.rate_limit_status_service import RateLimitStatus, RateLimitStatusService
+from .services.session_usage_service import SessionUsageReport, SessionUsageService
 from .services.session_visibility_service import SessionVisibilityService
 from .services.snapshot_service import (
     SnapshotError,
@@ -197,6 +206,7 @@ def create_app(
     settings: Settings | None = None,
     tmux: TmuxGateway | None = None,
     host_observability_client: HostObservabilitySocketClient | None = None,
+    rate_limit_fresh_client: RateLimitFreshClient | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     gateway = tmux or TmuxService(
@@ -215,6 +225,15 @@ def create_app(
     )
     rate_limiter = FixedWindowRateLimiter()
     provider_rate_limits = RateLimitStatusService(settings.provider_rate_limits_path)
+    provider_rate_limits_history = RateLimitHistoryService(
+        settings.provider_rate_limits_history_path
+    )
+    session_usage = SessionUsageService(settings.session_usage_path)
+    rate_limit_fresh = rate_limit_fresh_client or RateLimitFreshClient(
+        settings.rate_limit_fresh_socket_file,
+        timeout_seconds=settings.rate_limit_fresh_timeout_seconds,
+        max_response_bytes=settings.rate_limit_fresh_max_response_bytes,
+    )
     host_observability = HostObservabilityService(
         host_observability_client
         or HostObservabilitySocketClient(
@@ -735,6 +754,9 @@ def create_app(
             claude_history_enabled=settings.claude_history_enabled,
             host_observability_enabled=settings.host_observability_enabled
             and (user is None or user.role == "admin"),
+            rate_limit_fresh_enabled=settings.rate_limit_fresh_enabled
+            and (user is None or user.role == "admin"),
+            session_usage_enabled=settings.session_usage_enabled,
         )
 
     @app.get(
@@ -795,6 +817,81 @@ def create_app(
     )
     async def get_provider_rate_limits() -> RateLimitStatus | None:
         return await asyncio.to_thread(provider_rate_limits.read)
+
+    @app.get(
+        "/api/v1/provider-rate-limits/history",
+        response_model=RateLimitHistory,
+        dependencies=[Depends(require_active_session)],
+    )
+    async def get_provider_rate_limits_history(
+        hours: int = Query(default=24, ge=1, le=settings.rate_limit_history_max_hours),
+        limit: int = Query(default=500, ge=1, le=5000),
+    ) -> RateLimitHistory:
+        return await asyncio.to_thread(provider_rate_limits_history.read, hours, limit)
+
+    @app.get(
+        "/api/v1/session-usage",
+        response_model=SessionUsageReport,
+        dependencies=[Depends(require_active_session)],
+    )
+    async def get_session_usage(
+        hours: int = Query(default=6, ge=1, le=settings.session_usage_max_hours),
+        limit: int = Query(default=50, ge=1, le=settings.session_usage_max_limit),
+    ) -> SessionUsageReport:
+        if not settings.session_usage_enabled:
+            raise HTTPException(404, "Not Found")
+        return await asyncio.to_thread(session_usage.read, hours, limit)
+
+    @app.post(
+        "/api/v1/provider-rate-limits/refresh",
+        response_model=RateLimitFreshResult,
+        dependencies=[Depends(require_admin)],
+    )
+    async def refresh_provider_rate_limits(
+        request: Request,
+    ) -> RateLimitFreshResult | JSONResponse:
+        if not settings.rate_limit_fresh_enabled:
+            raise HTTPException(404, "Not Found")
+        retry_after = rate_limiter.check(
+            f"rate-limit-fresh:{client_key(request)}",
+            settings.rate_limit_fresh_rate_limit,
+            settings.rate_limit_fresh_rate_window_seconds,
+        )
+        if retry_after is not None:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "code": "rate_limit_fresh_rate_limited",
+                    "detail": "Too many rate limit refresh requests",
+                },
+                headers={"Retry-After": str(retry_after)},
+            )
+        try:
+            return await rate_limit_fresh.fetch_fresh()
+        except RateLimitFreshTimeout:
+            return JSONResponse(
+                status_code=504,
+                content={
+                    "code": "rate_limit_fresh_timeout",
+                    "detail": "Rate limit collector timed out",
+                },
+            )
+        except RateLimitFreshUnavailable:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "code": "rate_limit_fresh_unavailable",
+                    "detail": "Rate limit collector unavailable",
+                },
+            )
+        except RateLimitFreshResponseError:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "code": "rate_limit_fresh_invalid_response",
+                    "detail": "Rate limit collector returned an invalid response",
+                },
+            )
 
     @app.get(
         "/api/v1/orchestrator-state",
