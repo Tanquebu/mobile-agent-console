@@ -116,8 +116,15 @@ proprietà di isolamento, sul modello di ADR 007.
 
 ## Modulo di osservabilità dell'host
 
-**Stato: piano operativo pronto, validazione prodotto pendente, non avviato.**
-Discusso il 30/07/2026, nato da un
+**Stato: implementato, deployato e validato in produzione (03/08/2026).** Da
+`GATE-HO-00` a `TEST-HO-06` tutti i gate sono chiusi con esito positivo, il
+contratto è alla v2 (`docs/contracts/host-observability-v2.md`) e la vista
+Host è pubblicata. Restano aperti soltanto i follow-up in "Anomalie e
+follow-up da validare" (`HO-FU-01`, `VALIDATED_WITH_CHANGES`).
+
+Il testo che segue è la **discussione originale che ha aperto il modulo**,
+conservata come motivazione delle scelte: descrive lo stato di allora, non
+quello di oggi. Discusso il 30/07/2026, nato da un
 incidente reale: nove dev server Astro lasciati vivi da riavvii ripetuti,
 ~258 MB l'uno, 2,3 GB su una macchina da 3,7. Nessuno se n'è accorto finché
 la RAM non è andata in sofferenza.
@@ -282,6 +289,28 @@ sono `ROOT`, `SA-IMP` (implementazione) e `SA-TEST` (verifica indipendente).
   l'implementatore non aveva visto. La verifica indipendente scopre classi di
   difetto diverse da quella di chi ha scritto il codice: non è un doppione
   saltabile quando "i test passano già".
+- **Scansione dei dati personali prima del commit (vincolante).** Ogni voce che
+  produce commit destinati a essere pubblicati verifica il proprio diff — righe
+  aggiunte, file nuovi compresi — contro: percorsi assoluti di questa macchina,
+  username, hostname e indirizzi Tailscale/IP, token e segreti, nomi di
+  progetti privati. L'esito va riportato nella voce come qualunque altro
+  controllo: "nessuna occorrenza" è un risultato da dichiarare, non da dare per
+  scontato. Questo repository è pubblico e `CLAUDE.md` vieta esplicitamente
+  quei dettagli nei file versionati. Il 03/08/2026 un round notturno ha scritto
+  in `docs/backlog.md` il percorso reale del file storico delle quote,
+  rivelando username e struttura delle directory; è stato corretto in avanti,
+  ma è rimasto nella storia e ha richiesto una riscrittura con
+  `git filter-repo` prima di poter pubblicare. Non era distrazione di
+  qualcuno: **nessun round aveva quel compito**. Nei giorni precedenti il
+  controllo era avvenuto solo come effetto collaterale del fatto che a premere
+  il pulsante fosse una persona. Una verifica che dipende da chi si ricorda di
+  farla non è una verifica. Comando di riferimento — da adattare, non da
+  fidarsene ciecamente:
+
+  ```bash
+  git diff origin/main..HEAD | grep -nEi "^\+.*(/home/|[0-9]{1,3}(\.[0-9]{1,3}){3}|\.ts\.net|sk-[a-z]+-)"
+  ```
+
 - `SA-TEST` non corregge l'implementazione. Esegue i test indicati e controlli
   indipendenti, poi chiude il proprio tentativo con `STATUS: PASSED` oppure
   `STATUS: FAILED` e una motivazione riproducibile.
@@ -1565,8 +1594,10 @@ ancora `IMP-BH-04` `READY` e non preso in carico, mentre la voce autorevole è
 
 **Stato: fasi A e B verificate (con un rework ciascuna), `PASSED`. Fase
 BH-03 (proprietà dello strato quote e segnale sul fallback) chiusa `PASSED`
-dopo un rework. Fase C (`BH-04`) approvata da `GATE-BH-04` con confine
-"solo metadati di turno"; `IMP-BH-04` è `READY`, non ancora presa in carico.**
+dopo un rework. Fase C (`BH-04`): `IMP-BH-04` è `DONE` e committata
+(`bce13f4`), con le tre suite verdi; `TEST-BH-04` è `READY_FOR_TEST` e la
+funzione non è ancora deployata — il flag `MAC_SESSION_TIMELINE_ENABLED` è
+spento e le unit non sono installate, quindi l'endpoint risponde `404`.**
 Decisioni e contratto in
 `docs/adr/010-storico-consumo-budget.md` e
 `docs/contracts/budget-history-v1.md`; non riaprire né contraddire quei
@@ -1690,7 +1721,7 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
 
 #### BH-02 — Attribuzione per sessione (fase B)
 
-- [ ] IMP-BH-02 | OWNER: SA-IMP | STATUS: IN_PROGRESS | Collector
+- [x] IMP-BH-02 | OWNER: SA-IMP | STATUS: DONE | Collector
   `deploy/session-usage-collector.py` che scopre i transcript per tempo di
   modifica (non per pane tmux), con lettura incrementale a cursori
   percorso/inode/offset, deduplica delle risposte per identificativo di
@@ -1711,6 +1742,18 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   verificare e chiudere anche `TEST-BH-02`; si procede in deroga alla
   transizione `BLOCKED` → `READY_FOR_TEST` prevista dal protocollo, ma senza
   correggere questa voce, che resta di competenza di `SA-IMP`.
+
+  Chiusura di `ROOT` (03/08/2026). Il corpo qui sopra descrive lo stato del
+  disco **al momento in cui è stato scritto** ed è conservato per questo; non
+  descrive lo stato di oggi. La voce era rimasta `IN_PROGRESS` mentre il
+  lavoro era già committato in `b55d56a`, verificato da `TEST-BH-02` (fallito),
+  corretto da `IMP-BH-02-R1` e chiuso `PASSED` da `TEST-BH-02-T2`: la catena
+  autorevole era completa e solo l'intestazione della voce era rimasta
+  indietro. Portata a `DONE` senza riscrivere i tentativi precedenti, come
+  prevede il protocollo. Lezione registrata: un `STATUS` che nessuno chiude
+  quando il lavoro finisce trasforma la coda in un documento da interpretare
+  invece che da leggere — è lo stesso principio di `BH-03`, lo stato effettivo
+  va dichiarato, non dedotto.
 - [x] TEST-BH-02 | OWNER: SA-TEST | STATUS: FAILED | Comandi automatici
   verdi: i 20 test di `deploy/tests/test_session_usage_collector.py` (dentro
   i 58 deploy totali), `test_session_usage_api.py`, `test_session_usage_service.py`
@@ -2578,7 +2621,7 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
 
   `IMP-BH-04` sbloccato.
 
-- [ ] IMP-BH-04 | OWNER: SA-IMP | STATUS: IN_PROGRESS | Implementare il drill-down
+- [x] IMP-BH-04 | OWNER: SA-IMP | STATUS: DONE | Implementare il drill-down
   di fase C entro il confine registrato in `GATE-BH-04`: solo metadati di
   turno (istanti, modello, delta dei quattro contatori di token, conteggi di
   strumenti per categoria, eventi di compattazione, eventi di spawn di
@@ -2602,9 +2645,33 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   aggiornamento di `docs/contracts/` e del gate manuale, verifica su dati
   reali con esito riportato per esteso (regola vincolante del protocollo).
   Chiudere con `TEST-BH-04`.
+  Evidenze di chiusura (`ROOT`, 03/08/2026, commit `bce13f4`): collector su
+  socket dedicata (`session-timeline-collector.py`), servizio e client backend,
+  endpoint, vista e contratto `docs/contracts/session-timeline-v1.md`. Confine
+  indipendente su tre livelli — flag `MAC_SESSION_TIMELINE_ENABLED` proprio,
+  socket propria, mountpoint proprio — e spento di default anche con l'overlay
+  attivo. Suite eseguite da `ROOT` prima del commit: backend 284 passati (ruff
+  pulito), collector host 59, frontend 55 su cinque suite. Verifica su dati
+  reali: la sessione di verifica notturna ha ispezionato i payload reali
+  Claude/Codex prodotti dal collector senza trovare violazioni del confine e
+  senza alcun file di timeline persistito.
+  Due difetti d'incastro corretti nello stesso commit, non attribuibili al
+  drill-down: l'immagine di test non copia `deploy/` e il mount era per singolo
+  file, quindi ogni collector nuovo faceva fallire 13 test finché qualcuno non
+  aggiungeva una riga a `compose.yaml` (ora si monta l'intera directory); le
+  due asserzioni esaustive su `optional_features` non conoscevano la chiave
+  nuova. **La funzione è committata ma non deployata**: flag spento e unit non
+  installate, l'endpoint risponde `404`.
 
-- [ ] TEST-BH-04 | OWNER: SA-TEST | STATUS: BLOCKED | Sbloccato da
-  `IMP-BH-04`. Verificare in particolare: nessun testo di prompt/risposte/
+- [ ] TEST-BH-04 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Sbloccato da
+  `IMP-BH-04` (commit `bce13f4`, working tree pulito). Comandi:
+  `docker compose build backend-test && docker compose run --rm backend-test`,
+  `python3 -m unittest discover -s deploy/tests`,
+  `cd frontend && npm run test:ui`. Il deploy della funzione (installazione
+  delle unit, `MAC_SESSION_TIMELINE_ENABLED=true`, ricreazione dei soli
+  `backend`/`web`) è **parte di questo check**: senza di esso il confine è
+  verificato solo sui test, mai sull'installazione reale. Verificare in
+  particolare: nessun testo di prompt/risposte/
   ragionamento né nome/argomento di strumento attraversa mai l'endpoint o la
   UI (ispezione avversariale del payload, non solo dei casi felici); flag
   spento → nessuna esposizione, nessuna lettura di transcript; transcript
