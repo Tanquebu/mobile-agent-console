@@ -24,11 +24,18 @@ ogni frame occupa 24 righe. Chi confronta questi file con un
 | `04-completato.txt` | turno concluso, con un comando di shell eseguito |
 | `05-conferma-interrupt.txt` | dopo il primo `Escape` (`esc again to interrupt`) |
 | `06-interrotto.txt` | dopo il secondo `Escape` (`interrupted`) |
+| `07-autorizzazione.txt` | richiesta di autorizzazione (`Permission required`, azioni `Allow once` / `Allow always` / `Reject`) |
 
 ## Cosa manca, e perché
 
-**Non esiste un frame di richiesta di autorizzazione**, e la ragione è più
-sottile di quanto scritto qui in origine.
+**Il frame di autorizzazione ora esiste** (`07-autorizzazione.txt`), ed è
+stato ottenuto **provocandolo**, non aspettandolo: avviando OpenCode con una
+policy `{"permission":{"bash":"ask","edit":"ask"}}` e chiedendo un comando di
+shell. Il marcatore `Permission required` non compare in nessuno degli altri
+frame, quindi è discriminante.
+
+Il resto di questa sezione è la storia di come ci si è arrivati, e vale la
+pena conservarla perché è un errore che si può rifare.
 
 La prima versione di questo file affermava che OpenCode "non ne ha mai
 prodotta una". **È falso.** La verifica indipendente (`TEST-OC-00`) ne ha
@@ -46,8 +53,18 @@ uno stato che compare di rado non verrà mai coperto per caso, e un falso
 negativo su `waiting_authorization` nasconde all'utente una richiesta che
 blocca il turno.
 
-Prima di scrivere il classificatore di `OC-03` va quindi catturato un frame
-reale di autorizzazione, provocandolo deliberatamente invece di aspettarlo.
+Anche quella formulazione, però, era ancora imprecisa. La documentazione
+ufficiale dei permessi chiarisce che il comportamento **non è casuale**:
+quasi tutti i permessi predefiniscono ad `allow`, tranne `external_directory`
+e `doom_loop` che predefiniscono ad `ask`. La richiesta osservata "una volta
+sola" riguardava un accesso fuori dalla directory di progetto, quindi era
+deterministica — mancava la conoscenza della regola, non la riproducibilità.
+
+Morale, buona per il classificatore di `OC-03`: due round hanno definito
+quello stato prima "inesistente" e poi "non deterministico", e in entrambi i
+casi la causa era che nessuno aveva letto la regola che lo governa. Prima di
+dedurre il comportamento di un agente dall'osservazione, conviene cercare se
+è documentato.
 
 ## Avvertenza per chi scriverà il classificatore
 

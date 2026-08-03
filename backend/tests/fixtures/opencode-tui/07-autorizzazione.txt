@@ -1,0 +1,23 @@
+
+  ┃
+  ┃  Esegui il comando: wc -l f.txt
+  ┃
+
+     $ wc -l f.txt
+
+     ▣  Build · Big Pickle
+
+
+
+
+
+
+  ┃
+  ┃  △ Permission required
+  ┃    # Shell command
+  ┃
+  ┃  $ wc -l f.txt
+  ┃
+  ┃
+  ┃   Allow once   Allow always   Reject  ctrl+f fullscreen  ⇆ select  enter con
+  ┃

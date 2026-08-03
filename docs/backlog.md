@@ -3279,6 +3279,16 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
      riuscito a riprodurla: l'affermazione categorica va comunque ritirata,
      perché una sola osservazione credibile basta a falsificarla, mentre
      nessun numero di tentativi falliti basta a confermarla.
+     *(Chiuso definitivamente il 03/08/2026 leggendo la documentazione
+     ufficiale dei permessi: il comportamento **non era casuale**. Quasi tutti
+     i permessi predefiniscono ad `allow`, tranne `external_directory` e
+     `doom_loop` che predefiniscono ad `ask` — la richiesta osservata
+     riguardava un accesso fuori dalla directory di progetto ed era quindi
+     deterministica. Mancava la conoscenza della regola, non la
+     riproducibilità. Due round hanno descritto quello stato prima come
+     inesistente e poi come non deterministico, e in entrambi i casi la causa
+     è stata dedurre il comportamento dall'osservazione senza cercare se
+     fosse documentato.)*
 
 - [x] IMP-OC-00-R1 | OWNER: ROOT | STATUS: DONE | Rework documentale dei tre
   difetti di `TEST-OC-00`. Nessuna modifica al prodotto: il gate `OC-00` non
@@ -3414,8 +3424,27 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
     un file da deployare e senza mai passare da una stringa di shell.
     Verificato sul campo che un JSON attraversa `tmux -e` integro, virgolette
     comprese. Il backend continua a non montare `~/.config/opencode`, come
-    prescrive l'analisi. La forma esatta dello schema (`allow`/`ask`/`deny`)
-    va confermata empiricamente in implementazione, non dedotta.
+    prescrive l'analisi.
+    **Schema confermato dalla documentazione ufficiale**
+    (`https://opencode.ai/docs/permissions/`): chiave `permission`, valori
+    `allow`/`ask`/`deny`, chiavi fra cui `read`, `edit`, `bash`, `webfetch`,
+    `websearch`, `external_directory`; sono ammessi pattern granulari
+    (`"git *": "allow"`, `"rm *": "deny"`). La policy conservativa di questo
+    round è quindi `{"permission":{"bash":"ask","edit":"ask"}}`, verificata
+    end-to-end: con `bash:"deny"` l'agente dichiara di non avere lo strumento
+    (il tool viene rimosso dal set, non bloccato alla chiamata); con
+    `bash:"ask"` compare il dialog `Permission required` con
+    `Allow once`/`Allow always`/`Reject`, acquisito come fixture
+    `07-autorizzazione.txt`.
+    **Rischio da accettare consapevolmente:** `OPENCODE_CONFIG_CONTENT` esiste
+    nel binario e funziona, ma **non è documentata**. Un `opencode upgrade`
+    potrebbe rimuoverla senza preavviso e la policy smetterebbe di essere
+    applicata **in silenzio** — l'agente tornerebbe permissivo e nulla lo
+    segnalerebbe. `IMP-OC-01` deve quindi prevedere una verifica di efficacia
+    della policy all'avvio della sessione, o in mancanza di quella un test
+    automatico che fallisca se il meccanismo smette di funzionare: un
+    invariante di sicurezza che dipende da un'API non documentata va
+    sorvegliato, non dato per acquisito.
   - **Resume: non usare `--continue`.** Lo store delle conversazioni è
     globale per utente, quindi `--continue` può agganciare la conversazione di
     un altro progetto. Per `OC-01` il profilo di ripresa avvia OpenCode
