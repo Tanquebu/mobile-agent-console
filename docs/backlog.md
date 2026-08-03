@@ -1548,8 +1548,11 @@ il protocollo di rework già definito per HO-00–HO-06.
 
 ## Storico del consumo di budget e attribuzione per sessione
 
-**Stato: fase A e fase B verificate una seconda volta dopo il rework
-(`IMP-BH-01-R1`, `IMP-BH-02-R1`), entrambe `PASSED`.** Decisioni e contratto in
+**Stato: fasi A e B verificate (con un rework ciascuna), `PASSED`. Fase
+BH-03 (proprietà dello strato quote e segnale sul fallback) chiusa `PASSED`
+dopo un rework. Fase C (`BH-04`) approvata da `GATE-BH-04` con confine
+"solo metadati di turno"; `IMP-BH-04` è `READY`, non ancora presa in carico.**
+Decisioni e contratto in
 `docs/adr/010-storico-consumo-budget.md` e
 `docs/contracts/budget-history-v1.md`; non riaprire né contraddire quei
 documenti da questa coda. Segue lo stesso protocollo dei subagent già in uso
@@ -2392,12 +2395,19 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
 
 #### BH-04 — Piano fase C: drill-down dalla sessione alla timeline (non approvata)
 
-- [ ] GATE-BH-04 | OWNER: ROOT | STATUS: PROPOSED | ADR 010 lascia
+- [x] GATE-BH-04 | OWNER: ROOT | STATUS: PASSED | Approvato dall'utente il
+  03/08/2026, con un confine più stretto di quanto discusso nell'analisi
+  tecnica sotto: **solo metadati di turno**, mai testo. Il testo originale
+  della proposta resta invariato di seguito per il ragionamento tecnico che
+  lo motiva ancora; l'addendum in coda registra la decisione e chiude le
+  cinque domande aperte. `IMP-BH-04` è sbloccato.
+
+  Testo originale della proposta. ADR 010 lascia
   esplicitamente fuori decisione la fase C («il drill-down sul contenuto dei
-  turni resta esplicitamente fuori da questo round»): questa voce è **solo**
-  il piano tecnico da sottoporre a un gate di prodotto come `GATE-BH-00`,
-  nessuna riga di codice va scritta prima di un'approvazione esplicita
-  dell'utente sui confini qui sotto.
+  turni resta esplicitamente fuori da questo round»): questa voce era nata
+  come **solo** il piano tecnico da sottoporre a un gate di prodotto come
+  `GATE-BH-00`, senza scrivere codice prima di un'approvazione esplicita
+  dell'utente sui confini sotto.
 
   **Obiettivo.** Dalla riga di `session-usage-history.jsonl` "colpevole" di
   un picco (`session_uuid` + `bucket_start`, intervallo di 5 minuti) aprire
@@ -2472,5 +2482,119 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
      sessione principale, rimandando ai subagent con un rimando testuale
      senza contenuto?
 
-  Nessuna implementazione avviata. `IMP-BH-04` resta bloccato in attesa che
-  l'utente approvi il piano (o lo corregga) e risponda alle domande sopra.
+  Nessuna implementazione avviata al momento in cui questa analisi è stata
+  scritta.
+
+  **Addendum del 03/08/2026 — confine approvato e domande chiuse.** L'utente
+  ha approvato la fase C con un confine più stretto di quanto discusso
+  nell'analisi tecnica sopra: non testo minimizzato in stile ADR 007, ma
+  **solo metadati di turno**. Il drill-down può pubblicare: istanti dei
+  turni, modello, delta dei quattro contatori di token per turno, conteggi
+  di strumenti per categoria (mai il nome o gli argomenti dello strumento),
+  eventi di compattazione del contesto ed eventi di spawn di subagent (il
+  fatto e l'istante, non il contenuto del subagent). Non può pubblicare in
+  nessun caso testo di prompt, testo di risposte, ragionamento, nomi o
+  argomenti di strumenti.
+
+  Questo risponde alla Domanda 1 in modo più restrittivo di entrambe le
+  opzioni lì discusse: non è il livello ADR 007 (testo minimizzato) né un
+  livello di dettaglio maggiore (nomi degli strumenti) — è un livello
+  inferiore a entrambi, puramente strutturale. Conseguenza pratica:
+  `claude_transcript_normalizer.py` (che produce testo, non metadati) NON è
+  il blocco riusabile per questa fase, a differenza di quanto ipotizzato
+  nell'analisi tecnica originale sopra. Resta riusabile solo la parte di
+  localizzazione file (`discover_claude_files`/`discover_codex_files`).
+
+  Esplicitamente confermato: `claude-history` (ADR 007) e questo drill-down
+  restano due domini indipendenti, non collegati. Non condividono flag, non
+  condividono codice di estrazione contenuto, non si richiamano a vicenda
+  nella UI. Un utente può avere l'uno senza l'altro.
+
+  Chiusura delle domande aperte, entro questo confine più stretto:
+
+  1. Ambito privacy: risolto sopra (metadati di turno, mai testo).
+  2. **On-demand, non persistito.** Il metadato di turno non porta con sé il
+     rischio specifico di ADR 007 (nessuna copia derivata di conversazione,
+     mai testo), quindi in linea di principio potrebbe persistere senza
+     allargare quel rischio — ma farlo comunque introdurrebbe un terzo JSONL
+     che duplica in forma più fine ciò che `session-usage-history.jsonl` già
+     aggrega per bucket, senza un bisogno concreto che lo giustifichi: il
+     drill-down si apre solo quando un umano ispeziona un picco specifico,
+     non serve una serie sempre aggiornata. Il backend legge il transcript
+     on-demand alla richiesta, riusando la stessa localizzazione già usata da
+     BH-02; niente demone, niente nuovo collector schedulato. Se il
+     transcript sorgente è stato ruotato o rimosso, la UI dichiara
+     esplicitamente "non più disponibile" per quel bucket — stesso principio
+     "riferisce, non giudica" di BH-03, mai un errore silenzioso né un
+     valore ricostruito.
+  3. **Flag dedicato**, non `MAC_CLAUDE_HISTORY_ENABLED`. I due domini
+     restano indipendenti per esplicita conferma dell'utente sopra:
+     condividere il flag li accoppierebbe. Nome definitivo a scelta di
+     `IMP-BH-04`, coerente con le convenzioni di naming già in uso (es.
+     `MAC_SESSION_TIMELINE_ENABLED` o equivalente).
+  4. **Copertura Codex inclusa dal v1**, non rimandata. Il confine più
+     stretto approvato oggi la rende trattabile: istanti/modello/delta token
+     sono già estratti per entrambi i provider da
+     `deploy/session-usage-collector.py`
+     (`process_claude_file`/`process_codex_file`, incluso
+     `extract_codex_usage`) per costruire `session-usage-history.jsonl`;
+     questa fase riusa la stessa estrazione a grana di turno invece di
+     aggregarla per bucket. Conteggi di strumenti per categoria ed eventi di
+     compattazione vanno verificati separatamente per ciascun formato di
+     transcript: se per Codex uno dei due segnali non risultasse ricavabile
+     dal formato reale entro questo giro, resta dichiarato `n/d` per quel
+     segnale e quel provider soltanto, senza bloccare gli altri segnali né
+     l'intera copertura Codex.
+  5. **Subagent: spawn come evento, mai come contenuto.** Il drill-down
+     pubblica il fatto e l'istante di uno spawn di subagent dentro la
+     sessione ispezionata; non segue il subagent nel proprio transcript e
+     non ne aggrega i turni nella stessa timeline — coerente con "solo
+     metadati di turno" riferito alla sessione che l'utente ha aperto, non a
+     un roll-up ricorsivo.
+
+  Nota di implementazione non bloccante, non una domanda aperta: la forma
+  esatta del record di compattazione del contesto nei transcript
+  Claude/Codex non è stata ancora verificata su dati reali in questo
+  repository (nessun codice esistente la gestisce oggi). `IMP-BH-04` deve
+  accertarla con un'ispezione minima su transcript reali di questo host come
+  primo passo, prima di scrivere il parser — coerente con la regola
+  vincolante appena aggiunta al protocollo per collector/parser (verifica su
+  dati reali, esito riportato per esteso nella voce).
+
+  `IMP-BH-04` sbloccato.
+
+- [ ] IMP-BH-04 | OWNER: SA-IMP | STATUS: READY | Implementare il drill-down
+  di fase C entro il confine registrato in `GATE-BH-04`: solo metadati di
+  turno (istanti, modello, delta dei quattro contatori di token, conteggi di
+  strumenti per categoria, eventi di compattazione, eventi di spawn di
+  subagent), mai testo di prompt/risposte/ragionamento né nomi o argomenti
+  di strumenti. Flag di attivazione dedicato e indipendente da
+  `MAC_CLAUDE_HISTORY_ENABLED` (i due domini non si collegano). Lettura
+  on-demand del transcript alla richiesta (nessun nuovo JSONL persistito,
+  nessun demone), riusando la localizzazione file già presente in
+  `deploy/session-usage-collector.py`; transcript ruotato/rimosso →
+  indisponibilità dichiarata, mai un errore 500 né un valore ricostruito.
+  Copertura Claude e Codex entrambe nel v1; per ciascun segnale non
+  ricavabile dal formato reale di un provider entro questo giro, dichiararlo
+  `n/d` per quel segnale e provider soltanto, motivandolo nella voce, senza
+  bloccare il resto. Primo passo vincolante: ispezionare su transcript reali
+  di questo host la forma dei record di compattazione del contesto (non
+  ancora verificata in questo repository) prima di scrivere il parser.
+  Categorie di strumenti da definire come tassonomia fissa interna (mai il
+  nome grezzo dello strumento). Percorso del transcript mai esposto
+  all'API (ADR 010, "Il boundary non si allarga"). Test automatici
+  proporzionati al rischio per collector/servizio/endpoint/frontend,
+  aggiornamento di `docs/contracts/` e del gate manuale, verifica su dati
+  reali con esito riportato per esteso (regola vincolante del protocollo).
+  Chiudere con `TEST-BH-04`.
+
+- [ ] TEST-BH-04 | OWNER: SA-TEST | STATUS: BLOCKED | Sbloccato da
+  `IMP-BH-04`. Verificare in particolare: nessun testo di prompt/risposte/
+  ragionamento né nome/argomento di strumento attraversa mai l'endpoint o la
+  UI (ispezione avversariale del payload, non solo dei casi felici); flag
+  spento → nessuna esposizione, nessuna lettura di transcript; transcript
+  mancante/ruotato → indisponibilità dichiarata senza eccezioni; Claude e
+  Codex entrambi coperti per i segnali dichiarati disponibili, `n/d`
+  coerente per quelli dichiarati non disponibili; spawn di subagent
+  pubblicato come evento senza seguirne il contenuto; `claude-history`
+  resta indipendente (disattivarla non altera il drill-down e viceversa).
