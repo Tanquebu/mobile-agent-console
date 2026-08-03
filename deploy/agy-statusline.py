@@ -58,10 +58,10 @@ def build_mac_windows(quota: dict) -> list[dict]:
         resets_at = iso_to_epoch(reset_time) if reset_time else None
         reset_seconds = info.get("reset_in_seconds", 0)
         label = WINDOW_LABELS.get(key, key)
-        # Dettaglio leggibile con il reset
-        if reset_time:
-            detail = f"reset {reset_time}"
-        elif reset_seconds:
+        # Il frontend formatta già `resets_at` in locale: un `detail` col
+        # reset grezzo duplicherebbe quella riga. Il countdown resta l'unica
+        # informazione utile quando manca un `resets_at` strutturato.
+        if resets_at is None and reset_seconds:
             hours = reset_seconds // 3600
             minutes = (reset_seconds % 3600) // 60
             detail = f"reset in {hours}h{minutes:02d}m"

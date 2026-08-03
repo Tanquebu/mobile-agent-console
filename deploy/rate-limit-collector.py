@@ -15,6 +15,7 @@ WINDOW = re.compile(
     r"(?:\s+\((?P<detail>.*)\))?$"
 )
 REACHED = re.compile(r"^rate_limit_reached_type:\s+(.*)$")
+RAW_RESET_DETAIL = re.compile(r"(?i)^reset\b")
 
 # Il campione dichiara la propria freschezza invece di simularla: oltre questa
 # distanza fra rilevazione e osservazione la sorgente è ferma, e il consumatore
@@ -72,14 +73,22 @@ def parse_structured(stdout: str) -> dict[str, object] | None:
             continue
         used = item.get("used_percent")
         reset = item.get("resets_at")
+        resets_at = reset if isinstance(reset, int) and reset >= 0 else None
+        detail = item.get("detail") if isinstance(item.get("detail"), str) else None
+        if resets_at is not None and detail and RAW_RESET_DETAIL.match(detail):
+            # Lo script sorgente ripete il reset già coperto da `resets_at`
+            # (che il frontend formatta in locale): senza questo taglio la
+            # UI mostra la stessa scadenza due volte, una grezza e una
+            # localizzata.
+            detail = None
         windows.append(
             {
                 "label": item["label"][:32],
                 "used_percent": (
                     normalized_percent(used) if isinstance(used, (int, float)) else None
                 ),
-                "resets_at": reset if isinstance(reset, int) and reset >= 0 else None,
-                "detail": item.get("detail") if isinstance(item.get("detail"), str) else None,
+                "resets_at": resets_at,
+                "detail": detail,
             }
         )
     if not windows:
@@ -326,11 +335,23 @@ def main() -> None:
         collect("claude", args.claude_script, fresh=args.fresh),
         collect("codex", args.codex_script, fresh=args.fresh),
     ]
+    # Preserva entry di provider iniettati da sorgenti esterne (es.
+    # antigravity dalla statusline custom) che il collector non gestisce.
+    managed_providers = {item["provider"] for item in collected}
+    try:
+        existing = json.loads(output.read_text(encoding="utf-8"))
+        external = [
+            p
+            for p in existing.get("providers", [])
+            if isinstance(p, dict) and p.get("provider") not in managed_providers
+        ]
+    except (OSError, json.JSONDecodeError):
+        external = []
     write_snapshot(
         output,
         {
             "collected_at": sampled_at.isoformat(),
-            "providers": [snapshot_provider(item) for item in collected],
+            "providers": [snapshot_provider(item) for item in collected] + external,
         },
     )
 

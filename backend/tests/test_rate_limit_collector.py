@@ -84,14 +84,42 @@ def test_collector_prefers_structured_form_and_keeps_reset_epoch(monkeypatch) ->
     # BH-03: il parsing riuscito con la forma strutturata è un fatto
     # pubblicato, non solo interno alla funzione.
     assert status["parse_mode"] == "structured"
+    # Il `detail` grezzo ripeteva lo stesso reset già portato da `resets_at`
+    # (che il frontend formatta in locale): il collector lo azzera per non
+    # mostrare la scadenza due volte in UI.
     assert collector.snapshot_provider(status)["windows"] == [
         {
             "label": "5h",
             "used_percent": 91.0,
             "resets_at": 1785679200,
-            "detail": "reset 8/2/2026, 4:00:00 PM",
+            "detail": None,
         }
     ]
+
+
+def test_collector_keeps_non_reset_detail_alongside_reset_epoch(monkeypatch) -> None:
+    collector = _collector_module()
+    payload = json.dumps(
+        {
+            "updated_at": "2026-08-02T12:56:13.758Z",
+            "source": "fresh",
+            "windows": [
+                {
+                    "label": "primaria",
+                    "used_percent": 80,
+                    "resets_at": 1785679200,
+                    "detail": "finestra 10080 min",
+                }
+            ],
+        }
+    )
+    _script_stub(monkeypatch, collector, {"json": payload})
+
+    status = collector.collect("codex", "/not-used")
+
+    # Solo il `detail` che ripete il reset viene azzerato: un dettaglio con
+    # altra informazione (qui la durata della finestra) resta visibile.
+    assert collector.snapshot_provider(status)["windows"][0]["detail"] == "finestra 10080 min"
 
 
 def test_collector_reuses_text_output_when_script_ignores_json_flag(monkeypatch) -> None:
