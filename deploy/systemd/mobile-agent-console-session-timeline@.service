@@ -1,0 +1,39 @@
+[Unit]
+Description=Mobile Agent Console session timeline drill-down one-shot lookup
+Documentation=https://github.com/Tanquebu/mobile-agent-console
+Requires=mobile-agent-console-session-timeline.socket
+After=mobile-agent-console-session-timeline.socket
+
+[Service]
+Type=exec
+Environment=MAC_INSTALL_DIR=%h/.local/share/mobile-agent-console
+EnvironmentFile=-%h/.config/mobile-agent-console/environment
+ExecStart=/usr/bin/python3 ${MAC_INSTALL_DIR}/deploy/session-timeline-collector.py \
+  --claude-projects-root %h/.claude/projects \
+  --codex-sessions-root %h/.codex/sessions
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+# A differenza di host-observability-collector.py (che legge solo /proc e un
+# file di config), qui la lettura del transcript vive sotto la home
+# dell'utente (~/.claude/projects, ~/.codex/sessions): read-only, non
+# scrivibile, mai l'intera home bloccata.
+ProtectHome=read-only
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RemoveIPC=yes
+SystemCallArchitectures=native
+UMask=0077
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+# Lettura sequenziale di un transcript fino a decine di MB entro un tetto di
+# byte: più margine del semplice /proc di host-observability, ma resta un
+# lookup singolo, non un'operazione di rete.
+RuntimeMaxSec=15

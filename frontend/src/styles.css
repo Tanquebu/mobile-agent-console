@@ -412,6 +412,25 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .budget-totals-figures { display: flex; flex-wrap: wrap; gap: 6px 10px; color: #d2e3d7; font-size: .72rem; }
 .budget-subagent-row { margin-left: 4px; border-left: 2px solid #4f7a5c; padding-left: 8px; }
 .budget-open-console { width: fit-content; min-height: 38px; margin-top: 4px; border: 1px solid #3a5142; border-radius: 10px; padding: 0 12px; background: #1b2820; color: #9be5b3; font-size: .74rem; font-weight: 700; }
+.budget-rank-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.budget-rank-actions .budget-open-console { margin-top: 0; }
+/* Punto di ingresso del drill-down BH-04 (solo metadati di turno): tocco
+   minimo 44px come le altre azioni primarie della dashboard, a differenza
+   di "Apri console" che resta un'azione secondaria compatta. */
+.budget-open-timeline { width: fit-content; min-height: 44px; border: 1px solid #4f7a5c; border-radius: 10px; padding: 0 14px; background: #1b2820; color: #9be5b3; font-size: .74rem; font-weight: 750; }
+.session-timeline-modal { width: min(100%, 640px); }
+.session-timeline-modal header small { display: block; margin-top: 2px; color: #91a397; font-size: .7rem; }
+.session-timeline-status { min-height: 1.2em; margin: 10px 0 0; color: #b8c9bd; font-size: .78rem; }
+.session-timeline-body { display: grid; gap: 16px; margin-top: 10px; }
+.session-timeline-turns { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.session-timeline-turns li { display: grid; gap: 2px; border: 1px solid #26352c; border-radius: 10px; padding: 8px 10px; }
+.session-timeline-turns li strong { color: #edf5ef; font-size: .76rem; }
+.session-timeline-turns li span { color: #91a397; font-size: .68rem; }
+.session-timeline-tokens { color: #d2e3d7 !important; }
+.session-timeline-tools h3, .session-timeline-events h3 { margin: 0 0 6px; color: #7ea58c; font-size: .64rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.session-timeline-tools ul, .session-timeline-events ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.session-timeline-tools li { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #26352c; border-radius: 10px; padding: 6px 10px; color: #d2e3d7; font-size: .74rem; }
+.session-timeline-events li { border: 1px solid #26352c; border-radius: 10px; padding: 6px 10px; color: #d2e3d7; font-size: .74rem; }
 .budget-residual { margin-top: 14px; border-top: 1px solid #26352c; padding-top: 12px; }
 .budget-residual p { margin: 0 0 6px; color: #b8c9bd; font-size: .74rem; }
 .budget-residual-figure { display: inline-flex; margin-right: 14px; gap: 5px; }

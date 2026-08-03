@@ -15,7 +15,20 @@ services:
       MAC_RATE_LIMIT_FRESH_MAX_RESPONSE_BYTES: ${MAC_RATE_LIMIT_FRESH_MAX_RESPONSE_BYTES:-65536}
       MAC_RATE_LIMIT_FRESH_RATE_LIMIT: ${MAC_RATE_LIMIT_FRESH_RATE_LIMIT:-4}
       MAC_RATE_LIMIT_FRESH_RATE_WINDOW_SECONDS: ${MAC_RATE_LIMIT_FRESH_RATE_WINDOW_SECONDS:-300}
+      # Drill-down "fase C" (BH-04): flag dedicato, di default spento anche
+      # con l'overlay attivo (rollback sicuro, coerente con BH-01/BH-02).
+      MAC_SESSION_TIMELINE_ENABLED: ${MAC_SESSION_TIMELINE_ENABLED:-false}
+      MAC_SESSION_TIMELINE_SOCKET_FILE: /session-timeline/session-timeline.sock
+      MAC_SESSION_TIMELINE_SOCKET_TIMEOUT_SECONDS: ${MAC_SESSION_TIMELINE_SOCKET_TIMEOUT_SECONDS:-5}
+      MAC_SESSION_TIMELINE_MAX_RESPONSE_BYTES: ${MAC_SESSION_TIMELINE_MAX_RESPONSE_BYTES:-262144}
+      MAC_SESSION_TIMELINE_RATE_LIMIT: ${MAC_SESSION_TIMELINE_RATE_LIMIT:-20}
+      MAC_SESSION_TIMELINE_RATE_WINDOW_SECONDS: ${MAC_SESSION_TIMELINE_RATE_WINDOW_SECONDS:-60}
     volumes:
       # Stessa directory runtime dell'osservabilità host, montata su un
       # mountpoint proprio così che le due funzioni restino indipendenti.
       - ${MAC_HOST_OBSERVABILITY_SOCKET_DIR:?set MAC_HOST_OBSERVABILITY_SOCKET_DIR in .env}:/rate-limit-fresh:ro
+      # Stessa directory ancora, terzo mountpoint dedicato: il drill-down
+      # (BH-04) non condivide socket con rate-limit-fresh né con
+      # host-observability, resta un dominio indipendente anche a livello di
+      # trasporto, non solo di flag.
+      - ${MAC_HOST_OBSERVABILITY_SOCKET_DIR:?set MAC_HOST_OBSERVABILITY_SOCKET_DIR in .env}:/session-timeline:ro

@@ -69,6 +69,21 @@ class Settings(BaseSettings):
     )
     session_usage_max_hours: int = Field(default=168, ge=1, le=336)
     session_usage_max_limit: int = Field(default=500, ge=1, le=5000)
+    # Drill-down "fase C" (BH-04): flag dedicato e indipendente da
+    # MAC_CLAUDE_HISTORY_ENABLED (ADR 007) e da MAC_SESSION_USAGE_ENABLED,
+    # per esplicita richiesta del gate di non accoppiare i domini.
+    session_timeline_enabled: bool = False
+    session_timeline_socket_file: str = (
+        "/session-timeline/session-timeline.sock"
+    )
+    session_timeline_socket_timeout_seconds: float = Field(
+        default=5.0, ge=0.1, le=15.0
+    )
+    session_timeline_max_response_bytes: int = Field(
+        default=256 * 1024, ge=1024, le=512 * 1024
+    )
+    session_timeline_rate_limit: int = Field(default=20, ge=1, le=1000)
+    session_timeline_rate_window_seconds: int = Field(default=60, ge=1, le=3600)
     rate_limit_fresh_enabled: bool = False
     rate_limit_fresh_socket_file: str = "/rate-limit-fresh/rate-limit-fresh.sock"
     # Il campione fresh interroga un provider per volta con una curl da 20s
@@ -154,6 +169,11 @@ class Settings(BaseSettings):
     @classmethod
     def validate_rate_limit_fresh_socket_file(cls, value: str) -> str:
         return _validate_absolute_socket_path(value, "rate limit fresh socket file")
+
+    @field_validator("session_timeline_socket_file")
+    @classmethod
+    def validate_session_timeline_socket_file(cls, value: str) -> str:
+        return _validate_absolute_socket_path(value, "session timeline socket file")
 
     def read_secret(self, direct: str | None, file_path: str | None, label: str) -> str:
         value = Path(file_path).read_text().strip() if file_path else direct

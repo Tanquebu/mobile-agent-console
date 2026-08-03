@@ -49,11 +49,22 @@ class UnixSocketJsonClient:
         self._timeout_seconds = timeout_seconds
         self._max_response_bytes = max_response_bytes
 
-    async def fetch(self) -> dict[str, Any]:
+    async def fetch(self, request: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Apre la connessione, invia opzionalmente una riga di richiesta JSON
+        e legge la risposta fino a EOF.
+
+        `request` resta `None` per i collector senza parametri (host
+        observability, rate limit fresh): comportamento invariato. I
+        collector parametrici (BH-04) lo usano per inviare una riga JSON
+        prima di leggere, senza cambiare il protocollo di lettura sotto.
+        """
         writer: asyncio.StreamWriter | None = None
         try:
             async with asyncio.timeout(self._timeout_seconds):
                 reader, writer = await asyncio.open_unix_connection(self._socket_file)
+                if request is not None:
+                    writer.write(json.dumps(request).encode("utf-8") + b"\n")
+                    await writer.drain()
                 payload = bytearray()
                 while True:
                     chunk = await reader.read(

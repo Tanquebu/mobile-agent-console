@@ -213,6 +213,10 @@ export type AppConfig = {
   host_observability_enabled: boolean;
   rate_limit_fresh_enabled: boolean;
   session_usage_enabled: boolean;
+  // Drill-down "fase C" (BH-04): flag dedicato e indipendente da
+  // claude_history_enabled/session_usage_enabled (GATE-BH-04). `false` per i
+  // ruoli non-admin, come host_observability_enabled.
+  session_timeline_enabled: boolean;
   // Enunciazione di fatto per il ruolo admin (BH-03): quali funzioni
   // opzionali sono accese ora. `null` per i ruoli non-admin.
   optional_features: Record<string, boolean> | null;
@@ -430,9 +434,30 @@ export type SessionUsageEntry = {
   total: SessionUsageTotals;
 };
 
+// Riga grezza per bucket di 5 minuti (stesso contratto di
+// `session-usage-history.jsonl`): serve al frontend solo per individuare il
+// bucket di picco di una sessione da offrire come punto di ingresso al
+// drill-down BH-04, non per un rendering proprio.
+export type SessionUsageBucket = {
+  bucket_start: string;
+  provider: string;
+  session_uuid: string;
+  tmux_session_id: string | null;
+  origin: string;
+  project: string;
+  model: string;
+  is_subagent: boolean;
+  turns: number;
+  input_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  output_tokens: number;
+};
+
 export type SessionUsageReport = {
   since: string;
   entries: SessionUsageEntry[];
+  buckets: SessionUsageBucket[];
 };
 
 // 404 quando l'attribuzione per sessione è disabilitata lato backend: il
@@ -440,6 +465,60 @@ export type SessionUsageReport = {
 export async function fetchSessionUsage(hours = 6, limit = 50): Promise<SessionUsageReport> {
   const params = new URLSearchParams({ hours: String(hours), limit: String(limit) });
   const response = await request(`/api/v1/session-usage?${params.toString()}`);
+  return response.json();
+}
+
+// Drill-down "fase C" (BH-04): timeline dei turni di una sessione in un
+// singolo bucket di 5 minuti, solo metadati di turno (mai testo). Admin-only
+// e dietro `session_timeline_enabled` lato backend: il chiamante deve
+// trattare 404/403 come "funzione non disponibile", non come un errore da
+// mostrare in modo allarmante.
+export type SessionTimelineTurn = {
+  timestamp: string;
+  model: string;
+  input_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  output_tokens: number;
+};
+
+export type SessionTimelineCompaction = {
+  timestamp: string;
+  pre_tokens: number | null;
+  post_tokens: number | null;
+};
+
+export type SessionTimelineSubagentSpawn = {
+  timestamp: string;
+};
+
+export type SessionTimelineWindow = {
+  provider: string;
+  session_uuid: string;
+  bucket_start: string;
+  bucket_end: string;
+  available: boolean;
+  unavailable_reason: string | null;
+  turns: SessionTimelineTurn[];
+  // Aggregato sull'intera finestra di 5 minuti, non per turno; chiavi
+  // sempre da una tassonomia fissa (mai il nome grezzo dello strumento).
+  tool_counts: Record<string, number>;
+  compactions: SessionTimelineCompaction[];
+  subagent_spawns: SessionTimelineSubagentSpawn[];
+  truncated: boolean;
+};
+
+export async function fetchSessionTimeline(
+  provider: string,
+  sessionUuid: string,
+  bucketStart: string,
+): Promise<SessionTimelineWindow> {
+  const params = new URLSearchParams({
+    provider,
+    session_uuid: sessionUuid,
+    bucket_start: bucketStart,
+  });
+  const response = await request(`/api/v1/session-usage/timeline?${params.toString()}`);
   return response.json();
 }
 

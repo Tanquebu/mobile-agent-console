@@ -1,0 +1,24 @@
+[Unit]
+Description=Mobile Agent Console session timeline drill-down socket
+Documentation=https://github.com/Tanquebu/mobile-agent-console
+# Riusa la stessa directory runtime e la stessa unit di preparazione ACL
+# dell'osservabilità host (ADR 009); dominio indipendente da claude-history
+# (ADR 007) e da session-usage (ADR 010): flag e socket propri (BH-04).
+Requires=mobile-agent-console-host-observability-prepare.service
+After=mobile-agent-console-host-observability-prepare.service
+
+[Socket]
+ListenStream=%t/mobile-agent-console/session-timeline.sock
+Accept=yes
+SocketMode=0660
+DirectoryMode=0750
+RemoveOnStop=yes
+Backlog=8
+# Un drill-down è un'ispezione umana su un singolo picco alla volta: la
+# concorrenza resta bassa, coerente con rate-limit-fresh.
+MaxConnections=4
+TriggerLimitIntervalSec=60
+TriggerLimitBurst=16
+
+[Install]
+WantedBy=sockets.target

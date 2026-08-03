@@ -103,6 +103,14 @@ from .services.rate_limit_fresh_client import (
 )
 from .services.rate_limit_history_service import RateLimitHistory, RateLimitHistoryService
 from .services.rate_limit_status_service import RateLimitStatus, RateLimitStatusService
+from .services.session_timeline_service import (
+    SessionTimelineInvalidResponse,
+    SessionTimelineService,
+    SessionTimelineTimeout,
+    SessionTimelineUnavailable,
+    SessionTimelineWindow,
+)
+from .services.session_timeline_socket_client import SessionTimelineSocketClient
 from .services.session_usage_service import SessionUsageReport, SessionUsageService
 from .services.session_visibility_service import SessionVisibilityService
 from .services.snapshot_service import (
@@ -126,6 +134,7 @@ def _optional_feature_flags(settings: Settings) -> dict[str, bool]:
     return {
         "host_observability_enabled": settings.host_observability_enabled,
         "session_usage_enabled": settings.session_usage_enabled,
+        "session_timeline_enabled": settings.session_timeline_enabled,
         "rate_limit_fresh_enabled": settings.rate_limit_fresh_enabled,
         "claude_history_enabled": settings.claude_history_enabled,
         "database_auth_enabled": settings.database_auth_enabled,
@@ -224,6 +233,7 @@ def create_app(
     tmux: TmuxGateway | None = None,
     host_observability_client: HostObservabilitySocketClient | None = None,
     rate_limit_fresh_client: RateLimitFreshClient | None = None,
+    session_timeline_client: SessionTimelineSocketClient | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     gateway = tmux or TmuxService(
@@ -246,6 +256,14 @@ def create_app(
         settings.provider_rate_limits_history_path
     )
     session_usage = SessionUsageService(settings.session_usage_path)
+    session_timeline = SessionTimelineService(
+        session_timeline_client
+        or SessionTimelineSocketClient(
+            settings.session_timeline_socket_file,
+            timeout_seconds=settings.session_timeline_socket_timeout_seconds,
+            max_response_bytes=settings.session_timeline_max_response_bytes,
+        )
+    )
     rate_limit_fresh = rate_limit_fresh_client or RateLimitFreshClient(
         settings.rate_limit_fresh_socket_file,
         timeout_seconds=settings.rate_limit_fresh_timeout_seconds,
@@ -781,6 +799,8 @@ def create_app(
             rate_limit_fresh_enabled=settings.rate_limit_fresh_enabled
             and (user is None or user.role == "admin"),
             session_usage_enabled=settings.session_usage_enabled,
+            session_timeline_enabled=settings.session_timeline_enabled
+            and (user is None or user.role == "admin"),
             optional_features=(
                 _optional_feature_flags(settings)
                 if user is None or user.role == "admin"
@@ -870,6 +890,65 @@ def create_app(
         if not settings.session_usage_enabled:
             raise HTTPException(404, "Not Found")
         return await asyncio.to_thread(session_usage.read, hours, limit)
+
+    @app.get(
+        "/api/v1/session-usage/timeline",
+        response_model=SessionTimelineWindow,
+    )
+    async def get_session_timeline(
+        request: Request,
+        session_uuid: str = Query(..., pattern=r"^[A-Za-z0-9_-]{1,64}$"),
+        provider: str = Query(..., pattern=r"^(claude|codex)$"),
+        bucket_start: Annotated[datetime, Query()] = ...,
+        _cookie: str = Depends(require_admin_session),
+    ) -> SessionTimelineWindow | JSONResponse:
+        # Drill-down "fase C" (BH-04): admin-only e nascosto ai non-admin come
+        # host-observability, mai un pane tmux richiesto (la sessione può
+        # essere headless/conclusa). Il percorso del transcript non compare
+        # mai in nessuna delle risposte sotto (ADR 010, "il boundary non si
+        # allarga").
+        if not settings.session_timeline_enabled:
+            raise HTTPException(404, "Not Found")
+        retry_after = rate_limiter.check(
+            f"session-timeline:{client_key(request)}",
+            settings.session_timeline_rate_limit,
+            settings.session_timeline_rate_window_seconds,
+        )
+        if retry_after is not None:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "code": "session_timeline_rate_limited",
+                    "detail": "Too many session timeline requests",
+                },
+                headers={"Retry-After": str(retry_after)},
+            )
+        try:
+            return await session_timeline.read(provider, session_uuid, bucket_start)
+        except SessionTimelineTimeout:
+            return JSONResponse(
+                status_code=504,
+                content={
+                    "code": "session_timeline_timeout",
+                    "detail": "Session timeline collector timed out",
+                },
+            )
+        except SessionTimelineUnavailable:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "code": "session_timeline_unavailable",
+                    "detail": "Session timeline collector unavailable",
+                },
+            )
+        except SessionTimelineInvalidResponse:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "code": "session_timeline_invalid_response",
+                    "detail": "Session timeline collector returned an invalid response",
+                },
+            )
 
     @app.post(
         "/api/v1/provider-rate-limits/refresh",

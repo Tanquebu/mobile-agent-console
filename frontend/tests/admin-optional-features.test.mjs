@@ -35,10 +35,11 @@ test("ogni funzione opzionale è enunciata come acceso/spento, mai come ok/error
   assert.doesNotMatch(auditModal, /optionalFeatures[\s\S]{0,400}(errore|manca|attenzione|warning|dovrebbe)/i);
 });
 
-test("le cinque funzioni opzionali del backend hanno tutte un'etichetta leggibile lato frontend", () => {
+test("le sei funzioni opzionali del backend hanno tutte un'etichetta leggibile lato frontend", () => {
   for (const key of [
     "host_observability_enabled",
     "session_usage_enabled",
+    "session_timeline_enabled",
     "rate_limit_fresh_enabled",
     "claude_history_enabled",
     "database_auth_enabled",

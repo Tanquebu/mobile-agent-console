@@ -35,6 +35,7 @@ import {
   fetchPushPublicKey,
   fetchRateLimitHistory,
   fetchSessionUsage,
+  fetchSessionTimeline,
   fileDownloadUrl,
   FileContent,
   errorMessage,
@@ -72,9 +73,11 @@ import {
   sendKey,
   sendText,
   Session,
+  SessionUsageBucket,
   SessionUsageEntry,
   SessionUsageReport,
   SessionUsageTotals,
+  SessionTimelineWindow,
   setUserActive,
   subscribePush,
   unsubscribePush,
@@ -1156,6 +1159,7 @@ function PreferencesModal({
 const OPTIONAL_FEATURE_LABEL: Record<string, string> = {
   host_observability_enabled: "Osservabilità host",
   session_usage_enabled: "Attribuzione per sessione",
+  session_timeline_enabled: "Timeline dei turni (drill-down)",
   rate_limit_fresh_enabled: "Aggiornamento forzato quota",
   claude_history_enabled: "Storico Claude",
   database_auth_enabled: "Autenticazione con account",
@@ -1748,10 +1752,14 @@ function BudgetRankingItem({
   entry,
   sessionsById,
   onOpenSession,
+  peakBucket,
+  onOpenTimeline,
 }: {
   entry: SessionUsageEntry;
   sessionsById: Map<string, Session>;
   onOpenSession: (session: Session) => void;
+  peakBucket: SessionUsageBucket | null;
+  onOpenTimeline: (bucket: SessionUsageBucket) => void;
 }) {
   const linkedSession = entry.tmux_session_id ? sessionsById.get(entry.tmux_session_id) : undefined;
   return (
@@ -1779,12 +1787,185 @@ function BudgetRankingItem({
         )}
         <BudgetTotalsRow label="Totale" totals={entry.total} emphasis />
       </div>
-      {entry.origin === "mac" && linkedSession && (
-        <button type="button" className="budget-open-console" onClick={() => onOpenSession(linkedSession)}>
-          Apri console
-        </button>
-      )}
+      <div className="budget-rank-actions">
+        {entry.origin === "mac" && linkedSession && (
+          <button type="button" className="budget-open-console" onClick={() => onOpenSession(linkedSession)}>
+            Apri console
+          </button>
+        )}
+        {peakBucket && (
+          <button
+            type="button"
+            className="budget-open-timeline"
+            onClick={() => onOpenTimeline(peakBucket)}
+          >
+            Vedi il picco dei turni
+          </button>
+        )}
+      </div>
     </article>
+  );
+}
+
+const TOOL_CATEGORY_LABEL: Record<string, string> = {
+  file_read: "Lettura file",
+  file_write: "Scrittura file",
+  exec: "Esecuzione comandi",
+  network: "Rete/Web",
+  task_management: "Gestione task",
+  subagent_orchestration: "Orchestrazione subagent",
+  other: "Altro",
+};
+
+function SessionTimelineModal({
+  bucket,
+  onClose,
+}: {
+  bucket: SessionUsageBucket;
+  onClose: () => void;
+}) {
+  const [timeline, setTimeline] = useState<SessionTimelineWindow | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+    setTimeline(null);
+    fetchSessionTimeline(bucket.provider, bucket.session_uuid, bucket.bucket_start)
+      .then((next) => {
+        if (active) setTimeline(next);
+      })
+      .catch((value) => {
+        if (active) setError(errorMessage(value));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [bucket.provider, bucket.session_uuid, bucket.bucket_start]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      headingRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  const isEmpty = timeline?.available
+    && timeline.turns.length === 0
+    && timeline.compactions.length === 0
+    && timeline.subagent_spawns.length === 0;
+
+  return (
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        className="help-modal snapshot-modal session-timeline-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="session-timeline-title"
+      >
+        <header>
+          <div>
+            <span className="eyebrow">DRILL-DOWN TURNI · SOLO METADATI</span>
+            <h2 id="session-timeline-title" ref={headingRef} tabIndex={-1} className="host-focus-target">
+              Picco {formatDate(bucket.bucket_start)}
+            </h2>
+            <small>{bucket.project || "progetto non registrato"} · {bucket.provider}</small>
+          </div>
+          <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+        </header>
+        <p aria-live="polite" role="status" className="session-timeline-status">
+          {loading && "Caricamento timeline…"}
+          {!loading && !error && timeline && !timeline.available
+            && "Transcript non più disponibile per questo bucket (ruotato o rimosso)."}
+          {!loading && !error && isEmpty && "Nessun turno registrato in questa finestra di 5 minuti."}
+        </p>
+        {error && <p className="error" role="alert">{error}</p>}
+        {!loading && !error && timeline && timeline.available && !isEmpty && (
+          <div className="session-timeline-body">
+            {timeline.turns.length > 0 && (
+              <ul className="session-timeline-turns">
+                {timeline.turns.map((turn, index) => (
+                  <li key={`${turn.timestamp}-${index}`}>
+                    <strong>{new Date(turn.timestamp).toLocaleTimeString("it-IT")}</strong>
+                    <span>{turn.model || "modello non registrato"}</span>
+                    <span className="session-timeline-tokens">
+                      in {turn.input_tokens.toLocaleString("it-IT")} · cache scritta{" "}
+                      {turn.cache_creation_input_tokens.toLocaleString("it-IT")} · cache letta{" "}
+                      {turn.cache_read_input_tokens.toLocaleString("it-IT")} · out{" "}
+                      {turn.output_tokens.toLocaleString("it-IT")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {Object.keys(timeline.tool_counts).length > 0 && (
+              <div className="session-timeline-tools">
+                <h3>Strumenti usati (per categoria, mai il nome grezzo)</h3>
+                <ul>
+                  {Object.entries(timeline.tool_counts).map(([category, count]) => (
+                    <li key={category}>
+                      <span>{TOOL_CATEGORY_LABEL[category] ?? category}</span>
+                      <strong>{count}</strong>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {timeline.compactions.length > 0 && (
+              <div className="session-timeline-events">
+                <h3>Compattazioni del contesto</h3>
+                <ul>
+                  {timeline.compactions.map((item, index) => (
+                    <li key={index}>
+                      {new Date(item.timestamp).toLocaleTimeString("it-IT")}
+                      {item.pre_tokens !== null && item.post_tokens !== null
+                        ? ` · ${item.pre_tokens.toLocaleString("it-IT")} → ${item.post_tokens.toLocaleString("it-IT")} token`
+                        : " · delta token non disponibile per questo provider"}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {timeline.subagent_spawns.length > 0 && (
+              <div className="session-timeline-events">
+                <h3>Spawn di subagent</h3>
+                <ul>
+                  {timeline.subagent_spawns.map((item, index) => (
+                    <li key={index}>{new Date(item.timestamp).toLocaleTimeString("it-IT")}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {timeline.truncated && (
+              <p className="budget-note">
+                Il transcript è stato letto solo in parte (limite di dimensione): i dati sopra potrebbero
+                essere incompleti.
+              </p>
+            )}
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -1794,12 +1975,14 @@ function BudgetView({
   onOpenSession,
   rateLimitFreshEnabled,
   sessionUsageEnabled,
+  sessionTimelineEnabled,
 }: {
   onBack: () => void;
   sessions: Session[];
   onOpenSession: (session: Session) => void;
   rateLimitFreshEnabled: boolean;
   sessionUsageEnabled: boolean;
+  sessionTimelineEnabled: boolean;
 }) {
   const [hours, setHours] = useState<BudgetHoursOption>(24);
   const [history, setHistory] = useState<RateLimitHistory | null>(null);
@@ -1811,6 +1994,7 @@ function BudgetView({
   const [usageLoading, setUsageLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState("");
+  const [openTimelineBucket, setOpenTimelineBucket] = useState<SessionUsageBucket | null>(null);
   const mounted = useRef(false);
   const historyVersion = useRef(0);
   const usageVersion = useRef(0);
@@ -1945,6 +2129,24 @@ function BudgetView({
     })
   ), [providers, history]);
 
+  // Bucket di picco per sessione: entry point del drill-down BH-04. Ordinato
+  // con la stessa chiave della classifica (`ranking_tokens`, contratto
+  // storico budget v1: input + cache di scrittura + output, esclusa la
+  // rilettura di cache per non far dominare il picco da un contesto grande
+  // e statico).
+  const peakBucketByEntry = useMemo(() => {
+    const peaks = new Map<string, SessionUsageBucket>();
+    for (const row of usage?.buckets ?? []) {
+      const current = peaks.get(row.session_uuid);
+      const rowRanking = row.input_tokens + row.cache_creation_input_tokens + row.output_tokens;
+      const currentRanking = current
+        ? current.input_tokens + current.cache_creation_input_tokens + current.output_tokens
+        : -1;
+      if (!current || rowRanking > currentRanking) peaks.set(row.session_uuid, row);
+    }
+    return peaks;
+  }, [usage]);
+
   const rankedEntries = usage?.entries ?? [];
   const totalTurnsAttributed = rankedEntries.reduce((sum, entry) => sum + entry.total.turns, 0);
   const totalTokensAttributed = rankedEntries.reduce(
@@ -2038,6 +2240,12 @@ function BudgetView({
                     entry={entry}
                     sessionsById={sessionsById}
                     onOpenSession={onOpenSession}
+                    peakBucket={
+                      sessionTimelineEnabled
+                        ? peakBucketByEntry.get(entry.session_uuid) ?? null
+                        : null
+                    }
+                    onOpenTimeline={setOpenTimelineBucket}
                   />
                 ))}
               </div>
@@ -2068,6 +2276,12 @@ function BudgetView({
           )}
         </section>
       </div>
+      {openTimelineBucket && (
+        <SessionTimelineModal
+          bucket={openTimelineBucket}
+          onClose={() => setOpenTimelineBucket(null)}
+        />
+      )}
     </main>
   );
 }
@@ -2417,6 +2631,7 @@ function SessionList({
   const [restoreBudgetFocus, setRestoreBudgetFocus] = useState(false);
   const [rateLimitFreshEnabled, setRateLimitFreshEnabled] = useState(false);
   const [sessionUsageEnabled, setSessionUsageEnabled] = useState(false);
+  const [sessionTimelineEnabled, setSessionTimelineEnabled] = useState(false);
   const budgetTriggerRef = useRef<HTMLButtonElement>(null);
   const [dashboardDensity, setDashboardDensity] = useState<DashboardDensity>(readDashboardDensity);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
@@ -2487,6 +2702,13 @@ function SessionList({
           identity.role === "admin" && config.rate_limit_fresh_enabled,
         );
         setSessionUsageEnabled(config.session_usage_enabled);
+        // Come host-observability: già filtrato per ruolo lato backend
+        // (nullo/false per i non-admin), ma il controllo del ruolo qui
+        // resta la stessa difesa in profondità già in uso per gli altri
+        // flag admin-only.
+        setSessionTimelineEnabled(
+          identity.role === "admin" && config.session_timeline_enabled,
+        );
       })
       .catch(() => { /* il campo resta vuoto, l'utente può digitare */ });
   }, [identity.role]);
@@ -2696,6 +2918,7 @@ function SessionList({
         onOpenSession={onOpen}
         rateLimitFreshEnabled={rateLimitFreshEnabled}
         sessionUsageEnabled={sessionUsageEnabled}
+        sessionTimelineEnabled={sessionTimelineEnabled}
       />
     );
   }

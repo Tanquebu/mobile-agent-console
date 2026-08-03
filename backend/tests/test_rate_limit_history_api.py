@@ -265,6 +265,7 @@ def test_config_exposes_optional_features_in_legacy_single_password_mode() -> No
     assert body["optional_features"] == {
         "host_observability_enabled": True,
         "session_usage_enabled": False,
+        "session_timeline_enabled": False,
         "rate_limit_fresh_enabled": True,
         "claude_history_enabled": False,
         "database_auth_enabled": False,
@@ -286,6 +287,7 @@ def test_config_hides_optional_features_from_non_admin_roles(tmp_path: Path) -> 
     assert admin_body["optional_features"] == {
         "host_observability_enabled": False,
         "session_usage_enabled": False,
+        "session_timeline_enabled": False,
         "rate_limit_fresh_enabled": True,
         "claude_history_enabled": False,
         "database_auth_enabled": True,

@@ -103,9 +103,13 @@ services:
         source: ./frontend/tests/fixtures
         target: /frontend/tests/fixtures
         read_only: true
+      # L'immagine di test non copia `deploy/`: i test dei collector caricano
+      # gli script per path assoluto. Si monta l'intera directory, non i
+      # singoli file — con il mount per file ogni collector nuovo fa fallire
+      # la suite finche' qualcuno non si ricorda di aggiungere una riga qui.
       - type: bind
-        source: ./deploy/rate-limit-collector.py
-        target: /deploy/rate-limit-collector.py
+        source: ./deploy
+        target: /deploy
         read_only: true
     environment:
       MAC_LOGIN_PASSWORD: test-password-at-least-16

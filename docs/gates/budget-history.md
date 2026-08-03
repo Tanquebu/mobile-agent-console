@@ -187,7 +187,7 @@ funzioni opzionali:
 docker compose logs backend | grep "Funzioni opzionali"
 ```
 
-Atteso: una singola riga `INFO` con i cinque nomi di funzione e il loro stato
+Atteso: una singola riga `INFO` con i sei nomi di funzione e il loro stato
 `on`/`off`; nessun percorso, token o altro valore di configurazione al suo
 interno; nessun livello `WARNING`/`ERROR` per questa riga, indipendentemente
 da quali funzioni siano spente — un'installazione con tutte le funzioni
@@ -196,6 +196,102 @@ Verificare inoltre, autenticati come admin, che lo stesso elenco compaia
 nella vista Audit dell'interfaccia (sezione "Funzioni opzionali"), e che sia
 assente per un ruolo non-admin (`GET /api/v1/config` restituisce
 `optional_features: null`).
+
+## Check 9 — Drill-down "fase C" (BH-04): flag dedicato, RBAC, transcript mancante, provenienza reale
+
+Copre `IMP-BH-04` (`GET /api/v1/session-usage/timeline`,
+`docs/contracts/session-timeline-v1.md`). Prerequisito aggiuntivo rispetto ai
+prerequisiti comuni sopra: installare anche le due unit dedicate, che
+riusano la stessa directory runtime preparata da
+`mobile-agent-console-host-observability-prepare.service`:
+
+```bash
+install -m 0644 deploy/systemd/mobile-agent-console-session-timeline.socket ~/.config/systemd/user/
+install -m 0644 deploy/systemd/mobile-agent-console-session-timeline@.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemd-analyze --user verify deploy/systemd/mobile-agent-console-session-timeline.socket deploy/systemd/mobile-agent-console-session-timeline@.service
+systemctl --user enable --now mobile-agent-console-session-timeline.socket
+```
+
+Il flag `MAC_SESSION_TIMELINE_ENABLED` è **indipendente** da
+`MAC_CLAUDE_HISTORY_ENABLED` (ADR 007) e da `MAC_SESSION_USAGE_ENABLED`
+(BH-02): verificare che spegnere/accendere uno dei tre non alteri gli altri
+due, né nella risposta di `GET /api/v1/config` né nel comportamento
+osservabile.
+
+1. **Flag spento (default anche con l'overlay attivo).** Da admin loggato,
+   `GET /api/v1/config` deve riportare `session_timeline_enabled: false` e
+   `GET /api/v1/session-usage/timeline?...` deve rispondere `404`, senza
+   alcuna connessione al socket (verificare che il collector non compaia fra
+   le unit attive: `systemctl --user list-units 'mobile-agent-console-session-timeline@*'`
+   resta vuoto).
+
+2. **RBAC: nascosto ai non-admin, visibile solo all'admin.** Con
+   `MAC_SESSION_TIMELINE_ENABLED=true` e autenticazione a più ruoli (richiede
+   `MAC_DATABASE_AUTH_ENABLED=true`), verificare che `operator`/`viewer`
+   ricevano `session_timeline_enabled: false` da `/api/v1/config` e `403`
+   dall'endpoint; l'admin riceve `true` e i dati.
+
+3. **Sessione reale, provider Claude.** Individuare in
+   `session-usage-history.jsonl` una riga `provider: "claude"` con `turns > 0`
+   (o un bucket noto per contenere una compattazione/uno spawn di subagent) e
+   interrogare:
+
+   ```bash
+   curl --fail-with-body --cookie admin-cookies.txt \
+     'https://HOST/api/v1/session-usage/timeline?provider=claude&session_uuid=<uuid>&bucket_start=<bucket_start>'
+   ```
+
+   Atteso: `available: true`, `turns` non vuoto con i quattro contatori di
+   token e il modello, `tool_counts` con chiavi solo dalla tassonomia fissa
+   (`file_read`, `file_write`, `exec`, `network`, `task_management`,
+   `subagent_orchestration`, `other`), mai un nome di strumento grezzo in
+   nessun campo della risposta.
+
+4. **Sessione reale, provider Codex.** Ripetere il passo 3 con
+   `provider=codex` su una riga Codex reale. Atteso: stessa forma della
+   risposta; se il bucket copre una compattazione Codex,
+   `compactions[].pre_tokens`/`post_tokens` sono `null` (dichiarato `n/d`,
+   non un difetto — Codex non pubblica quel conteggio, verificato su dati
+   reali in `docs/contracts/session-timeline-v1.md`).
+
+5. **Compattazione e spawn di subagent su dati reali.** Se si dispone di un
+   transcript Claude con un evento `compact_boundary` (cercabile con
+   `grep -l compact_boundary` sotto `~/.claude/projects`) o di un transcript
+   Codex con `sub_agent_activity`/`kind: "started"` (sotto
+   `~/.codex/sessions`), calcolare il bucket di 5 minuti che contiene
+   l'istante dell'evento e verificare che compaia rispettivamente in
+   `compactions`/`subagent_spawns` della risposta, con solo istante (e
+   pre/post token per Claude), mai testo o percorso.
+
+6. **Transcript ruotato/rimosso → stato dichiarato, non un errore.**
+   Interrogare un `session_uuid` inesistente (o rinominare temporaneamente un
+   transcript reale, ripristinandolo subito dopo). Atteso: risposta `200` con
+   `available: false` e `unavailable_reason: "transcript_not_found"` (o
+   `"transcript_unreadable"`), mai `404`/`500` del backend.
+
+7. **Errori di trasporto restano errori.** Fermare temporaneamente il socket
+   (`systemctl --user stop mobile-agent-console-session-timeline.socket`) e
+   ripetere la richiesta del passo 3: atteso `503`
+   `session_timeline_unavailable`. Riavviare il socket al termine.
+
+8. **Ispezione avversariale del payload.** Su una risposta reale del passo 3
+   o 4:
+
+   ```bash
+   curl -s --cookie admin-cookies.txt \
+     'https://HOST/api/v1/session-usage/timeline?provider=claude&session_uuid=<uuid>&bucket_start=<bucket_start>' | \
+     grep -aiE '"prompt"|"description"|"reasoning"|"input"|"arguments"|"replacement_history"|/home/|/root/|\.jsonl'
+   ```
+
+   Atteso: nessuna corrispondenza. Verificare anche che la risposta non
+   contenga mai il nome grezzo di uno strumento (es. `"Bash"`, `"Read"`,
+   `"exec_command"`) fuori dalle chiavi fisse della tassonomia.
+
+9. **`claude-history` resta indipendente.** Con `MAC_CLAUDE_HISTORY_ENABLED`
+   spento e `MAC_SESSION_TIMELINE_ENABLED` acceso (o viceversa), verificare
+   che l'una funzioni indipendentemente dall'altra: nessun errore incrociato,
+   nessun riferimento nella UI dell'una verso l'altra.
 
 ## Comandi automatici
 
