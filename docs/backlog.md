@@ -2874,7 +2874,7 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
 
 ## INC-PASTE-01 — il testo multilinea arriva a tmux come righe separate da Invio
 
-- [ ] INC-PASTE-01 | OWNER: ROOT | STATUS: READY | Trovato il 03/08/2026
+- [x] INC-PASTE-01 | OWNER: ROOT | STATUS: DONE | Trovato il 03/08/2026
   durante lo spike OpenCode, ma **non è un difetto di OpenCode**: è del
   prodotto, e riguarda potenzialmente tutti i profili.
   `TmuxService.send_text` esegue `paste-buffer -b … -t … -d` **senza `-r`**.
@@ -2903,6 +2903,41 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   **Nota di metodo:** questo difetto è stato trovato mentre si verificava
   tutt'altro, ed era invisibile ai test perché i test asseriscono l'argv che
   il codice costruisce, non l'effetto che quell'argv produce dentro tmux.
+  **Esito (`ROOT`, 03/08/2026).** Comportamento misurato su ciascun profilo
+  supportato, incollando `ciao\nmondo` con i flag del prodotto e poi con `-r`,
+  su TUI reali avviate a mano:
+
+  | profilo | flag attuali | con `-r` |
+  |---|---|---|
+  | `shell` | prima riga eseguita (corretto per una shell) | identico |
+  | `codex` | due righe nell'input, non inviato | identico |
+  | `claude` | **prima riga inviata**, il resto orfano nell'input | due righe, non inviato |
+  | `antigravity` | **prima riga inviata** | due righe, non inviato |
+  | `opencode` | **inviato**, con il newline perso | due righe, non inviato |
+
+  Tre profili su quattro erano quindi rotti **in produzione**, non solo
+  OpenCode: `claude` ha risposto davvero al frammento inviato per sbaglio.
+  `codex` gestiva già correttamente il CR dentro un paste, ed è il motivo per
+  cui il difetto è passato inosservato — chi provava con Codex non vedeva
+  nulla di strano. `-r` è migliore o neutro su tutti e cinque i casi, quindi
+  la correzione non richiede eccezioni per profilo.
+  Applicato `-r` in `TmuxService.send_text`, con il perché nel commento
+  (la prossima persona che vede un flag di tmux in mezzo all'argv deve capire
+  che è una garanzia, non stile). Test: asserzione su `-r` nell'argv in
+  `test_multiline_and_special_text_goes_through_stdin`; suite backend 286
+  passati, Ruff pulito. Aggiornata la sezione sull'input in
+  `docs/architecture.md`. Chiudere con `TEST-PASTE-01`.
+
+- [ ] TEST-PASTE-01 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Sbloccato da
+  `INC-PASTE-01`. Il deploy è **parte di questo check**: la correzione vive
+  nel backend e non è verificabile sui soli test. Verificare sull'istanza
+  pubblicata, per **ciascun** profilo, che un testo con newline resti
+  nell'input senza essere inviato e che l'invio avvenga solo chiamando
+  l'endpoint dei tasti; verificare anche che il testo **su riga singola**
+  continui a funzionare come prima, che è la regressione più probabile.
+  Controllare infine che gli allegati e il percorso di consegna (che usano lo
+  stesso meccanismo, `docs/architecture.md`) non siano cambiati di
+  comportamento.
 
 ## Integrazione OpenCode
 

@@ -264,7 +264,17 @@ class TmuxService:
         buffer_name = f"mac-{session_id}"
         await self._run("load-buffer", "-b", buffer_name, "-", stdin=text.encode())
         try:
-            await self._run("paste-buffer", "-b", buffer_name, "-t", target, "-d")
+            # `-r` e' obbligatorio, non un dettaglio: senza, `paste-buffer`
+            # sostituisce ogni LF del buffer con un CR, cioe' con un Invio. Il
+            # testo multilinea non arriverebbe mai come testo — arriverebbe
+            # come righe separate da Invio, e la prima riga partirebbe da sola
+            # prima che l'utente possa rileggere. Verificato il 03/08/2026 su
+            # tutte le TUI supportate: claude, antigravity e opencode
+            # inviavano la prima riga; codex la gestiva gia' correttamente; per
+            # una shell il comportamento e' identico nei due casi. L'invio
+            # resta un'operazione distinta (`POST /sessions/{id}/keys`), che e'
+            # una garanzia di sicurezza, non una comodita'.
+            await self._run("paste-buffer", "-b", buffer_name, "-r", "-t", target, "-d")
         except TmuxError:
             await self._run("delete-buffer", "-b", buffer_name)
             raise

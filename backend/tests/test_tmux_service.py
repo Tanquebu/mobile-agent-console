@@ -82,6 +82,10 @@ def test_multiline_and_special_text_goes_through_stdin(monkeypatch) -> None:
     assert recorder.calls[0][:3] == ("tmux", "-L", "test")
     assert "paste-buffer" in recorder.calls[1]
     assert recorder.calls[1][recorder.calls[1].index("-t") + 1] == "$1"
+    # Senza `-r`, tmux converte ogni LF in CR: il testo multilinea arriva alla
+    # TUI come righe separate da Invio e la prima riga parte da sola. Osservato
+    # in produzione su claude, antigravity e opencode. Vedi INC-PASTE-01.
+    assert "-r" in recorder.calls[1]
 
 
 def test_capture_targets_active_pane(monkeypatch) -> None:

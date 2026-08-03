@@ -110,6 +110,15 @@ vecchia vista testuale (stesso limite noto, non introdotto da xterm.js — vedi
 `docs/backlog.md`). Il modello di input non cambia: il testo libero passa
 sempre da `load-buffer`/`paste-buffer`, mai da input diretto verso il widget.
 
+Il `paste-buffer` va invocato con **`-r`**, e la ragione è di sicurezza, non
+di formattazione: senza quel flag tmux sostituisce ogni LF del buffer con un
+CR, cioè con un Invio, e il testo multilinea non arriva mai come testo — la
+prima riga viene inviata da sola prima che l'utente possa rileggerla. Poiché
+l'invio di Enter è deliberatamente un'operazione distinta
+(`POST /api/v1/sessions/{id}/keys`), omettere `-r` aggira quella separazione
+proprio nel caso in cui serve di più. Vedi `INC-PASTE-01` in
+`docs/backlog.md`.
+
 ## Evoluzione
 
 Interfacce `TmuxService`/fake consentono test e futuri adapter. Profili,
