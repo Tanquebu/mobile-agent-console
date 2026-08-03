@@ -49,6 +49,72 @@ interazione con client tmux già collegati e semantica di ripristino. La
 soluzione dovrebbe confluire nel lavoro M1 su pane selection/resize o nel
 terminal mode previsto in M3.
 
+## INC-AS-01 — falso stato “in elaborazione” su sessione inattiva
+
+**Stato:** incidente confermato il 03/08/2026; analisi strutturata e
+remediation differite per non sovrapporsi al round OpenCode già programmato.
+Wakeup dedicato `cdf9abd2` previsto per il 04/08/2026 alle 17:05 Europe/Rome.
+
+### Evidenza e impatto
+
+La sessione Claude `Mac` mostrava da oltre venti minuti l'icona animata
+“In elaborazione”, pur essendo ferma sul prompt finale `❯` dopo
+`Cooked for 16m 47s`. Il pane tmux reale non aveva attività in corso. Il
+frontend non conservava uno stato client obsoleto: il polling di
+`GET /api/v1/agent-statuses` avviene ogni tre secondi e il backend
+riclassificava deterministicamente il frame come `active`.
+
+La risposta conclusiva visibile nel pane conteneva la frase ordinaria
+“working tree”. `AgentStatusService` cerca invece `\bworking\b` nelle ultime
+venti righe sia per Claude sia per Codex e valuta i pattern attivi prima del
+prompt inattivo. Una riproduzione minima contro il codice effettivamente
+deployato ha restituito `state='active'`, `detail='Elaborazione in corso'` per:
+
+```text
+Una cosa da sapere: lavora nello stesso working tree.
+❯
+```
+
+La causa immediata è quindi un falso positivo lessicale, non tmux, il polling
+frontend o la finestra temporale di attività. Lo stesso difetto può emergere
+con parole comuni come `thinking`, `reasoning` e `tool use`, oppure con chrome
+TUI storico rimasto nel frame. I test correnti coprono un prompt inattivo
+semplice e un marker attivo sintetico, ma non testo narrativo contenente le
+parole chiave né la precedenza temporale fra marker e prompt.
+
+### Confine del prossimo round
+
+Non applicare una sostituzione puntuale di `working`: analizzare prima in modo
+strutturato tutte le sorgenti del segnale (`ACTIVE_PATTERNS`, prompt,
+autorizzazioni, richieste di feedback, digest/cambio contenuto, alternate
+screen) per Claude, Codex e gli agenti aggiunti nel frattempo. Usare fixture
+realistiche e catture minimizzate, senza inserire output privato nei file
+versionati. Definire esplicitamente precedenza e recenza dei segnali; i marker
+UI devono essere riconosciuti per struttura/posizione, non come parole libere
+nella prosa.
+
+La remediation deve includere almeno:
+
+- regressione per il caso reale `working tree` seguito da prompt inattivo;
+- falsi positivi narrativi per tutti i marker generici e per entrambi i
+  provider storici;
+- marker attivo reale, marker storico seguito da prompt e output che cambia
+  senza prompt;
+- verifica dei flussi `waiting_input` e `waiting_authorization`, che non devono
+  regredire;
+- prova contro frame reali minimizzati disponibili sull'host e suite completa;
+- deploy dei soli servizi stateless coinvolti, preservando `tmux-runtime`,
+  test sull'istanza pubblicata e aggiornamento di `LATEST_RELEASE` nello stesso
+  round funzionale;
+- commit focalizzato, senza inglobare modifiche OpenCode/Antigravity o altro
+  lavoro preesistente.
+
+Gate di concorrenza: all'avvio ricostruire lo stato reale con wakeup attivi,
+`git status`, diff e log. Se il round OpenCode è ancora in esecuzione o ci sono
+modifiche sovrapposte nei file del classificatore, non implementare e non
+deployare; lasciare un checkpoint riproducibile e riprogrammare il lavoro in
+una finestra libera.
+
 ## Drift dello scroll in pausa e storico delle app a schermo alternato
 
 **Stato:** parzialmente risolta. La cronologia Claude è disponibile tramite
