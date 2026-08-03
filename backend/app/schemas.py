@@ -40,7 +40,7 @@ class SessionVisibilityInput(BaseModel):
 
 class AgentStatusView(BaseModel):
     session_id: str
-    provider: Literal["codex", "claude"]
+    provider: Literal["codex", "claude", "antigravity"]
     state: Literal[
         "active",
         "idle",

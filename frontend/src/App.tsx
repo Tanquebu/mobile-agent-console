@@ -128,9 +128,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Reset delle quote sempre visibile",
+  title: "Antigravity (agy) promosso ad agente",
   description:
-    "Il pannello quote mostra di nuovo la data del prossimo reset per Codex e Claude, anche nelle viste compatte.",
+    "Le sessioni AGY ora hanno la barra stato, la vista Blocchi, i comandi rapidi, il pulsante permessi (Shift-Tab), il resume con agy -c e il match rate limit indipendente.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -3339,7 +3339,7 @@ function Console({
   const [paneId, setPaneId] = useState("");
   const [splittingPane, setSplittingPane] = useState(false);
   const [closingPane, setClosingPane] = useState(false);
-  const agentic = /codex|claude/i.test(session.current_command);
+  const agentic = /codex|claude|agy|antigravity/i.test(session.current_command);
   const claude = /claude/i.test(session.current_command);
   const [historyEnabled, setHistoryEnabled] = useState(false);
   const [history, setHistory] = useState<ClaudeHistory | null>(null);
@@ -3442,8 +3442,12 @@ function Console({
     };
   }, [agentic]);
 
+  const inferredProvider = /codex/i.test(session.current_command) ? "codex"
+    : /claude/i.test(session.current_command) ? "claude"
+    : /agy|antigravity/i.test(session.current_command) ? "antigravity"
+    : null;
   const ownProviderLimit = providerLimits?.providers.find(
-    (provider) => provider.provider === ownStatus?.provider,
+    (provider) => provider.provider === (ownStatus?.provider ?? inferredProvider),
   );
 
   useEffect(() => {
@@ -4264,13 +4268,14 @@ function Console({
             <button disabled={connection === "closed"} type="button" className="danger" onClick={() => void pressSpecialKey("C-c")}>
               Ctrl-C
             </button>
-            {session.current_command.toLowerCase().includes("claude") && (
+            {(session.current_command.toLowerCase().includes("claude")
+              || /agy|antigravity/i.test(session.current_command)) && (
               <button
                 disabled={connection === "closed"}
                 type="button"
                 onClick={() => void pressSpecialKey("Shift-Tab")}
               >
-                Claude · cambia permessi
+                {/agy|antigravity/i.test(session.current_command) ? "AGY" : "Claude"} · cambia permessi
               </button>
             )}
             {session.current_command.toLowerCase().includes("codex") && (

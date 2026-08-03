@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
-AgentProvider = Literal["codex", "claude"]
+AgentProvider = Literal["codex", "claude", "antigravity"]
 AgentState = Literal[
     "active",
     "idle",
@@ -39,6 +39,12 @@ AUTHORIZATION_PATTERNS = {
         r"yes,\s*(?:proceed|and don't ask again)",
         r"esc to cancel",
     ),
+    "antigravity": (
+        r"do you want to proceed",
+        r"allow (?:this )?(?:command|tool|action)",
+        r"approve",
+        r"(?:yes|no|always)\s*(?:proceed|allow)",
+    ),
 }
 # Non solo "?" letterale: frasi come "fammi sapere se..."/"dimmi quando..."
 # sono altrettanto una richiesta di feedback ma non terminano con punto
@@ -66,10 +72,18 @@ ACTIVE_PATTERNS = {
         r"\btool use\b",
         r"esc to interrupt",
     ),
+    "antigravity": (
+        # In alt-screen mode il frame catturato contiene chrome permanente
+        # (incluso "esc to interrupt") e l'output precedente.  Qualsiasi
+        # pattern testuale produce falsi positivi; lo stato attivo è
+        # rilevato esclusivamente dalla euristica di cambio contenuto
+        # (step 4 di classify), con la guardia prompt-first sotto.
+    ),
 }
 PROMPT_PATTERNS = {
     "codex": re.compile(r"^\s*[›>]\s*"),
     "claude": re.compile(r"^\s*[>❯]\s*"),
+    "antigravity": re.compile(r"^\s*>\s*"),
 }
 # Righe di "chrome" dell'interfaccia (prompt, marcatori di tool/attività,
 # separatori, barre di stato, suggerimenti tastiera) da escludere dal
@@ -125,6 +139,8 @@ class AgentStatusService:
             return "codex"
         if "claude" in lowered:
             return "claude"
+        if "agy" in lowered or "antigravity" in lowered:
+            return "antigravity"
         return None
 
     @staticmethod
@@ -204,21 +220,21 @@ class AgentStatusService:
                 permission_detail,
                 summary,
             )
-        if previous is not None and observed_now - changed_at <= self.active_window_seconds:
-            return AgentStatus(
-                provider,
-                "active",
-                "Output in aggiornamento",
-                changed_at,
-                permission_state,
-                permission_detail,
-                summary,
-            )
         if prompt_index is not None:
             return AgentStatus(
                 provider,
                 "idle",
                 "Inattivo o completato",
+                changed_at,
+                permission_state,
+                permission_detail,
+                summary,
+            )
+        if previous is not None and observed_now - changed_at <= self.active_window_seconds:
+            return AgentStatus(
+                provider,
+                "active",
+                "Output in aggiornamento",
                 changed_at,
                 permission_state,
                 permission_detail,
@@ -268,6 +284,16 @@ class AgentStatusService:
                 ("bypass", "Accesso completo", r"(?:›|permissions?:)\s*.*full access"),
                 ("restricted", "Sola lettura", r"(?:›|permissions?:)\s*.*read only"),
                 ("auto", "Auto", r"(?:›|permissions?:)\s*.*\bauto\b"),
+            )
+        elif provider == "antigravity":
+            # AGY usa Shift-Tab per ciclare le modalità, come Claude.
+            # La status bar mostra [accept-edits], [plan], [auto], ecc.
+            patterns = (
+                ("bypass", "Bypass autorizzazioni", r"bypass permissions"),
+                ("plan", "Plan mode", r"\bplan\b.*mode|\[plan\]"),
+                ("accept_edits", "Accetta modifiche", r"accept.?edits|\[accept-edits\]"),
+                ("dont_ask", "Non chiedere", r"don'?t ask|\[dont-ask\]"),
+                ("auto", "Auto", r"\bauto\b.*mode|\[auto\]"),
             )
         else:
             patterns = (
