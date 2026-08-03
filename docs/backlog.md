@@ -2938,6 +2938,19 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   Controllare infine che gli allegati e il percorso di consegna (che usano lo
   stesso meccanismo, `docs/architecture.md`) non siano cambiati di
   comportamento.
+  **Deploy già eseguito da `ROOT` (03/08/2026), con verifica di primo livello
+  sull'istanza pubblicata — non sostituisce questo check.** Ricreato il solo
+  servizio `backend` da un export isolato di `HEAD`, `tmux-runtime` non
+  toccato, `web` non ricostruito (frontend invariato), sessioni tmux
+  dell'utente intatte. Verifica attraverso il percorso API completo su una
+  sessione OpenCode reale: `POST /input` con `"riga uno\nriga due"` →
+  `202`, le due righe compaiono **su due righe** nell'input e **non** vengono
+  inviate; `POST /input` con testo su riga singola → appeso alla riga corrente,
+  ancora non inviato; `POST /keys` con `Enter` → il turno parte. Il contratto
+  regge quindi in entrambe le direzioni: il testo è testo, l'invio è un'altra
+  operazione. Resta da verificare in modo indipendente il comportamento per
+  `codex`, `claude`, `antigravity` e `shell` sull'istanza pubblicata: `ROOT` li
+  ha misurati solo su TUI avviate a mano, prima del deploy.
 
 ## Integrazione OpenCode
 
