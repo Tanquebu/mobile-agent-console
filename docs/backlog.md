@@ -2926,7 +2926,7 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
      non equivale a un provider specifico. Vincola `OC-03` e qualunque
      estensione di `BH-*` che la incroci.
 
-- [ ] IMP-OC-00 | OWNER: ROOT | STATUS: IN_PROGRESS | Spike host TUI: **dimostrare
+- [x] IMP-OC-00 | OWNER: ROOT | STATUS: DONE | Spike host TUI: **dimostrare
   che la TUI è controllabile con il protocollo corrente, senza modificare il
   prodotto.** Nessuna modifica a `backend/`, `frontend/` o al deployment in
   questa voce: l'unico output committabile è documentazione più eventuali
@@ -3057,16 +3057,66 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
       dell'utente sono rimaste intatte per tutta la durata dello spike; tutte
       le sessioni sonda sono state rimosse. `tmux-runtime` mai coinvolto: lo
       spike vive interamente sul server tmux dell'host.
-  **Restano da eseguire prima di chiudere la voce:** punto 7 su un round
-  lungo e con `Ctrl-C`; punto 8 (directory consentite con path lunghi e
-  caratteri Unicode); punto 10 nella parte "persistenza dopo riavvio
-  dell'host"; punto 11 (assenza di segreti e contenuti in log, audit,
-  snapshot e backup — da verificare anche su `~/.local/share/opencode`, che
-  ora contiene le conversazioni dello spike); e l'acquisizione delle fixture
-  TUI sanitizzate per `OC-03`. Il punto 2 è verificato solo su
-  `capture-pane -e`: la resa effettiva in xterm.js non è stata osservata.
+  **Chiusura della matrice (stessa data).**
+  7. **Interrupt — completato, con una scoperta seria.** Su un round
+     realmente lungo il **doppio `Escape` interrompe correttamente**: la TUI
+     segna il turno come `interrupted`, restano solo i thread di `opencode` e
+     nessun processo di shell superstite. **`Ctrl-C` invece non interrompe:
+     termina l'intero agente.** Con `exec opencode` come comando del pane, la
+     sessione tmux muore insieme a lui — verificato, la sessione è sparita
+     dall'elenco e la conversazione in corso non è stata salvata. `C-c` è
+     nell'allowlist dei tasti di Mobile Agent Console: oggi un utente che lo
+     preme per fermare un turno **perde la sessione**. `OC-01` deve decidere
+     esplicitamente cosa fare di `C-c` per questo profilo, non ereditarlo.
+  8. **Path lunghi e Unicode — nessun problema.** Avvio corretto in una
+     directory di 194 caratteri con accenti latini e ideogrammi CJK;
+     `pane_current_path` esatto, `pane_current_command` sempre `opencode`, e
+     il piè di pagina manda a capo il percorso senza corrompere i glifi.
+  10. **Persistenza — parziale, e il limite è dichiarato.** Lo stato
+      sopravvive alla chiusura del processo: uccisa la sessione tmux,
+      `--continue` ha ripreso la conversazione. La persistenza attraverso un
+      **riavvio dell'host non è verificabile in questa finestra** e non va
+      considerata provata: lo stato vive su filesystem
+      (`~/.local/share/opencode`, `~/.local/state/opencode`) e per costruzione
+      sopravvive, ma ciò che non sopravvive è la sessione tmux, che è il vero
+      contenitore del profilo.
+  11. **Dati locali — nessuna esposizione lato Mobile Agent Console.**
+      `~/.local/share/opencode` contiene `log/`, `repos/` e `snapshot/`;
+      quest'ultimo è un git bare **per progetto**, inizializzato ma vuoto
+      (zero commit) — il meccanismo per copiare file di progetto nello storage
+      di OpenCode quindi esiste, anche se qui non ha ancora prodotto nulla, ed
+      è un motivo in più per la decisione 5 del gate. `auth.json` è assente,
+      coerente con l'uso senza credenziali. Il log **non** contiene il testo
+      dei prompt né delle risposte (cercate stringhe distintive dei turni di
+      prova: zero occorrenze), ma registra i **percorsi dei file toccati** e
+      le directory di lavoro. Lato repository: nessun riferimento a
+      `opencode` nel codice di prodotto (corretto, `OC-00` non lo consente) e
+      gli unici script di deploy sono `snapshot-env.sh` e `tls-renew.sh`, che
+      non toccano `~/.local/share` né `~/.config`. Nessun percorso di backup o
+      audit di Mobile Agent Console ingerisce oggi dati di OpenCode.
+  **Difetto aggiuntivo trovato durante la cattura delle fixture: l'input
+  inviato subito dopo l'avvio viene scartato in silenzio.** Osservato due
+  volte su due sessioni distinte: il primo `paste-buffer` dopo l'avvio della
+  TUI non compare nell'input e l'`Enter` successivo non produce nulla; ripetuto
+  a TUI stabilizzata, lo stesso testo entra ed esegue. Per `OC-01` significa
+  che creare una sessione e inviarle subito un prompt — esattamente quello che
+  fa un utente da mobile — può perdere il primo messaggio senza alcun segnale.
+  Serve una condizione di prontezza osservabile, non una `sleep` a caso.
+  **Fixture acquisite:** sei frame reali in
+  `backend/tests/fixtures/opencode-tui/`, sanitizzati (l'unico dato variabile
+  era il percorso del progetto), con un README che ne dichiara provenienza e
+  limiti. Manca — e il README lo dice — il frame di richiesta di
+  autorizzazione: non è un'omissione, è che OpenCode non ne ha mai prodotta
+  una. Verificato sui frame, non assunto: `esc interrupt` compare solo nel
+  frame attivo e `interrupted` solo in quello interrotto, quindi i due
+  marcatori sono discriminanti; sei frame di un solo turno restano comunque
+  una base insufficiente per un classificatore.
+  **Resta non verificato:** il punto 2 solo per la parte xterm.js — gli ANSI
+  sono confermati su `capture-pane -e`, ma la resa effettiva nel terminale
+  della PWA non è stata osservata, e richiederebbe un browser.
 
-- [ ] TEST-OC-00 | OWNER: SA-TEST | STATUS: BLOCKED | Sbloccato da `IMP-OC-00`.
+- [ ] TEST-OC-00 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Sbloccato da
+  `IMP-OC-00` (commit dello spike; nessuna modifica al prodotto).
   Verifica indipendente dello spike: rieseguire la matrice sui punti
   riproducibili senza fidarsi del rapporto dell'implementatore, controllare che
   le fixture acquisite siano davvero prive di segreti, prompt e percorsi

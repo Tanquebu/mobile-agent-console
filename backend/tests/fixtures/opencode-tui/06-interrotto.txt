@@ -1,0 +1,23 @@
+  ┃  X11
+  ┃  [
+  ┃  aa-enabled
+  ┃  aa-exec
+  ┃  aa-features-abi
+  ┃  acpi_listen
+  ┃  add-apt-repository
+  ┃  addpart
+  ┃  …
+  ┃
+  ┃  Click to expand
+  ┃
+
+     + Thought: 1.0s
+
+     ▣  Build · Big Pickle · interrupted
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · Big Pickle OpenCode Zen
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   /workspace/progetto                                       8.7K (4%)  ctrl+p commands
