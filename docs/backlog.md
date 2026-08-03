@@ -1660,12 +1660,15 @@ ancora `IMP-BH-04` `READY` e non preso in carico, mentre la voce autorevole è
 
 **Stato: fasi A e B verificate (con un rework ciascuna), `PASSED`. Fase
 BH-03 (proprietà dello strato quote e segnale sul fallback) chiusa `PASSED`
-dopo un rework. Fase C (`BH-04`): implementata, deployata e in esercizio —
-flag `MAC_SESSION_TIMELINE_ENABLED` acceso, unit installate, endpoint attivo.
+dopo un rework. Fase C (`BH-04`) chiusa `PASSED` dopo un rework, anch'essa:
+implementata, deployata e verificata in esercizio — flag
+`MAC_SESSION_TIMELINE_ENABLED` acceso, unit installate, endpoint attivo.
 `TEST-BH-04` è chiusa `FAILED` (parametro di query assente → `500` invece di
-`422`), il rework `IMP-BH-04-R1` è `DONE` e la fase resta aperta finché
-`TEST-BH-04-T2` non passa: un `DONE` di implementazione, da solo, non chiude
-nulla.**
+`422`), il rework `IMP-BH-04-R1` è `DONE` e `TEST-BH-04-T2` è `PASSED`.
+Con tutte e cinque le fasi chiuse, questa sezione non ha voci aperte.**
+Nota trasversale: le tre fasi che hanno richiesto un rework sono state
+scoperte da `SA-TEST`, mai dalle suite dell'implementatore, che erano verdi in
+tutti e tre i casi.
 Decisioni e contratto in
 `docs/adr/010-storico-consumo-budget.md` e
 `docs/contracts/budget-history-v1.md`; non riaprire né contraddire quei
@@ -2799,7 +2802,7 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   quel momento eseguiva ancora il codice vecchio, ha risposto `500` dove il
   test pretende `422`. Suite backend: 286 passati, Ruff pulito.
 
-- [ ] TEST-BH-04-T2 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Sbloccato da
+- [x] TEST-BH-04-T2 | OWNER: SA-TEST | STATUS: PASSED | Sbloccato da
   `IMP-BH-04-R1`. Stessi comandi e stessi criteri di `TEST-BH-04`, che restano
   autorevoli. In più: confermare che i tre parametri mancanti diano `422` con
   `loc` corretto sull'**istanza pubblicata** (non solo nei test) e che il
@@ -2808,6 +2811,27 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   ripetere l'ispezione avversariale dei payload se il diff del rework non
   tocca il confine: dichiararlo esplicitamente invece di rieseguirla per
   abitudine.
+  **Esito (`SA-TEST`, 03/08/2026).** Suite: backend 286 con Ruff pulito,
+  collector host 59, frontend 56 (14+24+3+5+10). Sull'istanza pubblicata i tre
+  parametri omessi a turno danno `422` con `loc` corretto — `bucket_start`
+  incluso, che era il difetto — e il percorso felice resta `200` su bucket
+  reali Claude e Codex, con le sole chiavi del contratto. Anche i valori
+  malformati (pattern violato, data non valida, stringa vuota) restano `422`
+  tipizzati: nessun'altra via nota per degradare a `500` su questo endpoint.
+  Ricerca della forma difettosa in tutto `backend/`: le uniche due occorrenze
+  di `Annotated[...] = ...` sono il commento e il docstring che la descrivono,
+  nessun codice vivo; gli altri usi di `Query(` hanno un default concreto
+  oppure sono `Annotated` senza default. Il test di regressione è stato
+  giudicato non vacuo: passa dall'handler reale di FastAPI e asserisce anche
+  `stub.calls == 0`, quindi fallirebbe su una reintroduzione. Scansione dati
+  personali: nessuna occorrenza. Ispezione avversariale dei payload non
+  ripetuta e dichiarata tale — il diff del rework tocca solo la firma dei tre
+  parametri, non l'estrazione né la serializzazione.
+  Restano dichiarati non verificati, e non vanno considerati chiusi: l'`hang`
+  di `wait_closed()` (rischio teorico, non riproducibile) e la struttura
+  `compactions` su un bucket reale con compattazione effettiva — nella
+  finestra disponibile non ne è comparsa nessuna, quindi è coperta solo da
+  fixture. **Fase C chiusa.**
 
 #### BH-05 — Ripristino del prossimo reset nel pannello quote
 
