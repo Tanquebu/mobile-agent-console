@@ -3357,7 +3357,7 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   sono eventi distinti, e solo il secondo lascia traccia nel diff — è lì che
   va cercata la prova, non nella voce che se ne attribuisce il merito.
 
-- [ ] TEST-OC-00-T3 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Sbloccato da
+- [x] TEST-OC-00-T3 | OWNER: SA-TEST | STATUS: PASSED | Sbloccato da
   `IMP-OC-00-R2`. Verificare che il punto 5 di `IMP-OC-00` porti ora una
   rettifica che ritratta **sia** la diagnosi **sia** la conclusione, e che nel
   file non sopravviva altrove un'affermazione secondo cui l'invio resterebbe
@@ -3367,10 +3367,27 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   commit, invece di fidarsi dell'elenco nella voce. Confermare che il
   riferimento in `IMP-OC-01` non punti più a un tentativo `FAILED`. Non
   rieseguire la matrice dello spike.
+  **Esito (`SA-TEST`, 03/08/2026).** `PASSED`. Ogni correzione dichiarata è
+  stata confrontata con il diff del proprio commit, una per una: delle tre di
+  `IMP-OC-00-R1`, due erano presenti e la terza (punto 5) risultava assente —
+  riconfermando dal diff il difetto trovato da `TEST-OC-00-T2` — ed è ora
+  applicata da `IMP-OC-00-R2`, il cui diff contiene entrambe le correzioni
+  dichiarate. Il punto 5 ritratta ora sia la diagnosi sia la conclusione, come
+  frase attiva e non come semplice citazione. Nessuna affermazione attiva
+  residua nel repository: le occorrenze superstiti sono citazioni dentro le
+  rettifiche, voci di checklist di verifiche future, o testo che descrive lo
+  stato attuale e vero dopo il fix di `INC-PASTE-01`. Riferimento di
+  `IMP-OC-01` aggiornato, stati coerenti, scansione dati personali senza
+  occorrenze. **Fase `OC-00` chiusa**: lo spike è verificato e `IMP-OC-01`
+  passa a `READY`.
+  Verifica di secondo livello da `ROOT` sull'affermazione centrale, perché è
+  lo stesso controllo fallito in `R1`: `git show 53a45b2` rimuove la riga
+  "è confermato che **Enter resta un'operazione separata**" e introduce la
+  rettifica; `git show a09a81e` non toccava quelle righe.
 
 #### OC-01 — Profilo TUI di base
 
-- [ ] IMP-OC-01 | OWNER: SA-IMP | STATUS: BLOCKED | Sbloccato dall'ultimo
+- [ ] IMP-OC-01 | OWNER: SA-IMP | STATUS: READY | Sbloccato dall'ultimo
   tentativo `SA-TEST` di `OC-00` con esito `PASSED` — oggi `TEST-OC-00-T3`.
   Il riferimento originale era a `TEST-OC-00`, che è chiuso `FAILED` in modo
   permanente: un tentativo fallito non si riapre e non sblocca nulla.
@@ -3382,6 +3399,23 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   messaggio d'errore quando il binario manca — un profilo che fallisce in
   silenzio perché `opencode` non è nel `PATH` di tmux è il modo più probabile
   in cui questa fase si rompe in produzione.
+  **Due prerequisiti aggiunti dallo spike, senza i quali questa voce non è
+  la modifica contenuta che sembrava all'inizio:**
+  1. **Policy dei permessi esplicita.** Con la configurazione predefinita
+     OpenCode esegue comandi di shell senza chiedere conferma. Aggiungere
+     l'argv e basta significherebbe offrire da mobile un agente che esegue
+     comandi non sorvegliati con i privilegi dell'utente host, dentro
+     `MAC_ALLOWED_ROOTS`. La policy va decisa e rilasciata **in questo
+     round**, non rimandata a `OC-03`.
+  2. **Decidere cosa fare di `C-c` per questo profilo.** `Ctrl-C` non
+     interrompe il turno: termina l'agente, e con `exec opencode` la sessione
+     tmux muore con lui. `C-c` è nell'allowlist dei tasti, quindi un utente
+     che lo preme per fermare un turno perde la sessione. L'interruzione
+     corretta è il doppio `Escape`.
+  Tenere inoltre presente il difetto di warm-up: l'input inviato subito dopo
+  l'avvio viene scartato in silenzio, quindi creare una sessione e inviarle
+  subito un prompt — cioè il gesto naturale da mobile — può perdere il primo
+  messaggio. Serve una condizione di prontezza osservabile, non una `sleep`.
   **Gate:** creazione, prompt, output, tasti speciali e terminazione verificati
   sull'istanza pubblicata.
 
