@@ -3000,9 +3000,71 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   10. **Autenticazione mancante**: la TUI parte comunque e degrada con un
       suggerimento esplicito (`/connect`), senza errori né uscita — il caso
       "provider non configurato" non è un crash.
-  Il resto della matrice (input e paste, richieste di autorizzazione,
-  interrupt, resume, sessioni multiple) richiede un provider configurato:
-  l'autenticazione è un'azione dell'utente, per la decisione 4 del gate.
+  **Correzione registrata durante lo spike:** si era assunto che il resto
+  della matrice richiedesse un provider configurato. È falso. Con `auth.json`
+  a **zero credenziali** i round funzionano lo stesso, sul modello predefinito
+  `Big Pickle` di OpenCode Zen: la TUI mostra il suggerimento `/connect` ma non
+  lo impone. L'assunzione è stata smentita dall'uso reale, non dai documenti.
+  Conseguenza per `OC-01`: una sessione OpenCode creata da Mobile Agent
+  Console è operativa **senza** che nessuno abbia configurato nulla, quindi il
+  prerequisito host si riduce al solo binario e non protegge da un uso
+  involontario.
+  **Seguito della matrice (stessa data, senza credenziali).**
+  5. **Paste multilinea — DIFETTO.** Il testo passato con
+     `load-buffer -`/`paste-buffer` perde i newline **silenziosamente**, senza
+     nemmeno sostituirli con uno spazio: `AAA\nBBB` diventa `AAABBB`,
+     `CCC\n\nDDD` diventa `CCCDDD`. Le parole a cavallo di riga si saldano e
+     il prompt cambia significato. Riguarda direttamente il percorso di input
+     del prodotto, che è multilinea per natura. Da chiarire prima di `OC-01`
+     se esista una sequenza di invio alternativa accettata dalla TUI; se non
+     esiste, il profilo OpenCode va rilasciato dichiarando il limite, non
+     lasciandolo scoprire all'utente su un prompt lungo. Il paste in sé
+     funziona, ed è confermato che **Enter resta un'operazione separata**: il
+     comando compare in palette senza essere eseguito.
+  6. **Richieste di autorizzazione — nessuna osservata.** Con configurazione
+     vuota (`~/.config/opencode/opencode.jsonc` contiene solo `$schema`) e
+     **senza** `--auto`, l'agente ha eseguito comandi di shell (`wc -l`,
+     `ls -la`) **senza chiedere alcuna conferma**. Il permesso di eseguire
+     comandi è quindi il comportamento predefinito, non un'opzione da
+     attivare. È il risultato più rilevante dello spike per il threat model:
+     la decisione 2 del gate ("`--auto` non è il default") non basta, perché
+     il default è già permissivo di suo. `OC-01` non può limitarsi ad
+     aggiungere l'argv: deve rilasciare una policy dei permessi esplicita e
+     conservativa, altrimenti creare una sessione OpenCode da mobile equivale
+     a concedere esecuzione di comandi non sorvegliata con i privilegi
+     dell'utente host.
+  7. **Interrupt — parziale.** Un solo `Escape` non interrompe: la TUI passa a
+     `esc again to interrupt`, quindi ne servono due. Il secondo non è stato
+     dimostrato su un round davvero lungo, perché il round si è concluso da
+     solo prima: l'interruzione pulita **resta non verificata** e non va data
+     per buona. `Ctrl-C` non è stato provato. Nessun processo orfano rilevato
+     dopo il round, ma con un round concluso normalmente è evidenza debole.
+  9. **Resume — l'ambiguità è reale e riproducibile.** `opencode --continue`
+     riprende correttamente la conversazione quando ce n'è una sola. Con
+     **due** conversazioni nella stessa cartella riprende la **più recente**:
+     creata una seconda conversazione distinta, `--continue` ha restituito
+     quella e non la prima. Conferma sul campo il motivo per cui `OC-02` deve
+     partire dal selettore nativo (strategia B) e non da `--continue`: una
+     sessione archiviata da Mobile Agent Console verrebbe riagganciata alla
+     conversazione sbagliata senza alcun segnale all'utente.
+     `opencode session list` esiste e restituisce identificatori nella forma
+     `ses_<alfanumerico>`, con titolo e data — quindi la strategia C è
+     tecnicamente praticabile e l'ID è vincolabile con un pattern severo.
+     **Attenzione al confine:** i titoli sono generati dal contenuto della
+     conversazione, quindi esporre un elenco di sessioni OpenCode
+     significherebbe esporre contenuto, non solo identificatori.
+  12. **Nessuna regressione per tmux.** Le cinque sessioni preesistenti
+      dell'utente sono rimaste intatte per tutta la durata dello spike; tutte
+      le sessioni sonda sono state rimosse. `tmux-runtime` mai coinvolto: lo
+      spike vive interamente sul server tmux dell'host.
+  **Restano da eseguire prima di chiudere la voce:** punto 7 su un round
+  lungo e con `Ctrl-C`; punto 8 (directory consentite con path lunghi e
+  caratteri Unicode); punto 10 nella parte "persistenza dopo riavvio
+  dell'host"; punto 11 (assenza di segreti e contenuti in log, audit,
+  snapshot e backup — da verificare anche su `~/.local/share/opencode`, che
+  ora contiene le conversazioni dello spike); e l'acquisizione delle fixture
+  TUI sanitizzate per `OC-03`. Il punto 2 è verificato solo su
+  `capture-pane -e`: la resa effettiva in xterm.js non è stata osservata.
 
 - [ ] TEST-OC-00 | OWNER: SA-TEST | STATUS: BLOCKED | Sbloccato da `IMP-OC-00`.
   Verifica indipendente dello spike: rieseguire la matrice sui punti
