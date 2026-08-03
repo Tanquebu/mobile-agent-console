@@ -2928,7 +2928,7 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   passati, Ruff pulito. Aggiornata la sezione sull'input in
   `docs/architecture.md`. Chiudere con `TEST-PASTE-01`.
 
-- [ ] TEST-PASTE-01 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Sbloccato da
+- [x] TEST-PASTE-01 | OWNER: SA-TEST | STATUS: PASSED | Sbloccato da
   `INC-PASTE-01`. Il deploy è **parte di questo check**: la correzione vive
   nel backend e non è verificabile sui soli test. Verificare sull'istanza
   pubblicata, per **ciascun** profilo, che un testo con newline resti
@@ -2951,6 +2951,27 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   operazione. Resta da verificare in modo indipendente il comportamento per
   `codex`, `claude`, `antigravity` e `shell` sull'istanza pubblicata: `ROOT` li
   ha misurati solo su TUI avviate a mano, prima del deploy.
+  **Esito (`SA-TEST`, 03/08/2026).** Il buco è coperto: tutti e cinque i
+  profili verificati sull'istanza pubblicata, su sessioni di prova create con
+  `tmux` in `/tmp` e targettate via API. In ogni TUI (`codex`, `claude`,
+  `antigravity`, `opencode`) il testo con newline resta **su due righe**
+  nell'input senza essere inviato, il testo su riga singola si appende alla
+  riga corrente (`beta` + `gamma` → `betagamma`) senza inviare, e `POST /keys`
+  con `Enter` fa partire il turno davvero — su `claude` e `antigravity` con
+  risposta reale, quindi la sottomissione è provata, non dedotta.
+  Per `shell` il comportamento è diverso **e corretto**: la prima riga viene
+  eseguita subito anche con `-r`, perché la modalità canonica del pty consegna
+  una riga al processo non appena vede un LF, indipendentemente da come è
+  stato prodotto. `-r` cambia cosa transita nel buffer, non la disciplina di
+  linea. Nessuna regressione rispetto alle misure pre-deploy.
+  Verificati anche i due percorsi che condividono il meccanismo: il percorso
+  di consegna degli artefatti (che invia `Enter` in automatico) arriva integro
+  e viene sottomesso; gli allegati M2A generano il proprio suffisso multilinea
+  e si comportano come qualunque testo multilinea.
+  **Dichiarato non verificato:** `attachment_ids` combinato con una TUI reale
+  — sarebbe costato un turno a pagamento per ciascun profilo ed è ridondante
+  rispetto al caso multilinea già confermato per quegli stessi profili. Lo
+  scostamento è registrato invece di essere dato per buono.
 
 ## Integrazione OpenCode
 
