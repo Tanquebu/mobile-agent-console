@@ -58,10 +58,15 @@ generic terminal, with no dependency on any specific vendor or tool.
 - login with an HMAC-signed HttpOnly cookie, CSRF header on every mutation,
   and Origin check on the WebSocket upgrade;
 - two connectivity modes: an isolated containerized tmux, or your host's
-  own tmux server (host CLIs, aliases, and pre-existing sessions included).
+  own tmux server (host CLIs, aliases, and pre-existing sessions included);
 - opt-in, admin-only host observability collected on demand through a hardened
   Unix socket boundary, with no `/proc`, `/sys` or Docker socket mounted in the
-  backend and no polling from the Host view.
+  backend and no polling from the Host view;
+- opt-in budget history: a provider quota time series (with reset-aware
+  windows and staleness marking) and a per-session token breakdown that
+  discovers transcripts by modification time — so headless, pane-less runs
+  are attributed too — with subagents rolled up under the session that
+  spawned them, in a `Budget` view in the dashboard.
 
 ## Architecture
 
@@ -110,10 +115,10 @@ Open `http://127.0.0.1:8081` and log in with the content of
 into images or committed. Set `MAC_WORKSPACE_ROOT` in `.env` to the
 directory tree sessions may start in (mounted at `/workspace`).
 
-### Avvio automatico con systemd
+### Automatic startup with systemd
 
-Le unit incluse sono **user unit** e usano Compose; non avviano Uvicorn
-direttamente. Configurare il path del checkout senza modificare le unit:
+The included units are **user units** and drive Compose; they do not start
+Uvicorn directly. Configure the checkout path without editing the units:
 
 ```bash
 mkdir -p ~/.config/systemd/user ~/.config/mobile-agent-console
@@ -124,30 +129,30 @@ cp deploy/systemd/mobile-agent-console-provider-session-states.service ~/.config
 cp deploy/systemd/mobile-agent-console-provider-session-states.timer ~/.config/systemd/user/
 cp deploy/systemd/mobile-agent-console-orchestrator-state.service ~/.config/systemd/user/
 cp deploy/systemd/mobile-agent-console-orchestrator-state.timer ~/.config/systemd/user/
-# Opzionali: installare solo se si abilita la cronologia Claude.
+# Optional: install only if you enable Claude history.
 cp deploy/systemd/mobile-agent-console-claude-history.service ~/.config/systemd/user/
 cp deploy/systemd/mobile-agent-console-claude-history.timer ~/.config/systemd/user/
 cp deploy/systemd/environment.example ~/.config/mobile-agent-console/environment
 ```
 
-Modificare `MAC_INSTALL_DIR` nel file `environment`, quindi scegliere **una
-sola** unit applicativa:
+Set `MAC_INSTALL_DIR` in the `environment` file, then enable **exactly
+one** application unit:
 
 ```bash
-# Modalità Docker tmux
+# Docker tmux mode
 systemctl --user daemon-reload
 systemctl --user enable --now mobile-agent-console-docker.service
 
-# Oppure modalità host tmux
+# Or host tmux mode
 systemctl --user daemon-reload
 systemctl --user enable --now mobile-agent-console-host.service
 ```
 
-In modalità host la seconda unit avvia automaticamente anche il keepalive
-tmux. Nessuna unit usa `PrivateTmp`: il socket predefinito in `/tmp/tmux-$UID`
-resta raggiungibile. `stop` ferma soltanto `backend` e `web`, preservando
-`tmux-runtime` e le sessioni; `reload` ricrea solo i servizi stateless. Per
-l'avvio prima del primo login abilitare il lingering con
+In host mode the second unit also starts the tmux keepalive automatically.
+No unit uses `PrivateTmp`: the default socket under `/tmp/tmux-$UID` stays
+reachable. `stop` only stops `backend` and `web`, preserving `tmux-runtime`
+and the sessions; `reload` recreates only the stateless services. To start
+before the first login, enable lingering with
 `loginctl enable-linger "$USER"`.
 
 ### Host-tmux mode
@@ -162,9 +167,9 @@ l'avvio prima del primo login abilitare il lingering con
    If `/tmp/tmux-<uid>` did not exist, Docker would create it root-owned
    and tmux would refuse it — hence the ordering.
 
-   Per il recupero automatico dopo un reboot usare la procedura systemd sopra.
-   La unit keepalive ricrea `/tmp/tmux-$UID` con modo `0700` e non contiene
-   `ExecStop`, quindi fermarla o aggiornarla non termina le sessioni operative.
+   For automatic recovery after a reboot, use the systemd procedure above.
+   The keepalive unit recreates `/tmp/tmux-$UID` with mode `0700` and has no
+   `ExecStop`, so stopping or updating it does not terminate live sessions.
 
 2. In `.env`, uncomment the host-tmux block (see `.env.example`):
    `COMPOSE_FILE=compose.yaml:compose.host.yaml`, `MAC_UID`/`MAC_GID`,
@@ -198,18 +203,21 @@ In host mode the tmux server must be running again before restoring. Codex and
 Claude history must also remain available in their normal persistent user
 directories.
 
-### Host observability (release candidate)
+### Host observability
 
 The optional Host view reports a minimized snapshot of memory, load,
 configured filesystems, processes, unexpected listeners and mapped Docker
 problems. Collection is one-shot and admin-only; it is disabled unless
-`compose.host-observability.yaml` is explicitly included. The expandable JSON
-export copies the exact already-sanitized API snapshot, without another fetch
-or UI-only metadata. Copying or sharing it is an explicit administrator action:
-the minimized operational data can still be sensitive outside its intended
-context. Installation,
-rootless UID mapping, security checks, rollback and the complete release gate
-are documented in
+`compose.host-observability.yaml` is explicitly included. The collector
+config supports the legacy v1 shape and the v2 contract, which adds
+per-process and per-listener policy scoring (allowed scopes, RSS/count
+thresholds) without changing the endpoint, auth or export format — see
+[docs/contracts/host-observability-v2.md](docs/contracts/host-observability-v2.md).
+The expandable JSON export copies the exact already-sanitized API snapshot,
+without another fetch or UI-only metadata. Copying or sharing it is an
+explicit administrator action: the minimized operational data can still be
+sensitive outside its intended context. Installation, rootless UID mapping,
+security checks, rollback and the complete release gate are documented in
 [docs/gates/host-observability.md](docs/gates/host-observability.md). The
 example configuration contains placeholders only and must be copied outside
 the repository with exact mode `0600`.
@@ -242,8 +250,9 @@ does not protect against loss of the VPS.
 
 The optional user timer `mobile-agent-console-rate-limits.timer` runs the local
 Codex and Claude rate-limit scripts once per minute, without Claude `--fresh`,
-and writes a sanitized status file below `.mobile-agent-console`. Install the
-service and timer beside the other user units, ensure
+and writes a sanitized status file below `.mobile-agent-console`. The same
+collector run also appends a sample to the quota history JSONL described
+below. Install the service and timer beside the other user units, ensure
 `MAC_WORKSPACE_ROOT` is set in
 `~/.config/mobile-agent-console/environment`, then enable it:
 
@@ -255,14 +264,88 @@ systemctl --user enable --now mobile-agent-console-rate-limits.timer
 The dashboard refreshes these values once per minute. Provider credentials and
 Codex transcripts are never mounted into the backend container.
 
-## Stato dei task schedulati
+## Budget history
 
-Il timer opzionale `mobile-agent-console-orchestrator-state.timer` legge lo
-stato read-only di un orchestratore esterno ogni 30 secondi. Configurare
-`MAC_ORCHESTRATOR_STATE_URL`, `MAC_ORCHESTRATOR_STATE_TOKEN` e, se
-necessario, `MAC_ORCHESTRATOR_STATE_TOKEN_HEADER` nel file environment
-privato della console. L'URL e il token restano nel collector host-side e non
-vengono montati nel backend. Usare HTTPS salvo endpoint strettamente loopback.
+Beside the instantaneous quota snapshot above, an opt-in feature set adds a
+historical view of provider quota consumption and a per-session breakdown of
+where it went — see [ADR 010](docs/adr/010-storico-consumo-budget.md) and the
+[budget history contract](docs/contracts/budget-history-v1.md).
+
+The existing `mobile-agent-console-rate-limits.timer` from the section above
+already appends each sample to `provider-rate-limits-history.jsonl` as a
+structured time series, with no extra unit needed: each row carries a
+`resets_at` epoch per window (so the physiological decay of the rolling
+5-hour window doesn't read as usage dropping), a `stale` flag when the
+underlying source is older than the configured threshold, and a `parse_mode`
+that records whether the row came from the provider's structured `--json`
+output or from the historical text-parsing fallback. Consecutive identical
+samples are not appended, and the file rotates under a retention window long
+enough to cover the 7-day quota window with margin.
+
+A second, independent collector (`mobile-agent-console-session-usage.timer`,
+every 5 minutes) attributes token consumption to individual sessions. It
+discovers transcripts by modification time rather than by walking tmux panes
+— which is what makes consumption from pane-less, headless runs (an external
+orchestrator, scheduled jobs) visible at all, instead of only sessions with a
+live tmux pane. Responses are deduplicated by request id to avoid
+double-counting streaming partials, and subagent transcripts are rolled up
+under the session that spawned them, since subagent fan-out can dwarf the
+token volume of the session itself. The raw token counters are kept separate
+per bucket; no synthetic quota-percentage estimate is published, since it
+can't be reconstructed accurately from those counters alone.
+
+Both series feed a `Budget` view in the frontend, alongside a manual,
+admin-only "refresh now" action that performs one real remote quota check on
+request (never on a timer) through the same Unix-socket, socket-activated,
+one-shot-collector boundary used by host observability, with its own rate
+limit separate from the regular polling.
+
+The quota history above is read automatically once the rate-limits timer is
+running. Per-session attribution and the forced-refresh action are each
+opt-in and require the `compose.budget-history.yaml` overlay, composable with
+either `compose.yaml` or `compose.host.yaml`:
+
+```bash
+# in .env
+COMPOSE_FILE=compose.yaml:compose.budget-history.yaml
+MAC_HOST_OBSERVABILITY_SOCKET_DIR=/path/to/a/prepared/socket/dir
+```
+
+and the matching user units, beside the others:
+
+```bash
+cp deploy/systemd/mobile-agent-console-session-usage.service ~/.config/systemd/user/
+cp deploy/systemd/mobile-agent-console-session-usage.timer ~/.config/systemd/user/
+cp deploy/systemd/mobile-agent-console-rate-limit-fresh.socket ~/.config/systemd/user/
+cp deploy/systemd/mobile-agent-console-rate-limit-fresh@.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now mobile-agent-console-session-usage.timer
+systemctl --user enable --now mobile-agent-console-rate-limit-fresh.socket
+```
+
+The forced-refresh socket reuses the same runtime directory and ACL-preparing
+unit as host observability, so both features stay opt-in and independent
+while sharing the same hardened boundary — `MAC_HOST_OBSERVABILITY_SOCKET_DIR`
+is required by the overlay even if the Host view itself is not enabled. The
+two JSONL files (`provider-rate-limits-history.jsonl`,
+`session-usage-history.jsonl`) live `0600` in the workspace's
+`.mobile-agent-console` state directory beside the other status files, are
+read-only from the backend's point of view, and can be deleted at any time
+without breaking the instantaneous snapshot.
+
+Use `deploy/snapshot-env.sh [reason]` after any change to `.env` — it keeps
+dated, `0600` copies under `customizations/env-snapshots/` (itself
+git-ignored) and diffs against the previous snapshot, so a silently dropped
+overlay or variable leaves a trail instead of vanishing unnoticed.
+
+## Scheduled task status
+
+The optional `mobile-agent-console-orchestrator-state.timer` reads the
+read-only status of an external orchestrator every 30 seconds. Configure
+`MAC_ORCHESTRATOR_STATE_URL`, `MAC_ORCHESTRATOR_STATE_TOKEN` and, if needed,
+`MAC_ORCHESTRATOR_STATE_TOKEN_HEADER` in the console's private environment
+file. The URL and token stay in the host-side collector and are never
+mounted into the backend. Use HTTPS unless the endpoint is strictly loopback.
 
 ```bash
 systemctl --user daemon-reload
@@ -288,16 +371,15 @@ custom status line. It writes one `0600` JSON file per session under
 `~/.claude/context-window-cache`, containing only percentage, window size,
 timestamp and tmux pane id.
 
-## Cronologia Claude opzionale
+## Optional Claude history
 
-Claude usa lo schermo alternativo, quindi tmux non può fornire la cronologia
-che resta visibile con `tmux attach`. In modalità host il collector opzionale
-legge il transcript sull'host, conserva soltanto messaggi testuali
-utente/assistente e pubblica un file derivato `0600` sotto
-`.mobile-agent-console`. Thinking, tool input/output, allegati, sidechain e
-metadati sono esclusi.
+Claude uses the alternate screen, so tmux cannot provide the scrollback that
+stays visible with `tmux attach`. In host mode, the optional collector reads
+the transcript on the host, keeps only user/assistant text messages, and
+publishes a derived `0600` file under `.mobile-agent-console`. Thinking,
+tool input/output, attachments, sidechains and metadata are excluded.
 
-L'opt-in richiede entrambe le azioni:
+Opting in requires both actions:
 
 ```bash
 # in .env
@@ -308,17 +390,17 @@ systemctl --user enable --now mobile-agent-console-claude-history.timer
 docker compose up -d --build --no-deps backend web
 ```
 
-La vista `Cronologia` è separata da `Blocchi` e `Terminale`; lo stream tmux
-continua a essere autorevole e non viene modificato. Rollback:
+The `History` view is separate from `Blocks` and `Terminal`; the tmux stream
+remains authoritative and is not modified. Rollback:
 
 ```bash
-# impostare MAC_CLAUDE_HISTORY_ENABLED=false in .env
+# set MAC_CLAUDE_HISTORY_ENABLED=false in .env
 systemctl --user disable --now mobile-agent-console-claude-history.timer
 docker compose up -d --no-deps backend web
 ```
 
-Il file derivato può poi essere eliminato manualmente. Disabilitare la feature
-non termina né ricrea sessioni tmux. Limiti e motivazioni sono in ADR 007.
+The derived file can then be deleted manually. Disabling the feature neither
+terminates nor recreates tmux sessions. Limits and rationale are in ADR 007.
 
 ## Secure exposure
 
