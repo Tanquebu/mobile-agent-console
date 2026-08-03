@@ -3399,6 +3399,34 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   messaggio d'errore quando il binario manca — un profilo che fallisce in
   silenzio perché `opencode` non è nel `PATH` di tmux è il modo più probabile
   in cui questa fase si rompe in produzione.
+  **Decisioni di `ROOT` prese all'apertura (03/08/2026), da non rinegoziare
+  in implementazione:**
+  - **Policy dei permessi: conservativa** — conferma richiesta per
+    l'esecuzione di comandi **e** per le scritture su file; letture libere.
+    Scelta dall'utente il 03/08/2026, ed è la lettura fedele della decisione
+    già approvata in `GATE-OC-00` ("conservative per le operazioni mutative o
+    esterne"). Allinea inoltre OpenCode al comportamento che l'utente già
+    conosce da Codex.
+  - **Meccanismo: variabile d'ambiente della sessione tmux**, non un file
+    sull'host. OpenCode supporta `OPENCODE_CONFIG_CONTENT` (verificato nel
+    binario 1.18.11), e `tmux new-session` accetta `-e VAR=valore`: la policy
+    diventa così una **costante server-side** come l'argv, senza dipendere da
+    un file da deployare e senza mai passare da una stringa di shell.
+    Verificato sul campo che un JSON attraversa `tmux -e` integro, virgolette
+    comprese. Il backend continua a non montare `~/.config/opencode`, come
+    prescrive l'analisi. La forma esatta dello schema (`allow`/`ask`/`deny`)
+    va confermata empiricamente in implementazione, non dedotta.
+  - **Resume: non usare `--continue`.** Lo store delle conversazioni è
+    globale per utente, quindi `--continue` può agganciare la conversazione di
+    un altro progetto. Per `OC-01` il profilo di ripresa avvia OpenCode
+    normalmente; l'aggancio alla conversazione giusta è materia di `OC-02`,
+    che partirà dal selettore nativo.
+  - **`C-c` resta nell'allowlist e non viene intercettato.** Mobile Agent
+    Console è un terminale generico: inoltra i tasti, e `C-c` fa quello che
+    farebbe in un terminale vero. Bloccarlo per un profilo significherebbe far
+    dipendere la semantica dei tasti dall'agente, cioè il contrario di ADR
+    002. Va invece **documentato** che per OpenCode l'interruzione è il doppio
+    `Escape` e che `C-c` chiude la sessione.
   **Due prerequisiti aggiunti dallo spike, senza i quali questa voce non è
   la modifica contenuta che sembrava all'inizio:**
   1. **Policy dei permessi esplicita.** Con la configurazione predefinita
