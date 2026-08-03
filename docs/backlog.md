@@ -2563,7 +2563,7 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
 
   `IMP-BH-04` sbloccato.
 
-- [ ] IMP-BH-04 | OWNER: SA-IMP | STATUS: READY | Implementare il drill-down
+- [ ] IMP-BH-04 | OWNER: SA-IMP | STATUS: IN_PROGRESS | Implementare il drill-down
   di fase C entro il confine registrato in `GATE-BH-04`: solo metadati di
   turno (istanti, modello, delta dei quattro contatori di token, conteggi di
   strumenti per categoria, eventi di compattazione, eventi di spawn di
