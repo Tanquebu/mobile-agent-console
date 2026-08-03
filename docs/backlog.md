@@ -3116,12 +3116,19 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
      nemmeno sostituirli con uno spazio: `AAA\nBBB` diventa `AAABBB`,
      `CCC\n\nDDD` diventa `CCCDDD`. Le parole a cavallo di riga si saldano e
      il prompt cambia significato. Riguarda direttamente il percorso di input
-     del prodotto, che è multilinea per natura. Da chiarire prima di `OC-01`
-     se esista una sequenza di invio alternativa accettata dalla TUI; se non
-     esiste, il profilo OpenCode va rilasciato dichiarando il limite, non
-     lasciandolo scoprire all'utente su un prompt lungo. Il paste in sé
-     funziona, ed è confermato che **Enter resta un'operazione separata**: il
-     comando compare in palette senza essere eseguito.
+     del prodotto, che è multilinea per natura.
+     *(Rettificato da `IMP-OC-00-R2`. Questo punto conteneva **due** errori,
+     non uno. La diagnosi era sbagliata: il newline non veniva perso da
+     OpenCode, veniva convertito in CR da `paste-buffer` invocato senza `-r`
+     — un difetto del prodotto, non della TUI, tracciato e corretto in
+     `INC-PASTE-01`. E la conclusione era falsa: qui si leggeva "è confermato
+     che **Enter resta un'operazione separata**", mentre con un newline il
+     messaggio partiva da solo. L'osservazione originale su cui si fondava
+     quella frase — il comando che compare in palette senza essere eseguito —
+     era corretta ma riguardava un paste **su riga singola**, e da essa era
+     stata generalizzata una garanzia che il caso multilinea non aveva. Con
+     `-r` applicato, entrambi i comportamenti sono ora quelli attesi su tutti
+     i profili, verificati sull'istanza pubblicata da `TEST-PASTE-01`.)*
   6. **Richieste di autorizzazione — di norma assenti, ma esistono.**
      *(Rettificato da `IMP-OC-00-R1`: la formulazione originale diceva
      "nessuna osservata" ed è stata falsificata da `TEST-OC-00`, che ne ha
@@ -3301,7 +3308,7 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   stato raro non viene coperto per caso — quindi il frame va provocato
   deliberatamente prima di scrivere il classificatore, non atteso.
 
-- [ ] TEST-OC-00-T2 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Sbloccato da
+- [x] TEST-OC-00-T2 | OWNER: SA-TEST | STATUS: FAILED | Sbloccato da
   `IMP-OC-00-R1`. Il rework è documentale: verificare che le tre correzioni
   siano effettivamente riportate in `IMP-OC-00` e nel `README.md` delle
   fixture, che non sia rimasta da nessuna parte l'affermazione "nessuna
@@ -3309,11 +3316,65 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   descriva il difetto in modo riproducibile. Non rieseguire l'intera matrice:
   dichiarare esplicitamente cosa è stato ricontrollato e cosa no. Confermare
   che il repository continui a non contenere modifiche di prodotto.
+  **Esito (`SA-TEST`, 03/08/2026).** Confermati: le rettifiche dei difetti 2 e
+  3 sono presenti e coerenti in `IMP-OC-00` e nel `README.md` delle fixture;
+  nessuna affermazione categorica attiva sull'assenza di richieste di
+  autorizzazione sopravvive nel repository (le due occorrenze restanti sono
+  citazioni dentro le rettifiche, correttamente classificate come tali);
+  `INC-PASTE-01` è riproducibile da sola, senza contesto aggiuntivo; i quattro
+  commit dello spike toccano solo `docs/` e fixture, mai `backend/app/`,
+  `frontend/src/` o `deploy/`; scansione dati personali senza occorrenze;
+  stati della sezione coerenti, nessuna fase sbloccata da un `DONE` senza un
+  `SA-TEST` `PASSED`.
+  **Difetto che motiva il `FAILED`:** la rettifica del difetto 1 **non è mai
+  stata applicata**. Il punto 5 della matrice in `IMP-OC-00` è rimasto
+  invariato — `git show a09a81e -- docs/backlog.md` non tocca quelle righe —
+  e continuava ad affermare "è confermato che **Enter resta un'operazione
+  separata**", cioè esattamente la frase che `TEST-OC-00` aveva falsificato.
+  `IMP-OC-00-R1` aveva discusso la causa e aperto `INC-PASTE-01`, ma aveva
+  lasciato l'errore nella voce che l'aveva originato. Riproduzione:
+  `sed -n '3114,3124p' docs/backlog.md` confrontato con l'esito di
+  `TEST-OC-00`.
+  Segnalato inoltre un riferimento obsoleto: `IMP-OC-01` diceva "Sbloccato da
+  `TEST-OC-00` `PASSED`", mentre quel tentativo è chiuso `FAILED` in modo
+  permanente. Non causava uno sblocco indebito, ma era fuorviante.
+
+- [x] IMP-OC-00-R2 | OWNER: ROOT | STATUS: DONE | Rework del difetto di
+  `TEST-OC-00-T2`. Il punto 5 di `IMP-OC-00` conteneva **due** errori, non
+  solo la frase segnalata, e la rettifica scritta ora li ritratta entrambi:
+  la **diagnosi** era sbagliata — il newline non veniva perso da OpenCode ma
+  convertito in CR da `paste-buffer` senza `-r`, difetto del prodotto tracciato
+  in `INC-PASTE-01` — e la **conclusione** era falsa, perché con un newline il
+  messaggio partiva da solo. Registrato anche come nacque l'errore, che è la
+  parte riutilizzabile: l'osservazione di partenza era corretta ma riguardava
+  un paste **su riga singola**, e da quella era stata generalizzata una
+  garanzia che il caso multilinea non aveva. Corretto anche il riferimento
+  obsoleto in `IMP-OC-01`, ora legato all'ultimo tentativo `SA-TEST` con esito
+  `PASSED` invece che a un tentativo chiuso `FAILED`.
+  **Nota di metodo:** due round di verifica sono serviti a scoprire che una
+  correzione dichiarata non era stata applicata. `IMP-OC-00-R1` elencava tre
+  difetti corretti; due lo erano davvero. Dichiarare una correzione e farla
+  sono eventi distinti, e solo il secondo lascia traccia nel diff — è lì che
+  va cercata la prova, non nella voce che se ne attribuisce il merito.
+
+- [ ] TEST-OC-00-T3 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Sbloccato da
+  `IMP-OC-00-R2`. Verificare che il punto 5 di `IMP-OC-00` porti ora una
+  rettifica che ritratta **sia** la diagnosi **sia** la conclusione, e che nel
+  file non sopravviva altrove un'affermazione secondo cui l'invio resterebbe
+  separato anche nel caso multilinea. Ricontrollare, con lo stesso metodo che
+  ha trovato questo difetto, che **ciascuna** correzione dichiarata da
+  `IMP-OC-00-R1` e `IMP-OC-00-R2` compaia davvero nel diff dei rispettivi
+  commit, invece di fidarsi dell'elenco nella voce. Confermare che il
+  riferimento in `IMP-OC-01` non punti più a un tentativo `FAILED`. Non
+  rieseguire la matrice dello spike.
 
 #### OC-01 — Profilo TUI di base
 
-- [ ] IMP-OC-01 | OWNER: SA-IMP | STATUS: BLOCKED | Sbloccato da `TEST-OC-00`
-  `PASSED`. Creare e controllare sessioni OpenCode dalla PWA come terminali
+- [ ] IMP-OC-01 | OWNER: SA-IMP | STATUS: BLOCKED | Sbloccato dall'ultimo
+  tentativo `SA-TEST` di `OC-00` con esito `PASSED` — oggi `TEST-OC-00-T3`.
+  Il riferimento originale era a `TEST-OC-00`, che è chiuso `FAILED` in modo
+  permanente: un tentativo fallito non si riapre e non sblocca nulla.
+  Creare e controllare sessioni OpenCode dalla PWA come terminali
   generici: aggiungere `opencode` alle union backend/frontend, argv costante
   server-side, aggiornare creazione, fake e test, mostrare il profilo nel
   selettore. Mantenere inizialmente la sola vista Terminale se "Blocchi" non è
