@@ -1,5 +1,6 @@
 import asyncio
 import json
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +85,16 @@ class UnixSocketJsonClient:
         finally:
             if writer is not None:
                 writer.close()
-                await writer.wait_closed()
+                # La chiusura e' pulizia, non un risultato: se il collector ha
+                # gia' resettato la connessione, `wait_closed()` rilancia
+                # l'errore di trasporto da dentro il `finally` e sostituisce
+                # l'eccezione tipizzata in volo con una grezza, che l'endpoint
+                # non riconosce piu' e trasforma in un 500. Osservato il
+                # 03/08/2026 sull'istanza pubblicata: socket systemd in
+                # `trigger-limit-hit`, connessione accettata e chiusa subito,
+                # risposta 500 invece di 503.
+                with suppress(ConnectionError, OSError):
+                    await writer.wait_closed()
 
         if not payload:
             raise self.response_error("host collector returned an empty response")

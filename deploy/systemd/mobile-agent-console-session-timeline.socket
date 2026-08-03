@@ -17,8 +17,15 @@ Backlog=8
 # Un drill-down è un'ispezione umana su un singolo picco alla volta: la
 # concorrenza resta bassa, coerente con rate-limit-fresh.
 MaxConnections=4
+# Invariante: il limite del trasporto deve stare SOPRA il rate limit
+# applicativo (`MAC_SESSION_TIMELINE_RATE_LIMIT`, 20/60s), mai sotto. Con
+# burst 16 su 60s il socket moriva prima che il limitatore del backend
+# potesse intervenire, e `trigger-limit-hit` e' uno stato terminale: l'unit
+# resta `failed` finche' qualcuno non la riavvia a mano. Osservato sul
+# deploy del 03/08/2026 alla quattordicesima richiesta di una raffica.
+# Stesso rapporto degli altri due boundary (host-observability 30 contro 6).
 TriggerLimitIntervalSec=60
-TriggerLimitBurst=16
+TriggerLimitBurst=60
 
 [Install]
 WantedBy=sockets.target
