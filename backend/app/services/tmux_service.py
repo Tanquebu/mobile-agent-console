@@ -29,7 +29,7 @@ RESUME_PROFILE_ARGV = {
     "shell": PROFILE_ARGV["shell"],
     "codex": ("bash", "-l", "-c", "exec codex resume"),
     "claude": ("bash", "-l", "-c", "exec claude --resume"),
-    "antigravity": PROFILE_ARGV["antigravity"],
+    "antigravity": ("bash", "-l", "-c", "exec agy -c"),
 }
 
 

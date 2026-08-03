@@ -145,7 +145,11 @@ def test_create_session_uses_server_side_profile(monkeypatch, profile, expected)
         ("shell", ("bash", "-l")),
         ("codex", ("bash", "-l", "-c", "exec codex resume")),
         ("claude", ("bash", "-l", "-c", "exec claude --resume")),
-        ("antigravity", ("bash", "-l", "-c", "exec agy")),
+        # `-c` e' l'alias breve di `--continue`: riprende l'ultima
+        # conversazione, come `claude --resume` e `codex resume`. Prima il
+        # profilo di ripresa di antigravity era identico a quello di avvio,
+        # quindi "riprendi" apriva in realta' una sessione nuova.
+        ("antigravity", ("bash", "-l", "-c", "exec agy -c")),
     ],
 )
 def test_create_session_uses_server_side_resume_profile(
