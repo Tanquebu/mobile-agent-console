@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 class ProviderWindow(BaseModel):
     label: str = Field(max_length=32)
     used_percent: float | None = Field(default=None, ge=0, le=100)
+    resets_at: int | None = Field(default=None, ge=0)
     detail: str | None = Field(default=None, max_length=300)
 
 

@@ -19,6 +19,7 @@ def test_rate_limit_status_reads_valid_sanitized_payload(tmp_path: Path) -> None
                             {
                                 "label": "primaria",
                                 "used_percent": 42,
+                                "resets_at": 1786231416,
                                 "detail": "finestra 10080 min",
                             }
                         ],
@@ -33,6 +34,7 @@ def test_rate_limit_status_reads_valid_sanitized_payload(tmp_path: Path) -> None
     status = RateLimitStatusService(str(path)).read()
     assert status is not None
     assert status.providers[0].windows[0].used_percent == 42
+    assert status.providers[0].windows[0].resets_at == 1786231416
 
 
 def test_rate_limit_status_ignores_missing_or_invalid_payload(tmp_path: Path) -> None:
@@ -59,3 +61,25 @@ def test_rate_limit_status_accepts_provider_usage_capped_at_one_hundred(tmp_path
     status = RateLimitStatusService(str(path)).read()
     assert status is not None
     assert status.providers[0].windows[0].used_percent == 100
+
+
+def test_rate_limit_status_accepts_legacy_window_without_reset(tmp_path: Path) -> None:
+    path = tmp_path / "provider-rate-limits.json"
+    path.write_text(
+        '{"collected_at":"now","providers":[{"provider":"codex","available":true,'
+        '"windows":[{"label":"primaria","used_percent":42}]}]}',
+        encoding="utf-8",
+    )
+    status = RateLimitStatusService(str(path)).read()
+    assert status is not None
+    assert status.providers[0].windows[0].resets_at is None
+
+
+def test_rate_limit_status_rejects_negative_reset_epoch(tmp_path: Path) -> None:
+    path = tmp_path / "provider-rate-limits.json"
+    path.write_text(
+        '{"collected_at":"now","providers":[{"provider":"codex","available":true,'
+        '"windows":[{"label":"primaria","used_percent":42,"resets_at":-1}]}]}',
+        encoding="utf-8",
+    )
+    assert RateLimitStatusService(str(path)).read() is None

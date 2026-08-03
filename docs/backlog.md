@@ -2613,3 +2613,42 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   coerente per quelli dichiarati non disponibili; spawn di subagent
   pubblicato come evento senza seguirne il contenuto; `claude-history`
   resta indipendente (disattivarla non altera il drill-down e viceversa).
+
+#### BH-05 — Ripristino del prossimo reset nel pannello quote
+
+- [x] GATE-BH-05 | OWNER: ROOT | STATUS: PASSED | Approvato dall'utente il
+  03/08/2026 dopo l'indagine sulla regressione. Il passaggio del collector a
+  `--json` conservava `resets_at` nello storico ma lo scartava dalla proiezione
+  istantanea; contemporaneamente lo script Codex usava `detail` per la durata
+  della finestra, non per duplicare la data. Confine approvato: estensione
+  compatibile dello snapshot con epoch opzionale validato, rendering esplicito
+  in dashboard e Console anche con densità compatta, nessun parsing del testo
+  libero e nessun allargamento dei dati già autorizzati dal threat model.
+
+- [x] IMP-BH-05 | OWNER: ROOT | STATUS: DONE | Aggiunto
+  `windows[].resets_at` alla proiezione del collector, al modello Pydantic e al
+  tipo frontend; mantenere validi gli snapshot legacy senza campo e rifiutare
+  epoch negativi. Mostrare la data locale senza dipendere da hover o `detail`,
+  aggiornare contratti, ADR, architettura, sicurezza, gate, roadmap e
+  `LATEST_RELEASE` nello stesso round. Implementazione conclusa in
+  `deploy/rate-limit-collector.py`, modello e test backend, tipi/rendering/CSS
+  frontend e documentazione elencata; nessuna modifica allo script quote
+  esterno e nessun parsing della data dal suo `detail`.
+
+- [x] TEST-BH-05 | OWNER: ROOT | STATUS: PASSED | Verificati collector,
+  compatibilità legacy, rifiuto degli epoch negativi e propagazione API con i
+  test mirati backend (67 passati); suite backend completa e Ruff
+  `--no-cache` verdi. Suite UI del commit verde (46 test: Host 14, Budget 24,
+  Console 3, Admin 5), build TypeScript/Vite locale e nel target
+  Docker verdi; `docker compose config --quiet` e `git diff --check` puliti.
+  Il timer reale ha scritto uno snapshot `0600` con `resets_at` su tutte le
+  finestre strutturate Claude/Codex. Build e deploy hanno ricreato soltanto
+  `backend` e `web` in modalità host, senza servizio `tmux-runtime` da toccare;
+  le immagini finali sono state ricostruite da un export isolato del commit per
+  escludere il lavoro locale BH-04 non ancora committato.
+  Verifica HTTPS pubblicata: login `200`, endpoint quote `200`, finestra Codex
+  `primaria` con epoch non negativo; gli asset web serviti contengono classe
+  `provider-reset`, rendering di `resets_at` e il nuovo testo `LATEST_RELEASE`.
+  Due tentativi di automazione browser Playwright non hanno restituito un esito
+  osservabile nell'ambiente e non sono conteggiati come prova; la copertura del
+  rendering normale/compatto resta nei test UI automatici verdi sopra.

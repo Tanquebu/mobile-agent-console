@@ -47,6 +47,11 @@ Un oggetto JSON singolo su stdout:
   singoli oggetti, non è considerato valido: il collector degrada alla forma
   testuale invece di pubblicare una riga strutturata vuota.
 
+La proiezione istantanea in `provider-rate-limits.json` conserva per ogni
+finestra `label`, `used_percent`, `resets_at` e `detail`. `resets_at` resta
+`null` nel fallback testuale: non viene ricostruito analizzando `detail`, che è
+testo libero localizzato e non una sorgente autorevole.
+
 ## Degradazione ammessa: forma testuale
 
 Quando lo script non offre (o rifiuta) la forma strutturata, il collector

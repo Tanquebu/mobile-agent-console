@@ -261,8 +261,10 @@ systemctl --user daemon-reload
 systemctl --user enable --now mobile-agent-console-rate-limits.timer
 ```
 
-The dashboard refreshes these values once per minute. Provider credentials and
-Codex transcripts are never mounted into the backend container.
+The dashboard refreshes these values once per minute and displays the
+structured next-reset timestamp when the provider supplies one, including in
+compact dashboard and console views. Provider credentials and Codex transcripts
+are never mounted into the backend container.
 
 ## Budget history
 

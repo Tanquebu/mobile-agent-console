@@ -85,6 +85,14 @@ test("la vista Budget è raggiungibile dalla dashboard e sospende i poll come Ho
   );
 });
 
+test("lo snapshot quote espone e rende visibile il prossimo reset anche nelle viste compatte", () => {
+  assert.match(api, /ProviderRateLimitWindow[\s\S]*resets_at: number \| null;/);
+  assert.match(app, /function formatRateLimitReset\(value: number \| null\)/);
+  assert.match(sessionList, /provider-reset[\s\S]*reset \{formatRateLimitReset\(window\.resets_at\)\}/);
+  assert.match(app, /agent-info-reset[\s\S]*reset \{formatRateLimitReset\(window\.resets_at\)\}/);
+  assert.match(styles, /\.provider-windows\.compact \.provider-reset/);
+});
+
 test("il focus entra sul titolo Budget e torna al trigger rimontato", () => {
   assert.match(budgetView, /const headingRef = useRef<HTMLHeadingElement>\(null\)/);
   assert.match(budgetView, /headingRef\.current\?\.focus\(\{ preventScroll: true \}\)/);

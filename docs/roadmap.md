@@ -128,7 +128,8 @@ API specifiche di Codex, Claude o altri agenti.
 ## M3 — Esperienza MVP
 
 - [x] Quote rate-limit Codex e Claude nella dashboard tramite collector
-  sanitizzato host-side, validate sull'istanza pubblicata.
+  sanitizzato host-side, inclusa la data strutturata del prossimo reset nelle
+  viste normale e compatta, validate sull'istanza pubblicata.
 - [~] Stato read-only dei task dell'orchestratore: provider, stato,
   pausa per capacità, prossimo tentativo, fallback e avanzamento del
   checkpoint. Implementato come collector host-side sanitizzato; resta da

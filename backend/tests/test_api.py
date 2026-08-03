@@ -257,7 +257,8 @@ def test_provider_rate_limits_are_authenticated_and_sanitized(tmp_path) -> None:
     path.write_text(
         '{"collected_at":"2026-07-26T15:30:00+00:00","providers":['
         '{"provider":"claude","available":true,"observed_at":"2026-07-26T15:01:34Z",'
-        '"windows":[{"label":"5h","used_percent":12,"detail":"reset later"}],'
+        '"windows":[{"label":"5h","used_percent":12,"resets_at":1785679200,'
+        '"detail":"reset later"}],'
         '"reached_type":null,"error":null}]}',
         encoding="utf-8",
     )
@@ -266,6 +267,7 @@ def test_provider_rate_limits_are_authenticated_and_sanitized(tmp_path) -> None:
     login(client)
     payload = client.get("/api/v1/provider-rate-limits").json()
     assert payload["providers"][0]["windows"][0]["used_percent"] == 12
+    assert payload["providers"][0]["windows"][0]["resets_at"] == 1785679200
 
 
 def test_orchestrator_state_is_authenticated_and_read_only(tmp_path) -> None:

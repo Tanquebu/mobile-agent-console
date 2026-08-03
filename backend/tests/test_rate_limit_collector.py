@@ -46,10 +46,15 @@ def test_collector_caps_provider_percentages_above_one_hundred(monkeypatch) -> N
     status = collector.collect("claude", "/not-used")
 
     assert status["available"] is True
-    # Il contratto pubblicato di `provider-rate-limits.json` non cambia: la
-    # proiezione dello snapshot resta esattamente quella storica.
+    # Il campo opzionale del reset estende in modo compatibile lo snapshot:
+    # il fallback testuale non conosce l'epoch e pubblica quindi `None`.
     assert collector.snapshot_provider(status)["windows"] == [
-        {"label": "7d", "used_percent": 100.0, "detail": "reset soon"}
+        {
+            "label": "7d",
+            "used_percent": 100.0,
+            "resets_at": None,
+            "detail": "reset soon",
+        }
     ]
 
 
@@ -80,7 +85,12 @@ def test_collector_prefers_structured_form_and_keeps_reset_epoch(monkeypatch) ->
     # pubblicato, non solo interno alla funzione.
     assert status["parse_mode"] == "structured"
     assert collector.snapshot_provider(status)["windows"] == [
-        {"label": "5h", "used_percent": 91.0, "detail": "reset 8/2/2026, 4:00:00 PM"}
+        {
+            "label": "5h",
+            "used_percent": 91.0,
+            "resets_at": 1785679200,
+            "detail": "reset 8/2/2026, 4:00:00 PM",
+        }
     ]
 
 

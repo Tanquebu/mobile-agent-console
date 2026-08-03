@@ -176,7 +176,7 @@ def collect(name: str, script: str, *, fresh: bool = False) -> dict[str, object]
 
 
 def snapshot_provider(collected: dict[str, object]) -> dict[str, object]:
-    """Proiezione sul contratto invariato di `provider-rate-limits.json`."""
+    """Proiezione sul contratto compatibile di `provider-rate-limits.json`."""
     return {
         "provider": collected["provider"],
         "available": collected["available"],
@@ -185,6 +185,7 @@ def snapshot_provider(collected: dict[str, object]) -> dict[str, object]:
             {
                 "label": window["label"],
                 "used_percent": window["used_percent"],
+                "resets_at": window["resets_at"],
                 "detail": window["detail"],
             }
             for window in collected.get("windows", [])

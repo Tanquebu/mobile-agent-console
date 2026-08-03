@@ -114,7 +114,10 @@ con argv e timeout, senza `shell=True` e senza `--fresh`; prova prima la forma
 strutturata `--json` e ricade sul parsing testuale storico quando lo script non
 la offre. Nel file condiviso finiscono provider, percentuali, reset, timestamp
 ed eventuali errori troncati: mai token, header HTTP o contenuti dei transcript.
-Il file usa permessi `0600`.
+Il file usa permessi `0600`. L'epoch di reset della fotografia istantanea è un
+intero non negativo opzionale, nuovamente validato dal backend; non viene
+ricavato dal testo libero `detail` né amplia il boundary già autorizzato per le
+quote.
 
 Lo stesso collector appende ogni campione a `provider-rate-limits-history.jsonl`
 (ADR 010), con lo stesso timestamp/percentuali/reset del file di stato e una

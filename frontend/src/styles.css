@@ -40,6 +40,7 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .provider-windows small { color: #7ea58c; font-size: .65rem; }
 .provider-windows strong { color: #9be5b3; font-size: .95rem; }
 .provider-windows em { max-width: 220px; color: #91a397; font-size: .62rem; font-style: normal; line-height: 1.3; }
+.provider-windows .provider-reset { color: #b5c9bc; }
 .orchestrator-state { display: grid; gap: 8px; margin: 0 14px 12px; border: 1px solid #293a30; border-radius: 14px; padding: 10px 12px; background: #141d17; }
 .orchestrator-state > header { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
 .orchestrator-state > header strong { color: #d2e3d7; }
@@ -69,6 +70,7 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .provider-limits.compact header { flex: 0 0 auto; }
 .provider-windows.compact { flex-wrap: nowrap; gap: 8px; }
 .provider-windows.compact strong { font-size: .78rem; }
+.provider-windows.compact .provider-reset { max-width: 120px; font-size: .56rem; white-space: nowrap; }
 .orchestrator-state.compact { display: flex; align-items: baseline; justify-content: space-between; padding: 7px 10px; }
 .orchestrator-state.compact > header { width: 100%; }
 .dashboard-service-summary.compact .orchestrator-state.compact > header { display: flex; align-items: center; justify-content: space-between; min-width: 0; border: 1px solid #293a30; border-radius: 14px; padding: 7px 10px; background: #141d17; }
@@ -131,6 +133,8 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .agent-info-bar .context-usage { font-weight: 800; }
 .agent-info-bar small { color: #7ea58c; }
 .agent-info-bar strong { color: #d2e3d7; }
+.agent-info-limit { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 3px; }
+.agent-info-bar .agent-info-reset { flex-basis: 100%; color: #b5c9bc; font-size: .58rem; }
 .switcher-backdrop { place-items: start center; }
 .session-switcher { width: min(100%, 480px); max-height: min(80dvh, 640px); overflow: hidden; display: flex; flex-direction: column; margin-top: max(10px, env(safe-area-inset-top)); border: 1px solid #3a5142; border-radius: 22px; background: #141d17; box-shadow: 0 20px 60px #000a; }
 .session-switcher > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 16px 12px; }

@@ -75,8 +75,15 @@ gate tocca **soltanto** `web` e `backend`. Non ricreare né riavviare mai
    ```
 
    Atteso: `600`, proprietario l'utente host. Verificare inoltre che
-   `provider-rate-limits.json` (lo snapshot istantaneo) continui a validare
-   con lo stesso contratto invariato di prima di ADR 010.
+   `provider-rate-limits.json` (lo snapshot istantaneo) continui a validare e
+   che ogni finestra strutturata conservi lo stesso `resets_at` dello storico;
+   gli snapshot legacy senza campo devono continuare a validare come `null`.
+
+4. Aprire dashboard e Console sia con densità normale sia compatta. Per una
+   finestra con `resets_at` valorizzato, la data locale del prossimo reset deve
+   essere visibile accanto alla percentuale senza dipendere da hover o dal testo
+   libero `detail`. Con `resets_at: null` la UI non deve inventare una data né
+   mostrare una riga vuota.
 
 ## Check 2 — Curva 5h coerente con l'osservazione diretta
 

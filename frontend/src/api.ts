@@ -329,6 +329,7 @@ export async function fetchHostObservability(): Promise<HostObservabilitySnapsho
 export type ProviderRateLimitWindow = {
   label: string;
   used_percent: number | null;
+  resets_at: number | null;
   detail: string | null;
 };
 

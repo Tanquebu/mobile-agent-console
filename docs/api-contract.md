@@ -71,6 +71,25 @@ come select nel form:
 {"allowed_roots":["/workspace"],"workspace_presets":{"pipeline":"/workspace/pipeline"}}
 ```
 
+## `GET /api/v1/provider-rate-limits`
+
+Richiede il cookie di sessione. Restituisce la fotografia istantanea sanitizzata
+delle quote provider. Ogni finestra espone percentuale, dettaglio testuale
+opzionale e `resets_at`, epoch intero non negativo del prossimo reset oppure
+`null` quando la sorgente non lo conosce:
+
+```json
+{"collected_at":"2026-08-03T08:36:16Z","providers":[
+  {"provider":"codex","available":true,"observed_at":"2026-08-03T08:35:07Z",
+   "windows":[{"label":"primaria","used_percent":69,"resets_at":1786231416,
+               "detail":"finestra 10080 min"}],
+   "reached_type":null,"error":null}
+]}
+```
+
+Il campo è opzionale nel file sorgente per compatibilità con snapshot precedenti;
+l'API lo normalizza a `null`. Non contiene credenziali o dati del transcript.
+
 ## `GET /api/v1/sessions`
 
 Risposta `200`:

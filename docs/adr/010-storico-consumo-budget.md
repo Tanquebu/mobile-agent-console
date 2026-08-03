@@ -6,6 +6,14 @@ Accettata. Copre la fase A (serie storica della quota provider) e la fase B
 (attribuzione del consumo per sessione). Il drill-down sul contenuto dei turni
 resta fuori decisione: sarà una fase C separata.
 
+Addendum del 03/08/2026: la proiezione istantanea conserva anche
+`windows[].resets_at` come estensione compatibile. Il passaggio alla forma
+strutturata aveva lasciato l'epoch nello storico ma affidato il pannello al solo
+`detail`, facendo scomparire la data per gli script che usano quel campo per la
+durata della finestra. Il reset resta un dato sanitizzato già ammesso dal
+boundary; gli snapshot precedenti senza campo continuano a validare come
+`null`.
+
 ## Contesto
 
 La quota provider è oggi una fotografia istantanea. Il collector a timer
@@ -161,4 +169,5 @@ Disabilitare i timer dei collector, rimuovere le voci di ambiente dei nuovi
 percorsi e ricreare soltanto `web` e `backend`; `tmux-runtime` non va ricreato.
 I due file JSONL possono essere eliminati senza conseguenze: nessun'altra
 funzione vi dipende e lo snapshot istantaneo delle quote continua a funzionare
-con il contratto invariato.
+indipendentemente dallo storico; `resets_at` resta opzionale per la
+compatibilità con produttori precedenti.

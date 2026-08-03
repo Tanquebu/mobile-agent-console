@@ -54,6 +54,7 @@ import {
   listUsers,
   Pane,
   OrchestratorState,
+  ProviderRateLimitWindow,
   ProviderRateLimits,
   RateLimitHistory,
   RateLimitHistorySample,
@@ -124,9 +125,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Console più fluida e nomi Unicode",
+  title: "Reset delle quote sempre visibile",
   description:
-    "Nomi sessione accentati, bozze separate per sessione e scorciatoia Clear per Codex e Claude.",
+    "Il pannello quote mostra di nuovo la data del prossimo reset per Codex e Claude, anche nelle viste compatte.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -300,6 +301,18 @@ function formatSize(size: number | null): string {
 function formatDate(value: string | null): string {
   if (!value) return "—";
   return new Date(value).toLocaleString();
+}
+
+function formatRateLimitReset(value: number | null): string | null {
+  if (value === null) return null;
+  const instant = new Date(value * 1000);
+  if (!Number.isFinite(instant.getTime())) return null;
+  return instant.toLocaleString([], { dateStyle: "short", timeStyle: "short" });
+}
+
+function rateLimitWindowDescription(window: ProviderRateLimitWindow): string | null {
+  const reset = formatRateLimitReset(window.resets_at);
+  return [window.detail, reset ? `reset ${reset}` : null].filter(Boolean).join(" · ") || null;
 }
 
 function formatPercent(value: number | null): string {
@@ -2824,12 +2837,15 @@ function SessionList({
               {provider.available ? (
                 <div className={`provider-windows ${compactDashboard ? "compact" : ""}`}>
                   {provider.windows.slice(0, compactDashboard ? 2 : undefined).map((window) => (
-                    <span key={window.label} title={window.detail ?? undefined}>
+                    <span key={window.label} title={rateLimitWindowDescription(window) ?? undefined}>
                       {!compactDashboard && <small>{window.label}</small>}
                       <strong style={{ color: rateLimitColor(window.used_percent) }}>
                         {window.used_percent === null ? "n/d" : `${Math.round(window.used_percent)}%`}
                       </strong>
                       {!compactDashboard && window.detail && <em>{window.detail}</em>}
+                      {formatRateLimitReset(window.resets_at) && (
+                        <em className="provider-reset">reset {formatRateLimitReset(window.resets_at)}</em>
+                      )}
                     </span>
                   ))}
                 </div>
@@ -3721,11 +3737,18 @@ function Console({
             </span>
           )}
           {ownProviderLimit?.available && ownProviderLimit.windows.map((window) => (
-            <span key={window.label} title={window.detail ?? undefined}>
+            <span
+              key={window.label}
+              className="agent-info-limit"
+              title={rateLimitWindowDescription(window) ?? undefined}
+            >
               <small>{window.label}</small>{" "}
               <strong style={{ color: rateLimitColor(window.used_percent) }}>
                 {window.used_percent === null ? "n/d" : `${Math.round(window.used_percent)}%`}
               </strong>
+              {formatRateLimitReset(window.resets_at) && (
+                <small className="agent-info-reset">reset {formatRateLimitReset(window.resets_at)}</small>
+              )}
             </span>
           ))}
         </section>

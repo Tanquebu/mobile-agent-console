@@ -6,9 +6,13 @@ dal backend:
 - `provider-rate-limits-history.jsonl` — serie storica della quota per-account;
 - `session-usage-history.jsonl` — consumo di token attribuito per sessione.
 
-Lo snapshot istantaneo `provider-rate-limits.json` non cambia: contratto,
-endpoint e rendering esistenti restano quelli attuali. I modelli Pydantic
-autorevoli sono in `backend/app/services/rate_limit_history_service.py` e
+Lo snapshot istantaneo `provider-rate-limits.json` resta separato dallo storico
+ma condivide ora `windows[].resets_at`: l'estensione compatibile ripristina nel
+pannello la data di reset che il passaggio alla sorgente strutturata aveva
+involontariamente nascosto. Il campo può mancare negli snapshot precedenti e
+viene allora normalizzato a `null`. Il suo contratto API è in
+`docs/api-contract.md`; i modelli Pydantic autorevoli dello storico sono in
+`backend/app/services/rate_limit_history_service.py` e
 `backend/app/services/session_usage_service.py`.
 
 ## Forma comune

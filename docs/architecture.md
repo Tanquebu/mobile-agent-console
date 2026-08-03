@@ -181,8 +181,11 @@ quote Codex e Claude senza modalità `--fresh`, provando prima la forma
 strutturata `--json` e ricadendo sul parsing testuale storico quando lo script
 non la offre. Il collector scrive soltanto un JSON sanitizzato in
 `.mobile-agent-console/provider-rate-limits.json`; il backend legge quel file
-e non riceve accesso a credenziali Claude o transcript Codex. L'assenza o
-l'errore di un provider non influenza il runtime tmux.
+e non riceve accesso a credenziali Claude o transcript Codex. Ogni finestra
+istantanea conserva anche l'epoch opzionale `resets_at`, validato nuovamente
+dal backend e formattato dal client: la UI non deduce più il reset dal campo
+testuale libero `detail`. L'assenza o l'errore di un provider non influenza il
+runtime tmux.
 
 ADR 010 aggiunge a questo stesso collector uno storico append-only,
 `.mobile-agent-console/provider-rate-limits-history.jsonl`: ogni campione porta
