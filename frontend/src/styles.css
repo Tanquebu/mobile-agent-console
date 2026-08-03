@@ -413,6 +413,11 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .budget-residual-figure { display: inline-flex; margin-right: 14px; gap: 5px; }
 .budget-residual-figure strong { color: #d2e3d7; text-transform: capitalize; }
 .budget-note { color: #91a397 !important; font-size: .68rem !important; }
+.budget-parse-mode-note { margin-top: 6px; }
+.audit-optional-features { margin: 10px 0 0; }
+.audit-optional-features ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.audit-optional-features li { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #26352c; border-radius: 10px; padding: 6px 10px; color: #d2e3d7; font-size: .74rem; }
+.audit-optional-features li strong { color: #91a397; font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 @media (min-width: 720px) {
   body { padding: 24px; background: #080b09; }
   .shell, .console { min-height: calc(100vh - 48px); border: 1px solid #26352c; border-radius: 20px; }

@@ -118,6 +118,59 @@ def test_non_utc_offset_timestamp_is_discarded(tmp_path: Path) -> None:
     assert all(sample.sampled_at.utcoffset() == timedelta(0) for sample in history.samples)
 
 
+def test_parse_mode_defaults_to_none_for_rows_written_before_bh_03(tmp_path: Path) -> None:
+    path = tmp_path / "history.jsonl"
+    now = datetime.now(UTC)
+    row = sample_row(now.isoformat())
+    assert "parse_mode" not in row
+    write_lines(path, [json.dumps(row)])
+
+    history = RateLimitHistoryService(str(path)).read(hours=24, limit=100)
+
+    assert len(history.samples) == 1
+    # "Non noto" (None), non "testuale": una riga scritta prima di BH-03 non
+    # deve leggersi come se il fallback fosse in corso.
+    assert history.samples[0].parse_mode is None
+
+
+def test_parse_mode_structured_and_text_round_trip(tmp_path: Path) -> None:
+    path = tmp_path / "history.jsonl"
+    now = datetime.now(UTC)
+    write_lines(
+        path,
+        [
+            json.dumps(sample_row(now.isoformat(), parse_mode="structured")),
+            json.dumps(
+                sample_row((now + timedelta(seconds=1)).isoformat(), parse_mode="text")
+            ),
+        ],
+    )
+
+    history = RateLimitHistoryService(str(path)).read(hours=24, limit=100)
+
+    assert [sample.parse_mode for sample in history.samples] == ["structured", "text"]
+
+
+def test_invalid_parse_mode_value_discards_the_row(tmp_path: Path) -> None:
+    path = tmp_path / "history.jsonl"
+    now = datetime.now(UTC)
+    write_lines(
+        path,
+        [
+            json.dumps(sample_row(now.isoformat(), parse_mode="binary")),
+            json.dumps(sample_row((now + timedelta(seconds=1)).isoformat())),
+        ],
+    )
+
+    history = RateLimitHistoryService(str(path)).read(hours=24, limit=100)
+
+    # Un valore non riconosciuto per `parse_mode` è un campo fuori contratto
+    # come gli altri: la riga va scartata, non accettata con un valore
+    # inventato.
+    assert len(history.samples) == 1
+    assert history.samples[0].parse_mode is None
+
+
 def test_read_respects_a_byte_tail_cap(tmp_path: Path) -> None:
     path = tmp_path / "history.jsonl"
     now = datetime.now(UTC)

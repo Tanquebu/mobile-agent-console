@@ -244,6 +244,20 @@ sono `ROOT`, `SA-IMP` (implementazione) e `SA-TEST` (verifica indipendente).
 
 - `[ ]` indica una voce ancora aperta; `[x]` un tentativo chiuso. L'esito vero
   è sempre il campo `STATUS`, non il solo checkbox.
+- **Verifica su dati reali (vincolante).** Ogni voce di implementazione che
+  tocca un collector o un parser deve essere eseguita almeno una volta contro
+  dati reali (non solo fixture sintetiche), con ispezione diretta
+  dell'aggregato prodotto; l'esito di quella ispezione va riportato per
+  esteso nella voce, non solo il fatto di averla eseguita. I test sintetici da
+  soli non bastano a fidarsi di un collector: il 02/08/2026 la suite era verde
+  mentre il collector Codex sommava `cached_input_tokens` a `input_tokens`
+  come se fossero bucket disgiunti (come accade in Claude), mentre in Codex
+  `cached_input_tokens` è un sottoinsieme di `input_tokens` — l'errore si
+  ripeteva a ogni turno insieme al contesto in cache, arrivando a contare il
+  consumo reale circa sessanta volte in eccesso su una sessione lunga. Nessuna
+  fixture sintetica rifletteva quella relazione fra i due contatori, quindi
+  nessun test l'aveva notata prima dell'ispezione manuale sull'aggregato
+  reale.
 - `SA-IMP` può prendere soltanto la prima voce con `OWNER: SA-IMP` e
   `STATUS: READY` o `STATUS: REWORK_REQUIRED`, portandola prima a
   `IN_PROGRESS`.
@@ -253,6 +267,21 @@ sono `ROOT`, `SA-IMP` (implementazione) e `SA-TEST` (verifica indipendente).
 - Quando `SA-IMP` conclude, chiude la propria voce con `STATUS: DONE` e porta
   il corrispondente check `SA-TEST` da `BLOCKED` a `READY_FOR_TEST`, indicando
   commit/working tree, test aggiunti, comandi da eseguire e criteri manuali.
+- **`SA-TEST` non è saltabile (vincolante).** Nessuna voce di implementazione
+  è considerata chiusa, e nessuna fase successiva passa da `BLOCKED` a
+  `READY`, finché il corrispondente tentativo `SA-TEST` non è a sua volta
+  chiuso con `STATUS: PASSED`. Un `STATUS: DONE` di `SA-IMP`, da solo, non
+  sblocca nulla — indipendentemente da quanto sia stata estesa la batteria di
+  test che l'implementatore ha già eseguito. Il 02/08/2026 due test API a
+  tempo fisso (commit `ce507d1`) erano verdi il giorno stesso in cui sono
+  stati scritti e sarebbero falliti da soli entro breve, perché fissavano
+  l'istante del campione dentro una finestra scorrevole che si sposta col
+  tempo; nella stessa giornata `SA-TEST`, verificando in modo indipendente
+  un'implementazione che l'autore aveva già sottoposto a una batteria
+  adversariale propria, ha comunque trovato due difetti veri che
+  l'implementatore non aveva visto. La verifica indipendente scopre classi di
+  difetto diverse da quella di chi ha scritto il codice: non è un doppione
+  saltabile quando "i test passano già".
 - `SA-TEST` non corregge l'implementazione. Esegue i test indicati e controlli
   indipendenti, poi chiude il proprio tentativo con `STATUS: PASSED` oppure
   `STATUS: FAILED` e una motivazione riproducibile.
@@ -1877,29 +1906,489 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   sotto `customizations/`, ignorata da git; lo script è generico e
   pubblicabile, le copie no.
 
-- [ ] IMP-BH-03 | OWNER: SA-IMP | STATUS: READY | Due deliverable, uno solo
-  perché condividono principio, area di codice e approccio di test.
+- [x] IMP-BH-03 | OWNER: SA-IMP | STATUS: DONE | Entrambi i deliverable
+  implementati sullo stesso principio ("lo stato effettivo va dichiarato,
+  non dedotto").
 
-  1. Documentare in `docs/contracts/` il contratto di formato atteso dagli
-     script quote, e propagare l'esito del parsing come informazione
-     pubblicata sulla riga storica (opzione 2), con l'avviso corrispondente
-     nella vista Budget. Aggiornare `docs/contracts/budget-history-v1.md` e
-     il gate manuale.
-  2. Dichiarare all'avvio, nei log del backend, l'elenco delle funzioni
-     opzionali effettivamente attive, ed esporlo nella vista admin. Solo
-     enunciazione dei fatti: nessun confronto con un'attesa, nessun livello
-     di allarme, nessun falso positivo su un'installazione minima.
+  **1. Contratto script quote + `parse_mode` pubblicato.** Nuovo
+  `docs/contracts/quote-script-v1.md`: invocazione (percorso configurato,
+  `--json`/`--fresh`), forma strutturata (`windows[].label/used_percent/
+  resets_at/detail`, `updated_at`, `source`, `reached_type`, esattamente i
+  campi letti da `parse_structured()`), degradazione ammessa alla forma
+  testuale storica (le tre regex `UPDATED`/`WINDOW`/`REACHED` di
+  `deploy/rate-limit-collector.py`, descritte come contratto testuale) e la
+  conseguenza pubblicata (`parse_mode`). Nessuno script versionato, nessun
+  percorso assunto, nessun nome di componente esterno, come vincolato
+  dall'addendum di `GATE-BH-03`.
 
-  Vincoli: nessuna copia degli script nel repository, nessun percorso
-  assunto, nessun nome di componente esterno nei file versionati, e nessun
-  valore di configurazione sensibile nei log (i nomi delle funzioni e il
-  loro stato acceso/spento, mai token o percorsi).
+  `deploy/rate-limit-collector.py`: `collect()` ora traccia esplicitamente
+  quale forma ha prodotto il risultato (`"structured"` quando
+  `parse_structured()` riesce, `"text"` in entrambi i rami di fallback,
+  assente/`None` quando lo script non è nemmeno eseguibile — nessun parsing
+  è stato tentato in quel caso, non è "testuale"). `history_row()` lo
+  propaga come campo `parse_mode` sulla riga storica; `snapshot_provider()`
+  resta invariato per costruzione (contratto v1 del solo snapshot
+  istantaneo, non toccato). `observation_key()` include ora `parse_mode`
+  nella tupla di deduplica: una transizione strutturato→testuale a parità di
+  `observed_at`/percentuali è un fatto nuovo da pubblicare, non uno scarto.
 
-- [ ] TEST-BH-03 | OWNER: SA-TEST | STATUS: BLOCKED | Sbloccato da
-  `IMP-BH-03`. Verificare che una sorgente priva della forma strutturata
-  produca righe marcate come tali e l'avviso in vista, che una sorgente
-  conforme non lo produca, e che l'assenza degli script non causi errori
-  ma solo indisponibilità dichiarata.
+  Backend: `RateLimitSample.parse_mode: Literal["structured","text"] | None
+  = None` in `rate_limit_history_service.py` — righe scritte prima di questa
+  voce restano valide (`None`, "non noto", mai equivalente a `"text"`); un
+  valore fuori enum scarta la riga come ogni altro campo fuori contratto.
+  L'endpoint `GET /api/v1/provider-rate-limits/history` lo espone senza
+  traduzione intermedia (`response_model=RateLimitHistory`, invariato).
+
+  Frontend: `RateLimitHistorySample.parse_mode` in `api.ts`.
+  `BudgetProviderChart` (App.tsx) calcola `latestParseMode` sull'ultimo
+  campione del provider e mostra, solo quando `"text"`, un avviso
+  dichiarativo ("Fallback testuale attivo per questo provider: l'ultimo
+  campione non proviene dalla forma strutturata"), stessa classe neutra
+  `budget-note` già usata per il residuo — nessun linguaggio di allarme,
+  nessuna comparsa per `null`/assente.
+
+  **2. Funzioni opzionali attive: log di avvio + vista admin.**
+  `_optional_feature_flags()` in `main.py` centralizza i cinque flag
+  (`host_observability_enabled`, `session_usage_enabled`,
+  `rate_limit_fresh_enabled`, `claude_history_enabled`,
+  `database_auth_enabled`). Il `lifespan` logga una singola riga
+  `logger.info("Funzioni opzionali: nome=on/off, ...")` all'avvio — solo
+  nomi e stato, mai token o percorsi, mai `logger.warning`. `ConfigView`
+  guadagna `optional_features: dict[str, bool] | None`, popolato da
+  `client_config()` con lo stesso pattern di gating già in uso per
+  `host_observability_enabled`/`rate_limit_fresh_enabled`
+  (`user is None or user.role == "admin"`, altrimenti `None`). Lato
+  frontend, la vista Audit (`AuditModal`, già admin-only, già nello stile
+  "riferisce, non giudica" per gli eventi) carica `optional_features` da
+  `fetchConfig()` e la mostra come lista "attiva/disattiva" con etichette
+  leggibili (`OPTIONAL_FEATURE_LABEL`); niente vista admin nuova, riuso
+  della superficie esistente come richiesto.
+
+  **Test aggiunti (proporzionati al rischio, per ogni parte toccata).**
+  Backend +10 rispetto alla baseline 238 (`TEST-BH-01-T2`): 4 in
+  `test_rate_limit_collector.py` (parse_mode per structured/text/assente,
+  propagazione in `history_row()`, sensibilità di `observation_key()` al
+  solo cambio di `parse_mode`, e un test end-to-end su `main()` che
+  dimostra l'append di una nuova riga quando la sorgente degrada da
+  strutturato a testuale a parità di osservazione — il fallback silenzioso
+  che questa voce chiude); 3 in `test_rate_limit_history_service.py`
+  (default `None` retrocompatibile, round-trip structured/text, scarto di
+  un valore fuori enum); 3 in `test_rate_limit_history_api.py`
+  (`optional_features` esposto in modalità legacy e nascosto per ruoli
+  non-admin via `database_settings()`, log di avvio verificato con
+  `caplog` dentro `with TestClient(app):` per innescare il lifespan,
+  incluso il controllo che nessun token/percorso compaia nel messaggio e
+  che non sia mai loggato a livello `WARNING`+). Frontend +10 rispetto alla
+  baseline 35: 5 in `budget-view.test.mjs` (badge di fallback testuale,
+  esclusione del caso `null`, stile) e un nuovo file
+  `admin-optional-features.test.mjs` (5 test) con script npm dedicato
+  `test:admin`, incluso nella catena `test:ui`.
+
+  **Comandi eseguiti e risultati reali.** `docker compose build
+  backend-test` poi `docker compose run --rm backend-test`: **248 passed, 0
+  failed** (baseline 238 + 10); `docker compose run --rm backend-test ruff
+  check --no-cache app/main.py app/schemas.py
+  app/services/rate_limit_history_service.py tests/test_rate_limit_collector.py
+  tests/test_rate_limit_history_api.py tests/test_rate_limit_history_service.py`:
+  pulito. `python3 -m unittest discover -s deploy/tests`: **59 passed**
+  (invariato, questa voce non tocca file sotto `deploy/tests/`, i test del
+  collector vivono in `backend/tests/test_rate_limit_collector.py` che
+  carica `deploy/rate-limit-collector.py` da file). Frontend:
+  `npm run test:host` 14, `npm run test:budget` 23 (18 + 5), `npm run
+  test:console` 3, `npm run test:admin` 5 — **45 test totali, 0 falliti**
+  (baseline 35 + 10); `npm run build` (`tsc -b && vite build`) pulito.
+  `systemd-analyze --user verify` sulle unit fresh: pulito (nessuna unit
+  toccata da questa voce). `docker compose config --quiet` e le due
+  combinazioni con overlay (`compose.budget-history.yaml`,
+  `compose.host.yaml` + `compose.budget-history.yaml`): valide. `git diff
+  --check`: pulito.
+
+  **Verifica su dati reali (vincolante, non solo fixture).** Il timer
+  systemd di questo host esegue `ExecStart=python3
+  ${MAC_INSTALL_DIR}/deploy/rate-limit-collector.py ...` direttamente dal
+  checkout git di questo repository (confermato leggendo l'unit installata:
+  `MAC_INSTALL_DIR` punta a questo working tree), quindi la modifica al
+  collector fatta in questa voce è diventata immediatamente osservabile sul
+  file storico reale già in scrittura su questo host,
+  `${MAC_WORKSPACE_ROOT}/.mobile-agent-console/provider-rate-limits-history.jsonl`
+  (fuori dall'albero del repository, come da contratto), senza bisogno di
+  alcun deploy. Ispezione diretta di quel file (167 righe totali al momento
+  dell'ispezione, 152 `claude` + 15 `codex`): le prime 163 righe, scritte
+  prima di questa modifica, non hanno `parse_mode` (confermando la
+  retrocompatibilità sui dati reali pre-esistenti, non solo su fixture
+  costruite); le 4 righe scritte dai cicli del timer successivi alla
+  modifica portano tutte `parse_mode: "structured"` (3 `claude`, 1 `codex`)
+  — sia lo script quote di Claude sia quello di Codex configurati su questo
+  host offrono correttamente `--json` in questo momento, coerente con
+  quanto riportato nell'addendum di `GATE-BH-03` sul lavoro del 02/08/2026.
+  Nessuna anomalia: nessuna riga marcata `"text"` porta un `resets_at`
+  valorizzato in nessuna finestra. Le righe storiche precedenti mostrano
+  però la traccia reale del problema che questa voce chiude: 14 finestre
+  `codex` su 22 hanno `resets_at` nullo su tutta la loro estensione — il
+  fallback silenzioso descritto nel testo originale della proposta,
+  realmente accaduto su questo host prima che Codex offrisse `--json`, e che
+  da questa voce in poi sarebbe stato segnalato da `parse_mode: "text"`
+  invece di sparire senza traccia. Caricamento dell'intero file (una copia
+  con permessi `644` per aggirare il vincolo `0700` non attraversabile
+  dall'utente non privilegiato del container, mai il file originale) dentro
+  `backend-test` attraverso il vero `RateLimitHistoryService`: **167/167
+  righe validate senza scarti** (149 `claude`/`None` + 3 `claude`/
+  `"structured"` + 14 `codex`/`None` + 1 `codex`/`"structured"`), a conferma
+  che il modello Pydantic reale — non un doppione nel test — legge sia le
+  righe legacy sia quelle nuove senza perderne nessuna. Eseguito inoltre
+  `deploy/rate-limit-collector.py --stdout` con gli script quote realmente
+  configurati su questo host (`~/.claude/rate-limit.sh`,
+  `~/.codex/rate-limit.sh`, percorsi passati da riga di comando, mai
+  hardcoded): entrambi i provider hanno risposto con `"parse_mode":
+  "structured"` e un `resets_at` epoch valorizzato su ogni finestra,
+  coerente con l'ispezione del file storico. Output e file temporanei di
+  questa verifica rimossi al termine, nessuna riga aggiuntiva lasciata nel
+  file storico di produzione oltre a quelle già scritte dal timer stesso
+  durante la finestra di modifica.
+
+  Working tree: nessun commit creato da questa voce (per scelta, non
+  richiesto); modifiche in `deploy/rate-limit-collector.py`,
+  `backend/app/services/rate_limit_history_service.py`,
+  `backend/app/schemas.py`, `backend/app/main.py`, `frontend/src/api.ts`,
+  `frontend/src/App.tsx`, `frontend/src/styles.css`,
+  `frontend/package.json`, `docs/contracts/quote-script-v1.md` (nuovo),
+  `docs/contracts/budget-history-v1.md`, `docs/gates/budget-history.md`, e i
+  file di test elencati sopra. `BH-04`/`GATE-BH-04` e la sezione "Protocollo
+  della roadmap per i subagent" non toccati.
+
+- [x] TEST-BH-03 | OWNER: SA-TEST | STATUS: FAILED | Comandi automatici tutti
+  verdi e coerenti con l'atteso: `docker compose build backend-test` +
+  `docker compose run --rm backend-test` → **248 passed, 0 failed** (baseline
+  238 + 10); `ruff check --no-cache` sui sei file elencati → pulito;
+  `python3 -m unittest discover -s deploy/tests` → **59 passed** (invariato);
+  frontend `npm run test:ui` → **45 test, 0 falliti** (`test:host` 14 +
+  `test:budget` 23 + `test:console` 3 + `test:admin` 5); `npm run build`
+  (`tsc -b && vite build`) pulita; `git diff --check` pulito.
+
+  **Criteri manuali verificati positivamente.** Script fittizio end-to-end
+  (mai versionato, rimosso a fine verifica) che rifiuta `--json` con exit
+  code ≠ 0 su un provider e ne accetta la forma strutturata sull'altro →
+  `deploy/rate-limit-collector.py --stdout` produce correttamente
+  `parse_mode: "structured"` per il primo e `"text"` per il secondo (Check 7
+  del gate, riprodotto dal vivo). Percorso configurato inesistente →
+  `collect()` restituisce `available: false`, `error` troncato, **nessuna**
+  chiave `parse_mode` nel dict, nessuna eccezione propagata (riprodotto
+  direttamente su `deploy/rate-limit-collector.py`). A livello di modello:
+  campo assente e valore `null` esplicito → `parse_mode is None` in entrambi
+  i casi; stringa vuota, valore fuori enum (`"binary"`), intero e lista →
+  riga scartata da `RateLimitHistoryService.read()` senza eccezione non
+  gestita (testato con 7 varianti in un file temporaneo dentro
+  `backend-test`, 3/7 accettate come atteso). `observation_key()`: un cambio
+  di solo `parse_mode` a parità di `observed_at`/percentuali produce
+  correttamente una nuova riga storica (non deduplicata) — confermato sia dal
+  test aggiunto sia da esecuzione end-to-end di `main()` con due script stub
+  successivi. Vista Budget: la logica (`latestParseMode` sull'ultimo
+  campione, non un "mai stato strutturato nella serie") guarda solo l'ultimo
+  campione per costruzione, righe pre-BH-03 (`parse_mode` assente) non
+  generano l'avviso. `GET /api/v1/config`: `optional_features` popolato per
+  admin/legacy, `null` per ruoli non-admin (verificato dai test API).
+  **Verifica sui dati reali** (file di questo host, cresciuto da 167 a 170
+  righe fra l'ispezione di `IMP-BH-03` e questa, il timer resta attivo — atteso,
+  non un'anomalia): 163 righe pre-BH-03 senza `parse_mode` (149 `claude` + 14
+  `codex`, invariato), ora 6 `claude`/`"structured"` + 1 `codex`/`"structured"`
+  (+2 `claude` rispetto alle 4 nuove viste da `IMP-BH-03`, coerente con i cicli
+  del timer nel frattempo); 14/22 finestre `codex` storiche con `resets_at`
+  nullo confermato; caricamento dell'intero file (copia `644`, mai
+  l'originale, rimossa a fine verifica) dentro `backend-test` col vero
+  `RateLimitHistoryService`: **170/170 righe validate senza scarti**.
+
+  **Difetto bloccante trovato con verifica dal vivo (non dai soli test).**
+  Il criterio manuale esplicito di questa voce e il Check 8 del gate
+  richiedono `docker compose logs backend | grep "Funzioni opzionali"` con
+  corrispondenza a livello `INFO`. Ricreato `backend` con l'immagine
+  ricostruita da questo working tree (`docker compose build backend &&
+  docker compose up -d backend`, operazione stateless prevista da
+  CLAUDE.md, nessun tocco a `tmux-runtime`): **`docker compose logs backend |
+  grep -i "funzioni opzionali"` non produce alcuna corrispondenza.** Causa:
+  `app/start.py` chiama `uvicorn.run(...)` senza `log_config`/`log_level`;
+  uvicorn configura solo i propri logger (`uvicorn`, `uvicorn.error`,
+  `uvicorn.access`), mai il logger applicativo `mobile_agent_console` usato
+  da `main.py`. Verificato dentro il container reale:
+  `logging.getLogger("mobile_agent_console").getEffectiveLevel()` → `30`
+  (`WARNING`), `.handlers` → `[]`, `logging.getLogger().handlers` → `[]`. Con
+  livello effettivo `WARNING` e nessun handler in tutta la gerarchia, ogni
+  `logger.info(...)` in `main.py` (non solo la riga nuova di questa voce, la
+  stessa cosa vale già per il log di rotazione allegati) viene scartato in
+  modo silenzioso: non raggiunge stdout/stderr né `docker compose logs`, in
+  nessuna configurazione. Il test automatico
+  `test_startup_logs_optional_feature_states_without_secrets` in
+  `backend/tests/test_rate_limit_history_api.py` resta verde nonostante
+  questo perché usa `caplog.at_level(logging.INFO,
+  logger="mobile_agent_console")`, che forza artificialmente il livello
+  effettivo del logger per la durata del test e intercetta il record a
+  monte di qualunque handler reale — esattamente il tipo di scarto fra "il
+  test passa" e "il criterio manuale osservabile regge" che questo
+  protocollo chiede di cercare attivamente. Riproduzione:
+  ```bash
+  docker compose build backend
+  docker compose up -d backend      # ricrea solo backend, stateless
+  docker compose logs backend | grep -i "funzioni opzionali"   # nessun output
+  docker compose exec -T backend python3 -c \
+    "import logging; l = logging.getLogger('mobile_agent_console'); \
+     print(l.getEffectiveLevel(), l.handlers, logging.getLogger().handlers)"
+  # -> 30 [] []
+  ```
+
+  **Difetto secondario trovato (da correggere nello stesso rework).** In
+  `deploy/rate-limit-collector.py:collect()`, il ramo finale di fallback
+  (script che rifiuta `--json` con exit code ≠ 0) imposta
+  incondizionatamente `parse_mode = "text"` anche quando la seconda
+  invocazione non produce alcuna finestra utilizzabile
+  (`parse_text(...)["windows"]` vuoto, es. script eseguibile ma sempre
+  fallito) — a differenza del ramo precedente (script che ignora `--json` e
+  stampa comunque testo), che correttamente lascia `parse_mode` non
+  impostato quando il testo non produce finestre. Risultato: una riga con
+  `available: false`, `windows: []`, `error: "Nessun dato riconosciuto"` può
+  comunque portare `parse_mode: "text"`; se questa è l'ultima riga di un
+  provider, la vista Budget mostrerebbe "Fallback testuale attivo" come se
+  il parsing testuale stesse davvero producendo dati, invece di riflettere
+  che nessun dato è mai stato estratto. Riproduzione (script temporaneo, mai
+  versionato, rimosso a fine verifica):
+  ```bash
+  cat > /tmp/broken-quote.sh <<'EOF'
+  #!/bin/sh
+  exit 1
+  EOF
+  chmod +x /tmp/broken-quote.sh
+  python3 -c "
+  import importlib.util
+  spec = importlib.util.spec_from_file_location('collector', 'deploy/rate-limit-collector.py')
+  collector = importlib.util.module_from_spec(spec); spec.loader.exec_module(collector)
+  print(collector.collect('codex', '/tmp/broken-quote.sh'))
+  "
+  # -> {'available': False, 'error': 'Nessun dato riconosciuto',
+  #     'parse_mode': 'text', 'windows': [], ...}
+  ```
+
+  Nessun file toccato per questa verifica oltre a quelli temporanei (rimossi):
+  nessuna modifica a `deploy/rate-limit-collector.py`, ai file backend/
+  frontend, ai contratti o ai test. `backend` è stato ricreato con l'immagine
+  corrente (operazione stateless prevista dal deploy normale) per osservare
+  il log dal vivo; resta in esecuzione con il codice di questa voce, che non
+  introduce regressioni funzionali — solo l'assenza del log osservabile e
+  l'imprecisione secondaria sopra descritte restano da correggere.
+
+- [x] IMP-BH-03-R1 | OWNER: SA-IMP | STATUS: DONE | Riferimento: `TEST-BH-03`.
+  Corretti entrambi i difetti trovati dalla verifica dal vivo di SA-TEST,
+  nello stesso giro.
+
+  **Difetto bloccante (log di avvio non osservabile).** Causa confermata:
+  `app/start.py` chiamava `uvicorn.run(...)` senza `log_config`/`log_level`,
+  quindi uvicorn configurava solo i propri logger (`uvicorn`,
+  `uvicorn.error`, `uvicorn.access`), mai `mobile_agent_console` (livello
+  effettivo `WARNING`, nessun handler in tutta la gerarchia). Fix: nuovo
+  modulo `backend/app/logging_config.py` con `build_log_config()` — copia
+  profonda di `uvicorn.config.LOGGING_CONFIG` (stessi formatter/handler di
+  uvicorn, `disable_existing_loggers: False`) più una voce aggiuntiva per
+  `mobile_agent_console` (`handlers: ["default"]` — l'handler stderr già
+  definito da uvicorn, nessun handler nuovo —, `level: "INFO"`,
+  `propagate: False`) — e `configure_logging()`, che applica quel dict con
+  `logging.config.dictConfig`. `app/start.py` passa ora
+  `log_config=build_log_config()` a `uvicorn.run(...)`; nessuna chiave
+  `root` nel dict, quindi nessuna modifica alla soglia globale né ai logger
+  di librerie terze (`urllib3`, `asyncio`, ...), che restano al loro default
+  — vincolo esplicito del rework rispettato. Verificato che
+  `uvicorn.run(log_config=dict)` chiama internamente esattamente
+  `logging.config.dictConfig(quel_dict)` (ispezionato il sorgente di
+  `uvicorn.config.Config.configure_logging` dentro l'immagine
+  `backend-test`, uvicorn 0.51.0), quindi `configure_logging()` chiamata
+  direttamente in un test riproduce fedelmente l'inizializzazione di
+  produzione senza aprire un vero socket.
+
+  Test: aggiunto `test_configure_logging_makes_app_logger_effectively_observable`
+  in `backend/tests/test_rate_limit_history_api.py`, accanto al test
+  preesistente (lasciato invariato, verifica solo il contenuto del
+  messaggio). Il nuovo test chiama `configure_logging()` — la stessa
+  funzione di produzione, non un `caplog.at_level` che forzerebbe il
+  livello — e verifica: livello effettivo del logger applicativo `<= INFO`,
+  `hasHandlers()` vero, un `logger.info(...)` reale che raggiunge
+  effettivamente lo stream dell'handler (catturato reindirizzando lo stream
+  a un `io.StringIO`, non tramite `caplog`), e che i livelli effettivi di
+  `urllib3` e del root logger restino invariati rispetto a prima della
+  chiamata (guardia esplicita contro l'abbassamento indiscriminato). Stato
+  del logger ripristinato in un blocco `finally` per non inquinare altri
+  test nella stessa sessione pytest.
+
+  **Difetto secondario (`parse_mode` marcato "text" senza dati estratti).**
+  In `deploy/rate-limit-collector.py:collect()`, il ramo finale di fallback
+  (script che rifiuta `--json`) impostava incondizionatamente
+  `parse_mode = "text"` anche quando `parse_text(result.stdout)["windows"]`
+  era vuoto. Corretto in
+  `parse_mode = "text" if parsed["windows"] else None`, coerente col ramo
+  gemello (script che ignora `--json` e stampa comunque testo) che già
+  faceva questo controllo. Nota per il prossimo rilettore: la prima stesura
+  di questa modifica aveva erroneamente rimosso la riga
+  `available = result.returncode == 0 and bool(parsed["windows"])`
+  subito sotto (persa nel replace), causando `NameError: name 'available'
+  is not defined` — individuato subito dalla suite (`7 failed`) e
+  ripristinato prima di procedere; menzionato qui solo perché la riga in
+  questione è a un solo rigo di distanza dal punto toccato e un futuro
+  refactor dello stesso blocco dovrebbe fare attenzione a non riperdere quella
+  riga.
+
+  Test: nuovo `test_collector_final_fallback_does_not_claim_text_mode_without_windows`
+  in `backend/tests/test_rate_limit_collector.py` (accanto agli altri test
+  di `collect()` sullo stesso file) — script stub che fallisce sempre su
+  entrambe le invocazioni (`--json` e senza), verifica
+  `available is False`, `windows == []`, `parse_mode is None` (la chiave è
+  comunque presente nel dict, a differenza del caso "script non
+  eseguibile", che non la include affatto — verificato non regredire il
+  test preesistente `test_collector_reports_no_parse_mode_when_the_script_cannot_run_at_all`).
+
+  **Comandi eseguiti (conteggi reali).** `docker compose build backend-test`
+  + `docker compose run --rm backend-test` → **250 passed, 0 failed**
+  (baseline 248 + 2 nuovi test), poi `ruff check --no-cache` (eseguito sia
+  come parte del comando sopra sia mirato) su
+  `app/start.py app/logging_config.py tests/test_rate_limit_history_api.py
+  tests/test_rate_limit_collector.py` → **All checks passed!**;
+  `python3 -m unittest discover -s deploy/tests` → **59 passed** (invariato);
+  frontend `npm run test:ui` → **45 test, 0 falliti** (14 + 23 + 3 + 5,
+  invariato); `npm run build` (`tsc -b && vite build`) pulita; `git diff
+  --check` pulito.
+
+  **Verifica dal vivo ripetuta (backend realmente avviato, non solo
+  pytest).** `docker compose build backend && docker compose up -d backend`
+  (stateless, `tmux-runtime` non toccato), poi:
+  ```
+  $ docker compose logs backend | grep -i "funzioni opzionali"
+  backend-1  | INFO:     Funzioni opzionali: host_observability_enabled=on, session_usage_enabled=on, rate_limit_fresh_enabled=on, claude_history_enabled=on, database_auth_enabled=on
+  ```
+  Corrispondenza reale a livello `INFO` con i cinque flag, come richiesto
+  dal criterio manuale e dal Check 8 del gate. Nota: `docker compose exec -T
+  backend python3 -c "..."` (lo stesso comando diagnostico usato in
+  `TEST-BH-03` per isolare la causa) continua a stampare `30 [] []` anche
+  dopo il fix — atteso e non un residuo del bug: `exec` avvia un
+  interprete Python nuovo e indipendente dal processo worker di uvicorn, che
+  non condivide lo stato di logging in memoria configurato da
+  `configure_logging()` dentro quel processo. Il criterio che conta (il
+  grep sui log reali del processo in esecuzione) è quello sopra, e passa.
+
+  Riproduzione del difetto secondario ripetuta dopo il fix:
+  ```
+  $ python3 -c "... collector.collect('codex', '/tmp/broken-quote.sh') ..."
+  {'provider': 'codex', 'available': False, 'error': 'Nessun dato riconosciuto',
+   'parse_mode': None, 'observed_at': None, 'source': 'cache', 'windows': [],
+   'reached_type': None}
+  ```
+  `parse_mode` è ora `None` (nessun parsing riuscito) invece di `"text"`.
+
+  File toccati: `backend/app/start.py`, `backend/app/logging_config.py`
+  (nuovo), `backend/tests/test_rate_limit_history_api.py`,
+  `deploy/rate-limit-collector.py`,
+  `backend/tests/test_rate_limit_collector.py`. Nessun commit creato da
+  questa voce (a discrezione, non richiesto esplicitamente prima della
+  revisione di SA-TEST). `BH-04`/`GATE-BH-04` e la sezione "Protocollo della
+  roadmap per i subagent" non toccati.
+
+- [x] TEST-BH-03-T2 | OWNER: SA-TEST | STATUS: PASSED | Riferimento:
+  `IMP-BH-03-R1`. Verificato in modo indipendente il rework dei due difetti
+  trovati dalla verifica dal vivo di `TEST-BH-03`. Nessuna correzione
+  applicata da questa voce: solo verifica.
+
+  **Comandi automatici (conteggi reali, tutti coerenti con l'atteso).**
+  `docker compose build backend-test` (ricostruita, non riutilizzata dalla
+  cache) + `docker compose run --rm backend-test` → **250 passed, 0
+  failed** (esatto atteso: baseline 248 + 2 nuovi test); `ruff check
+  --no-cache` su `app/start.py app/logging_config.py
+  tests/test_rate_limit_history_api.py tests/test_rate_limit_collector.py`
+  dentro `backend-test` → **All checks passed!**; `python3 -m unittest
+  discover -s deploy/tests` → **59 passed** (invariato); frontend `npm run
+  test:ui` → **45 test, 0 falliti** (14 `test:host` + 23 `test:budget` + 3
+  `test:console` + 5 `test:admin`, invariato); `npm run build` (`tsc -b &&
+  vite build`) → pulita, nessun errore; `git diff --check` → pulito
+  (nessun output).
+
+  **Verifica dal vivo obbligatoria (backend realmente avviato, non la sola
+  suite pytest — lo stesso tipo di controllo che aveva trovato il difetto
+  bloccante originale).** `docker compose build backend && docker compose
+  up -d backend` (operazione stateless prevista da CLAUDE.md; confermato
+  che `tmux-runtime` non è stato toccato: container invariato, già fermo da
+  giorni prima di questa verifica, non ricreato). Primo `grep` lanciato a
+  ridosso dell'`up -d` non ha prodotto corrispondenza (probabile race
+  fra scrittura del log e comando); ripetuto subito dopo:
+  ```
+  $ docker compose logs backend | grep -i "funzioni opzionali"
+  backend-1  | INFO:     Funzioni opzionali: host_observability_enabled=on, session_usage_enabled=on, rate_limit_fresh_enabled=on, claude_history_enabled=on, database_auth_enabled=on
+  ```
+  Corrispondenza reale a livello `INFO`, tutti e cinque i flag presenti,
+  esattamente come dichiarato da `IMP-BH-03-R1`. `docker compose logs
+  backend | grep -iE "urllib3|asyncio"` → **nessun output**: nessun log
+  DEBUG/verboso nuovo da librerie terze.
+
+  Controllo addizionale non richiesto esplicitamente dalla voce ma
+  motivato dal timore di un abbassamento indiscriminato: dentro il
+  container reale, chiamando `configure_logging()` due volte di seguito in
+  uno stesso processo, il logger applicativo resta con **un solo
+  handler** e produce **una sola riga** per un `logger.info(...)` di prova
+  (nessuna duplicazione da chiamate ripetute). Confrontando lo stato
+  "prima"/"dopo" una singola chiamata: `root`, `urllib3`, `asyncio` restano
+  a `WARNING` (30, invariati); `mobile_agent_console` passa a `INFO` (20,
+  atteso); `uvicorn` risulta anch'esso `INFO` (20), ma questo viene dal
+  `deepcopy` del `LOGGING_CONFIG` di default di uvicorn stesso (comportamento
+  preesistente di uvicorn, non introdotto da questo fix) — confermato
+  ispezionando `build_log_config()`: nessuna chiave `root` nel dict,
+  `loggers` contiene solo `uvicorn`, `uvicorn.error`, `uvicorn.access`,
+  `mobile_agent_console`. Letto `backend/app/start.py`: `uvicorn.run(...,
+  log_config=build_log_config())` è davvero cablato nel percorso di avvio
+  reale (non solo definito/testato in isolamento) — confermato anche dal
+  fatto che il log dal vivo sopra lo dimostra empiricamente.
+
+  **Difetto secondario — riproduzione manuale ripetuta, più i due casi
+  gemelli richiesti dal criterio di verifica.** Script che fallisce sempre
+  (`exit 1` su entrambe le invocazioni, nessun output):
+  ```
+  $ python3 -c "... collector.collect('codex', '/tmp/broken-quote.sh') ..."
+  {'provider': 'codex', 'available': False, 'error': 'Nessun dato riconosciuto',
+   'parse_mode': None, 'observed_at': None, 'source': 'cache', 'windows': [],
+   'reached_type': None}
+  ```
+  `parse_mode` è `None`, non più `"text"` — confermato. Ramo gemello già
+  corretto in precedenza (script che ignora `--json`, accetta qualunque
+  argomento ed exit 0 stampando testo valido con una finestra reale):
+  `parse_mode: "text"`, `windows` con un elemento — non regredito dal fix.
+  Caso positivo (script che rifiuta `--json` con exit code ≠ 0 ma riesce
+  alla riesecuzione senza `--json`, stampando testo valido con una
+  finestra reale): anche qui `parse_mode: "text"`, `windows` con un
+  elemento — il fix non impedisce di marcare `"text"` quando il parsing
+  testuale produce davvero dati. I tre script erano temporanei
+  (`/tmp/broken-quote.sh`, `/tmp/twin-ignores-json.sh`,
+  `/tmp/positive-fallback.sh`), mai versionati, rimossi a fine verifica
+  (confermato con `ls` → nessuno dei tre esiste più).
+
+  **Criteri di verifica addizionali.** Letto
+  `test_configure_logging_makes_app_logger_effectively_observable`: non usa
+  `caplog.at_level(...)` in nessun punto, chiama `configure_logging()`
+  direttamente e ispeziona `getEffectiveLevel()`/`hasHandlers()` reali più
+  un `logger.info(...)` catturato reindirizzando lo stream dell'handler a
+  un `io.StringIO` — non un artefatto di test isolato, dato che
+  `configure_logging()` è la stessa funzione invocata da `app/start.py`
+  prima di `uvicorn.run`. Il test verifica anche esplicitamente che
+  `urllib3` e il root logger non cambino livello — guardia coerente con
+  quanto controllato sopra dal vivo. Confermato che
+  `test_startup_logs_optional_feature_states_without_secrets` è rimasto
+  invariato rispetto a `TEST-BH-03` (stesso uso di `caplog.at_level`, stessa
+  asserzione sul contenuto del messaggio, nessuna asserzione sulla
+  configurazione reale del logger — il test nuovo copre esattamente il
+  gap che questo lasciava aperto). Confermato che
+  `test_collector_final_fallback_does_not_claim_text_mode_without_windows`
+  in `backend/tests/test_rate_limit_collector.py` copre lo scenario "script
+  che fallisce sempre" (`_script_stub` con dict vuoto → entrambe le
+  invocazioni rifiutate, `parse_mode is None`) e non regredisce
+  `test_collector_reports_no_parse_mode_when_the_script_cannot_run_at_all`
+  (caso diverso: `OSError` a monte di qualunque `run_script`, `"parse_mode"
+  not in status` — chiave assente dal dict, non `None` — i due test restano
+  entrambi verdi nella corsa completa da 250 passed).
+
+  Nessun file applicativo, di contratto o di test modificato da questa
+  voce: solo script temporanei in `/tmp/`, tutti rimossi. `BH-04`/
+  `GATE-BH-04` e la sezione "Protocollo della roadmap per i subagent" non
+  toccati. `backend` resta in esecuzione con l'immagine ricostruita in
+  questa verifica (stateless, nessuna regressione attesa).
 
 #### BH-04 — Piano fase C: drill-down dalla sessione alla timeline (non approvata)
 

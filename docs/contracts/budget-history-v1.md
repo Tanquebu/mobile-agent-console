@@ -30,7 +30,7 @@ Una riga per provider e per campione osservato.
 
 ```json
 {"sampled_at":"2026-08-02T09:34:50Z","provider":"claude","source":"cache",
- "observed_at":"2026-08-02T09:34:41Z","stale":false,
+ "observed_at":"2026-08-02T09:34:41Z","stale":false,"parse_mode":"structured",
  "windows":[{"label":"5h","used_percent":58.0,"resets_at":1785679200},
             {"label":"7d","used_percent":5.0,"resets_at":1786266000}]}
 ```
@@ -51,17 +51,30 @@ Una riga per provider e per campione osservato.
 - `label` è l'etichetta di finestra pubblicata dal provider (`5h`, `7d`,
   `primaria`, `secondaria`). `used_percent` è `null` quando la sorgente non ha
   fornito un valore.
+- `parse_mode` dichiara quale forma di output dello script quote ha prodotto
+  la riga: `"structured"` quando il collector ha letto la forma `--json`
+  descritta in `docs/contracts/quote-script-v1.md`, `"text"` quando è
+  degradato al parsing testuale storico (fallback ammesso da ADR 010, ma non
+  più silenzioso). `null` copre sia le righe scritte prima dell'introduzione
+  di questo campo sia i casi in cui nessun parsing è stato tentato (script
+  non eseguibile): in entrambi va letto come "non noto", mai come equivalente
+  a `"text"`. Una sorgente in modalità testuale non porta mai `resets_at`
+  (vedi sopra): il consumatore usa `parse_mode` per segnalarlo come fatto
+  invece di dedurlo dall'assenza dell'epoch.
 
 Un provider non disponibile produce una riga con `windows` vuoto e `error`
 troncato, senza mai riportare l'ultimo valore noto come se fosse attuale.
 
 ### Deduplica e ritenzione
 
-Il collector appende soltanto se `observed_at` o l'insieme delle percentuali
-differiscono dall'ultima riga dello stesso provider. Una sorgente ferma non
-produce righe: l'assenza di campioni è essa stessa l'informazione che nulla è
-stato osservato. La rotazione riscrive il file conservando la coda entro la
-ritenzione configurata quando la dimensione supera la soglia.
+Il collector appende soltanto se `observed_at`, l'insieme delle percentuali o
+`parse_mode` differiscono dall'ultima riga dello stesso provider: una
+transizione da forma strutturata a testuale (o viceversa) è un fatto nuovo da
+pubblicare anche quando osservazione e percentuali restano identiche, non un
+duplicato da scartare. Una sorgente ferma non produce righe: l'assenza di
+campioni è essa stessa l'informazione che nulla è stato osservato. La
+rotazione riscrive il file conservando la coda entro la ritenzione
+configurata quando la dimensione supera la soglia.
 
 ## Consumo attribuito per sessione
 

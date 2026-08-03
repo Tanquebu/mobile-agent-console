@@ -13,6 +13,10 @@ class ConfigView(BaseModel):
     host_observability_enabled: bool = False
     rate_limit_fresh_enabled: bool = False
     session_usage_enabled: bool = False
+    # Enunciazione di fatto per la vista admin ("Audit"): quali funzioni
+    # opzionali sono accese ora, mai un confronto con un'attesa. `None` per
+    # i ruoli non-admin (nessuna esposizione), mai un dizionario parziale.
+    optional_features: dict[str, bool] | None = None
 
 
 class SessionView(BaseModel):

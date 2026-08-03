@@ -213,6 +213,9 @@ export type AppConfig = {
   host_observability_enabled: boolean;
   rate_limit_fresh_enabled: boolean;
   session_usage_enabled: boolean;
+  // Enunciazione di fatto per il ruolo admin (BH-03): quali funzioni
+  // opzionali sono accese ora. `null` per i ruoli non-admin.
+  optional_features: Record<string, boolean> | null;
 };
 
 export type HostStatus = "ok" | "warning" | "critical" | "unknown";
@@ -365,6 +368,10 @@ export type RateLimitHistorySample = {
   source: "cache" | "fresh";
   observed_at: string | null;
   stale: boolean;
+  // Quale forma ha prodotto la riga: `structured` (`--json` dello script
+  // quote), `text` (fallback sul parsing testuale storico) o `null` per le
+  // righe scritte prima di BH-03 ("non noto", non "testuale").
+  parse_mode: "structured" | "text" | null;
   windows: RateLimitHistoryWindow[];
   error: string | null;
 };

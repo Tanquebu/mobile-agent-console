@@ -115,6 +115,23 @@ from .services.user_service import UserService
 
 logger = logging.getLogger("mobile_agent_console")
 
+
+def _optional_feature_flags(settings: Settings) -> dict[str, bool]:
+    """Stato acceso/spento delle funzioni opzionali, come fatto enunciato.
+
+    Nessun confronto con un'attesa: un'installazione con tutte le funzioni
+    spente è uno stato valido, non un errore (BH-03). Mai includere token o
+    percorsi qui, solo nomi di funzione e stato booleano.
+    """
+    return {
+        "host_observability_enabled": settings.host_observability_enabled,
+        "session_usage_enabled": settings.session_usage_enabled,
+        "rate_limit_fresh_enabled": settings.rate_limit_fresh_enabled,
+        "claude_history_enabled": settings.claude_history_enabled,
+        "database_auth_enabled": settings.database_auth_enabled,
+    }
+
+
 DIRECTORY_ENTRY_LIMIT = 2000
 FILE_PREVIEW_MAX_BYTES = 256 * 1024
 DOWNLOADABLE_EXTENSIONS = {
@@ -280,6 +297,13 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        # Lo stato effettivo va dichiarato, non dedotto (BH-03): un'enunciazione
+        # di fatto, mai un confronto con un'attesa né un livello di allarme.
+        flags = _optional_feature_flags(settings)
+        logger.info(
+            "Funzioni opzionali: %s",
+            ", ".join(f"{name}={'on' if enabled else 'off'}" for name, enabled in flags.items()),
+        )
         if settings.tmux_mode == "host":
             socket_file = Path(settings.tmux_socket_file or "")
             if not socket_file.exists() or not stat.S_ISSOCK(socket_file.stat().st_mode):
@@ -757,6 +781,11 @@ def create_app(
             rate_limit_fresh_enabled=settings.rate_limit_fresh_enabled
             and (user is None or user.role == "admin"),
             session_usage_enabled=settings.session_usage_enabled,
+            optional_features=(
+                _optional_feature_flags(settings)
+                if user is None or user.role == "admin"
+                else None
+            ),
         )
 
     @app.get(

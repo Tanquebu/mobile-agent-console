@@ -136,11 +136,19 @@ def collect(name: str, script: str, *, fresh: bool = False) -> dict[str, object]
     if isinstance(result, OSError):
         return {"provider": name, "available": False, "error": str(result), "windows": []}
     parsed = parse_structured(result.stdout) if result.returncode == 0 else None
+    # `parse_mode` pubblica quale delle due forme ha prodotto la riga: è il
+    # contratto di degradazione fra la sorgente strutturata (fuori dal
+    # repository, negli script quote dell'utente) e il parsing testuale
+    # storico. Senza questo fatto pubblicato il fallback è silenzioso (vedi
+    # BH-03 nel backlog).
+    parse_mode = "structured" if parsed is not None else None
     if parsed is None and result.returncode == 0:
         # Uno script che ignora gli argomenti sconosciuti ha già stampato la
         # forma testuale: si usa quella senza pagare una seconda esecuzione.
         textual = parse_text(result.stdout)
         parsed = textual if textual["windows"] else None
+        if parsed is not None:
+            parse_mode = "text"
     if parsed is None:
         # Lo script ha rifiutato `--json`: si ricade sull'invocazione storica.
         # Il `--fresh` non viene ripetuto, l'eventuale prima esecuzione ha già
@@ -149,11 +157,22 @@ def collect(name: str, script: str, *, fresh: bool = False) -> dict[str, object]
         if isinstance(result, OSError):
             return {"provider": name, "available": False, "error": str(result), "windows": []}
         parsed = parse_text(result.stdout)
+        # Coerente col ramo gemello sopra: "text" pubblica solo un parsing
+        # testuale che ha davvero estratto finestre, non un tentativo andato
+        # a vuoto (script sempre fallito). Senza finestre nessun parsing è
+        # realmente riuscito, quindi `parse_mode` resta `None`.
+        parse_mode = "text" if parsed["windows"] else None
     available = result.returncode == 0 and bool(parsed["windows"])
     error = None
     if not available:
         error = (result.stderr.strip() or "Nessun dato riconosciuto")[:500]
-    return {"provider": name, "available": available, "error": error, **parsed}
+    return {
+        "provider": name,
+        "available": available,
+        "error": error,
+        "parse_mode": parse_mode,
+        **parsed,
+    }
 
 
 def snapshot_provider(collected: dict[str, object]) -> dict[str, object]:
@@ -186,6 +205,7 @@ def history_row(
         "observed_at": collected.get("observed_at"),
         "stale": observed is None
         or (sampled_at - observed) > timedelta(seconds=stale_after_seconds),
+        "parse_mode": collected.get("parse_mode"),
         "windows": [
             {
                 "label": window["label"],
@@ -232,6 +252,7 @@ def observation_key(row: dict[str, object]) -> tuple[object, ...]:
     return (
         row.get("observed_at"),
         row.get("error"),
+        row.get("parse_mode"),
         tuple(
             (item.get("label"), item.get("used_percent"), item.get("resets_at"))
             for item in windows

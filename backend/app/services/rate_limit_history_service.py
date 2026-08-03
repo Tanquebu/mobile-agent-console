@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
@@ -20,6 +21,10 @@ class RateLimitSample(BaseModel):
     source: str = Field(default="cache", max_length=16)
     observed_at: str | None = Field(default=None, max_length=64)
     stale: bool = False
+    # Assente nelle righe scritte prima di BH-03: `None` significa "non noto",
+    # non "testuale". Il collector lo pubblica soltanto quando ha davvero
+    # tentato un parsing (vedi deploy/rate-limit-collector.py:collect()).
+    parse_mode: Literal["structured", "text"] | None = Field(default=None)
     windows: list[HistoryWindow] = Field(default_factory=list, max_length=10)
     error: str | None = Field(default=None, max_length=500)
 

@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -6,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.database import Database
+from app.logging_config import APP_LOGGER_NAME, configure_logging
 from app.main import create_app
 from app.services.rate_limit_fresh_client import (
     RateLimitFreshResult,
@@ -62,6 +64,7 @@ def history_row() -> dict:
         "source": "cache",
         "observed_at": "2026-08-02T09:34:41+00:00",
         "stale": False,
+        "parse_mode": "structured",
         "windows": [{"label": "5h", "used_percent": 58.0, "resets_at": 1785679200}],
     }
 
@@ -130,6 +133,9 @@ def test_history_returns_samples_from_populated_file(tmp_path: Path) -> None:
     body = response.json()
     assert len(body["samples"]) == 1
     assert body["samples"][0]["provider"] == "claude"
+    # BH-03: il campo attraversa il boundary invariato, response_model senza
+    # schema di traduzione intermedio.
+    assert body["samples"][0]["parse_mode"] == "structured"
 
 
 def test_history_missing_file_returns_empty_list_not_500(tmp_path: Path) -> None:
@@ -245,3 +251,150 @@ def test_refresh_maps_client_unavailable_to_503() -> None:
     assert response.status_code == 503
     assert response.json()["code"] == "rate_limit_fresh_unavailable"
     assert "private" not in response.text.lower()
+
+
+def test_config_exposes_optional_features_in_legacy_single_password_mode() -> None:
+    # In modalita' legacy (password condivisa, nessun account) l'utente
+    # autenticato equivale all'admin, come gia' avviene per gli altri due
+    # flag admin-gated dello stesso endpoint.
+    client = legacy_client(rate_limit_fresh_enabled=True, host_observability_enabled=True)
+    login(client)
+
+    body = client.get("/api/v1/config").json()
+
+    assert body["optional_features"] == {
+        "host_observability_enabled": True,
+        "session_usage_enabled": False,
+        "rate_limit_fresh_enabled": True,
+        "claude_history_enabled": False,
+        "database_auth_enabled": False,
+    }
+
+
+def test_config_hides_optional_features_from_non_admin_roles(tmp_path: Path) -> None:
+    settings = database_settings(tmp_path)
+    admin_client = TestClient(create_app(settings, FakeTmux()))
+    login_account(admin_client, "admin", "a-secure-admin-password")
+    operator_client = TestClient(create_app(settings, FakeTmux()))
+    login_account(operator_client, "operator", "a-secure-operator-password")
+
+    admin_body = admin_client.get("/api/v1/config").json()
+    operator_body = operator_client.get("/api/v1/config").json()
+
+    # `database_settings()` accende `database_auth_enabled` e
+    # `rate_limit_fresh_enabled`; il resto resta allo stato di default.
+    assert admin_body["optional_features"] == {
+        "host_observability_enabled": False,
+        "session_usage_enabled": False,
+        "rate_limit_fresh_enabled": True,
+        "claude_history_enabled": False,
+        "database_auth_enabled": True,
+    }
+    # Nessuna installazione minima deve apparire come un errore: il ruolo
+    # operator vede semplicemente l'informazione assente (`None`), non un
+    # dizionario con valori falsi inventati.
+    assert operator_body["optional_features"] is None
+
+
+def test_startup_logs_optional_feature_states_without_secrets(caplog) -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        host_observability_enabled=True,
+        rate_limit_fresh_enabled=True,
+    )
+    app = create_app(settings, FakeTmux())
+
+    with caplog.at_level(logging.INFO, logger="mobile_agent_console"), TestClient(app):
+        pass
+
+    feature_records = [
+        record for record in caplog.records if record.getMessage().startswith("Funzioni opzionali:")
+    ]
+    assert len(feature_records) == 1
+    message = feature_records[0].getMessage()
+    # Solo enunciazione di fatto: nomi di funzione e stato acceso/spento,
+    # nessun confronto con un'attesa e nessun livello di allarme per questa
+    # riga.
+    assert feature_records[0].levelno == logging.INFO
+    for fragment in (
+        "host_observability_enabled=on",
+        "session_usage_enabled=off",
+        "rate_limit_fresh_enabled=on",
+        "claude_history_enabled=off",
+        "database_auth_enabled=off",
+    ):
+        assert fragment in message
+    assert PASSWORD not in message
+    assert SECRET not in message
+    assert "/" not in message
+    assert not any(
+        record.levelno >= logging.WARNING and "Funzioni opzionali" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_configure_logging_makes_app_logger_effectively_observable() -> None:
+    """Verifica la configurazione REALE del logger, non uno stato forzato da caplog.
+
+    `caplog.at_level(logging.INFO, logger="mobile_agent_console")` (test sopra)
+    forza il livello effettivo del logger per la durata del test e installa un
+    handler proprio, indipendentemente da come il processo reale è configurato:
+    per questo il test precedente restava verde anche quando, in produzione,
+    `app/start.py` chiamava `uvicorn.run(...)` senza `log_config`, lasciando il
+    logger applicativo a `WARNING` e senza handler (TEST-BH-03/IMP-BH-03-R1,
+    riprodotto dal vivo con `docker compose logs backend`, nessuna
+    corrispondenza per "Funzioni opzionali").
+
+    Questo test invoca invece `configure_logging()`, la stessa funzione usata
+    da `app/start.py` prima di `uvicorn.run` (che a sua volta, quando riceve un
+    `log_config` come dict, chiama internamente lo stesso
+    `logging.config.dictConfig`), e ispeziona lo stato risultante sul logger
+    reale: nessun `caplog.at_level` di mezzo.
+    """
+    app_logger = logging.getLogger(APP_LOGGER_NAME)
+    other_logger = logging.getLogger("urllib3")
+    root_logger = logging.getLogger()
+
+    # Stato prima della configurazione, per la teardown e per il confronto
+    # "non deve essere cambiato" sui logger di librerie terze.
+    saved_level = app_logger.level
+    saved_handlers = list(app_logger.handlers)
+    saved_propagate = app_logger.propagate
+    other_level_before = other_logger.getEffectiveLevel()
+    root_level_before = root_logger.getEffectiveLevel()
+
+    try:
+        configure_logging()
+
+        # Il criterio manuale/il gate chiedono che le righe INFO del logger
+        # applicativo arrivino a `docker compose logs`: questo richiede sia un
+        # livello effettivo <= INFO sia almeno un handler raggiungibile.
+        assert app_logger.getEffectiveLevel() <= logging.INFO
+        assert app_logger.hasHandlers()
+
+        # Riproduce "docker compose logs backend | grep ..." senza un
+        # processo separato: il messaggio deve davvero raggiungere un
+        # handler reale (quello `default` di uvicorn, su stderr), non solo
+        # essere accettato dal filtro di livello.
+        import io
+
+        stream = io.StringIO()
+        for handler in app_logger.handlers:
+            if isinstance(handler, logging.StreamHandler):
+                handler.stream = stream
+        app_logger.info("Funzioni opzionali: probe di verifica IMP-BH-03-R1")
+        for handler in app_logger.handlers:
+            handler.flush()
+        assert "Funzioni opzionali: probe di verifica IMP-BH-03-R1" in stream.getvalue()
+
+        # Vincolo esplicito del rework: niente abbassamento indiscriminato
+        # della soglia globale/di librerie terze.
+        assert other_logger.getEffectiveLevel() == other_level_before
+        assert root_logger.getEffectiveLevel() == root_level_before
+    finally:
+        app_logger.handlers = saved_handlers
+        app_logger.setLevel(saved_level)
+        app_logger.propagate = saved_propagate

@@ -1136,16 +1136,32 @@ function PreferencesModal({
   );
 }
 
+// Nomi leggibili per la lista "Funzioni opzionali" (vista Audit, admin-only).
+// Pura etichettatura: lo stato acceso/spento arriva da `ConfigView.optional_features`
+// (BH-03), un'enunciazione di fatto, mai un giudizio su cosa "dovrebbe" essere
+// acceso — un'installazione minima con tutto spento è uno stato valido.
+const OPTIONAL_FEATURE_LABEL: Record<string, string> = {
+  host_observability_enabled: "Osservabilità host",
+  session_usage_enabled: "Attribuzione per sessione",
+  rate_limit_fresh_enabled: "Aggiornamento forzato quota",
+  claude_history_enabled: "Storico Claude",
+  database_auth_enabled: "Autenticazione con account",
+};
+
 function AuditModal({ onClose }: { onClose: () => void }) {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [optionalFeatures, setOptionalFeatures] = useState<Record<string, boolean> | null>(null);
 
   useEffect(() => {
     listAudit()
       .then(setEvents)
       .catch((value) => setError(errorMessage(value)))
       .finally(() => setLoading(false));
+    fetchConfig()
+      .then((config) => setOptionalFeatures(config.optional_features))
+      .catch(() => { /* la sezione resta assente, l'audit degli eventi non dipende da questo */ });
   }, []);
 
   return (
@@ -1157,6 +1173,19 @@ function AuditModal({ onClose }: { onClose: () => void }) {
           <div><span className="eyebrow">SOLA LETTURA</span><h2 id="audit-title">Audit operazioni</h2></div>
           <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
         </header>
+        {optionalFeatures && (
+          <div className="audit-optional-features" aria-label="Funzioni opzionali attive">
+            <span className="eyebrow">FUNZIONI OPZIONALI</span>
+            <ul>
+              {Object.entries(optionalFeatures).map(([name, enabled]) => (
+                <li key={name}>
+                  <span>{OPTIONAL_FEATURE_LABEL[name] ?? name}</span>
+                  <strong>{enabled ? "attiva" : "disattiva"}</strong>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="snapshot-existing audit-list">
           {loading && <p className="empty">Caricamento…</p>}
           {!loading && events.map((event) => (
@@ -1580,6 +1609,12 @@ function BudgetProviderChart({
   );
   const allPoints = series.flatMap((item) => item.points);
   if (allPoints.length === 0) return null;
+  // Stesso principio del badge `stale`: riferisce un fatto sulla riga più
+  // recente ("il fallback testuale è attivo per questo provider"), non un
+  // giudizio. `null`/assente (righe pre-BH-03) non genera l'avviso: "non
+  // noto" non è "testuale".
+  const latestParseMode = samples.length > 0 ? samples[samples.length - 1].parse_mode : null;
+  const textFallbackActive = latestParseMode === "text";
 
   const minT = Math.min(...allPoints.map((point) => point.t));
   const maxT = Math.max(...allPoints.map((point) => point.t));
@@ -1656,6 +1691,11 @@ function BudgetProviderChart({
         ))}
         <span className="budget-legend-stale"><i aria-hidden="true" /> dato non recente (non interpolato)</span>
       </div>
+      {textFallbackActive && (
+        <p className="budget-note budget-parse-mode-note">
+          Fallback testuale attivo per questo provider: l'ultimo campione non proviene dalla forma strutturata.
+        </p>
+      )}
     </figure>
   );
 }

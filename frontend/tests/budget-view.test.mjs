@@ -24,6 +24,10 @@ const sessionList = app.slice(
   app.indexOf("function SessionList("),
   app.indexOf("function Console("),
 );
+const providerChart = app.slice(
+  app.indexOf("function BudgetProviderChart("),
+  app.indexOf("function hasBudgetUsage("),
+);
 
 // A differenza della suite Host, qui la logica più delicata (segmentazione
 // ai reset, isolamento dei tratti stantii) è in funzioni pure senza
@@ -270,4 +274,33 @@ test("i tratti stantii restano distinti nel CSS senza nuove dipendenze", () => {
 test("il config espone rate_limit_fresh_enabled e session_usage_enabled nel tipo frontend", () => {
   assert.match(api, /rate_limit_fresh_enabled: boolean;/);
   assert.match(api, /session_usage_enabled: boolean;/);
+});
+
+test("il tipo storico frontend porta parse_mode coerente col contratto backend (BH-03)", () => {
+  assert.match(api, /parse_mode: "structured" \| "text" \| null;/);
+});
+
+test("il fallback testuale è segnalato come fatto sull'ultimo campione del provider, non come errore", () => {
+  assert.match(
+    providerChart,
+    /const latestParseMode = samples\.length > 0 \? samples\[samples\.length - 1\]\.parse_mode : null;/,
+  );
+  assert.match(providerChart, /const textFallbackActive = latestParseMode === "text";/);
+  assert.match(providerChart, /textFallbackActive && \(/);
+  assert.match(providerChart, /Fallback testuale attivo per questo provider/);
+  // Riferisce, non giudica: niente linguaggio di allarme intorno all'avviso.
+  assert.doesNotMatch(providerChart, /Fallback testuale attivo per questo provider[\s\S]{0,120}(errore|attenzione)/i);
+});
+
+test("una riga senza parse_mode (pre-BH-03, 'non noto') non genera l'avviso di fallback testuale", () => {
+  // `textFallbackActive` è vero soltanto per "text", mai per `null`/`undefined`:
+  // una riga storica scritta prima di BH-03 non deve leggersi come fallback
+  // in corso.
+  assert.doesNotMatch(providerChart, /latestParseMode !== "structured"/);
+  assert.doesNotMatch(providerChart, /latestParseMode == null/);
+});
+
+test("lo stile dell'avviso di fallback testuale riusa la classe neutra già in uso per il residuo, senza nuove dipendenze", () => {
+  assert.match(providerChart, /className="budget-note budget-parse-mode-note"/);
+  assert.match(styles, /\.budget-parse-mode-note/);
 });

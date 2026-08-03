@@ -31,7 +31,10 @@ systemctl --user enable --now mobile-agent-console-rate-limit-fresh.socket
 Verificare che gli script quote esistano in `~/.claude/rate-limit.sh` e
 `~/.codex/rate-limit.sh` e supportino l'invocazione `--json`; il collector
 ricade sul parsing testuale storico quando non lo offrono, senza fallire il
-ciclo.
+ciclo. Il contratto di formato che il collector applica a questi script
+(invocazione, forma strutturata, degradazione ammessa) è documentato in
+`docs/contracts/quote-script-v1.md`, non qui: questo gate verifica il
+comportamento osservabile, non ridefinisce il contratto.
 
 Attivare l'overlay Compose opt-in soltanto dopo aver validato la fase A senza
 di esso (lo storico funziona già col solo timer host-side):
@@ -141,18 +144,69 @@ l'assenza di header HTTP, credenziali, hostname e username. Se
 `session-usage-history.jsonl` non esiste ancora (fase B non completata),
 annotarlo esplicitamente nel gate invece di trattarlo come pass silenzioso.
 
+## Check 7 — Segnale di fallback testuale (`parse_mode`, BH-03)
+
+Il collector pubblica quale forma ha prodotto ogni riga storica. Verificare
+prima lo stato reale della sorgente:
+
+```bash
+tail -n 20 .mobile-agent-console/provider-rate-limits-history.jsonl | \
+  python3 -c 'import json,sys; [print(json.loads(l)["provider"], json.loads(l).get("parse_mode")) for l in sys.stdin]'
+```
+
+- Se l'ultimo campione di un provider ha `parse_mode: "text"`, la vista
+  Budget deve mostrare, sotto il grafico di quel provider, l'avviso "Fallback
+  testuale attivo per questo provider…" — un'enunciazione di fatto, non un
+  errore né un livello di allarme nell'interfaccia.
+- Se l'ultimo campione ha `parse_mode: "structured"`, l'avviso non deve
+  comparire.
+- Se il file contiene righe scritte prima di questa funzione (`parse_mode`
+  assente o `null`), verificare che non producano l'avviso: l'assenza del
+  campo è "non noto", non equivalente a `"text"`.
+- Per forzare l'osservazione del ramo testuale senza modificare gli script
+  quote reali, è sufficiente puntare temporaneamente `--claude-script`/
+  `--codex-script` del collector (variabili d'ambiente del timer, non
+  argomenti hardcoded) a uno script di prova che rifiuta `--json` e stampa
+  soltanto la forma testuale descritta in
+  `docs/contracts/quote-script-v1.md`; ripristinare il percorso originale al
+  termine della verifica.
+
+## Check 8 — Funzioni opzionali attive (BH-03)
+
+All'avvio del backend, verificare la riga di log che enuncia lo stato delle
+funzioni opzionali:
+
+```bash
+docker compose logs backend | grep "Funzioni opzionali"
+```
+
+Atteso: una singola riga `INFO` con i cinque nomi di funzione e il loro stato
+`on`/`off`; nessun percorso, token o altro valore di configurazione al suo
+interno; nessun livello `WARNING`/`ERROR` per questa riga, indipendentemente
+da quali funzioni siano spente — un'installazione con tutte le funzioni
+opzionali disattivate è uno stato valido, non un errore da segnalare.
+Verificare inoltre, autenticati come admin, che lo stesso elenco compaia
+nella vista Audit dell'interfaccia (sezione "Funzioni opzionali"), e che sia
+assente per un ruolo non-admin (`GET /api/v1/config` restituisce
+`optional_features: null`).
+
 ## Comandi automatici
 
 ```bash
 docker compose run --rm backend-test pytest tests/test_rate_limit.py tests/test_rate_limit_collector.py tests/test_rate_limit_history_api.py tests/test_rate_limit_history_service.py tests/test_rate_limit_status_service.py
-docker compose run --rm backend-test ruff check --no-cache app/services/jsonl_tail.py app/services/rate_limit_history_service.py app/services/unix_socket_json_client.py app/services/rate_limit_fresh_client.py tests/test_rate_limit_history_api.py tests/test_rate_limit_history_service.py tests/test_rate_limit_collector.py
+docker compose run --rm backend-test ruff check --no-cache app/services/jsonl_tail.py app/services/rate_limit_history_service.py app/services/unix_socket_json_client.py app/services/rate_limit_fresh_client.py app/main.py app/schemas.py tests/test_rate_limit_history_api.py tests/test_rate_limit_history_service.py tests/test_rate_limit_collector.py
 python3 -m unittest discover -s deploy/tests
+cd frontend && npm run test:budget && npm run test:admin && npm run build
 systemd-analyze --user verify deploy/systemd/mobile-agent-console-rate-limit-fresh.socket deploy/systemd/mobile-agent-console-rate-limit-fresh@.service
 docker compose config --quiet
 docker compose -f compose.yaml -f compose.budget-history.yaml config --quiet
 docker compose -f compose.yaml -f compose.host.yaml -f compose.budget-history.yaml config --quiet
 git diff --check
 ```
+
+`test:budget` copre anche il badge di fallback testuale (`parse_mode`) sulla
+vista Budget; `test:admin` (nuovo con BH-03) copre l'elenco delle funzioni
+opzionali nella vista Audit.
 
 `docker compose run --rm backend-test pytest tests/test_rate_limit_collector.py`
 carica `deploy/rate-limit-collector.py` direttamente da file: se eseguito fuori
