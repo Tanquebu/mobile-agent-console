@@ -236,3 +236,30 @@ def test_invalid_session_uuid_and_provider_are_rejected_before_reaching_client()
     )
     assert bad_provider.status_code == 422
     assert stub.calls == 0
+
+
+def test_missing_query_parameters_are_422_never_a_raw_500() -> None:
+    """Un parametro assente e' un errore del client, non del server.
+
+    Regressione: `bucket_start` era dichiarato `Annotated[...] = ...`, quindi
+    quando mancava del tutto il sentinella `Ellipsis` finiva nel corpo
+    dell'errore di validazione e faceva fallire `jsonable_encoder` dentro
+    l'handler, degradando la risposta a un `500` grezzo. Gli altri due
+    parametri restavano `422`: era il solo ingresso non tipizzato
+    dell'endpoint. Si verificano tutti e tre per non reintrodurre
+    l'asimmetria.
+    """
+    stub = StubSessionTimelineClient(valid_window_payload())
+    client = legacy_client(stub, session_timeline_enabled=True)
+    login_legacy(client)
+    base = {
+        "provider": "claude",
+        "session_uuid": "abc",
+        "bucket_start": "2026-08-02T09:30:00Z",
+    }
+    for missing in base:
+        query = "&".join(f"{k}={v}" for k, v in base.items() if k != missing)
+        response = client.get(f"/api/v1/session-usage/timeline?{query}")
+        assert response.status_code == 422, (missing, response.status_code)
+        assert response.json()["detail"][0]["loc"] == ["query", missing]
+    assert stub.calls == 0

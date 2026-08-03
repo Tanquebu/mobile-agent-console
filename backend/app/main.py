@@ -897,9 +897,15 @@ def create_app(
     )
     async def get_session_timeline(
         request: Request,
-        session_uuid: str = Query(..., pattern=r"^[A-Za-z0-9_-]{1,64}$"),
-        provider: str = Query(..., pattern=r"^(claude|codex)$"),
-        bucket_start: Annotated[datetime, Query()] = ...,
+        # Tutti e tre obbligatori nello stile `Annotated` senza default: con
+        # `Annotated[...] = ...` il sentinella `Ellipsis` finisce nel corpo
+        # dell'errore di validazione, `jsonable_encoder` non sa serializzarlo e
+        # solleva dentro l'handler di `RequestValidationError`, che degrada a
+        # un 500 grezzo. Il parametro assente diventava così l'unico ingresso
+        # non tipizzato dell'endpoint (osservato il 03/08/2026 da SA-TEST).
+        session_uuid: Annotated[str, Query(pattern=r"^[A-Za-z0-9_-]{1,64}$")],
+        provider: Annotated[str, Query(pattern=r"^(claude|codex)$")],
+        bucket_start: Annotated[datetime, Query()],
         _cookie: str = Depends(require_admin_session),
     ) -> SessionTimelineWindow | JSONResponse:
         # Drill-down "fase C" (BH-04): admin-only e nascosto ai non-admin come

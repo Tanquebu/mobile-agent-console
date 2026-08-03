@@ -1660,10 +1660,12 @@ ancora `IMP-BH-04` `READY` e non preso in carico, mentre la voce autorevole è
 
 **Stato: fasi A e B verificate (con un rework ciascuna), `PASSED`. Fase
 BH-03 (proprietà dello strato quote e segnale sul fallback) chiusa `PASSED`
-dopo un rework. Fase C (`BH-04`): `IMP-BH-04` è `DONE` e committata
-(`bce13f4`), con le tre suite verdi; `TEST-BH-04` è `READY_FOR_TEST` e la
-funzione non è ancora deployata — il flag `MAC_SESSION_TIMELINE_ENABLED` è
-spento e le unit non sono installate, quindi l'endpoint risponde `404`.**
+dopo un rework. Fase C (`BH-04`): implementata, deployata e in esercizio —
+flag `MAC_SESSION_TIMELINE_ENABLED` acceso, unit installate, endpoint attivo.
+`TEST-BH-04` è chiusa `FAILED` (parametro di query assente → `500` invece di
+`422`), il rework `IMP-BH-04-R1` è `DONE` e la fase resta aperta finché
+`TEST-BH-04-T2` non passa: un `DONE` di implementazione, da solo, non chiude
+nulla.**
 Decisioni e contratto in
 `docs/adr/010-storico-consumo-budget.md` e
 `docs/contracts/budget-history-v1.md`; non riaprire né contraddire quei
@@ -2729,7 +2731,7 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   nuova. **La funzione è committata ma non deployata**: flag spento e unit non
   installate, l'endpoint risponde `404`.
 
-- [ ] TEST-BH-04 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Sbloccato da
+- [x] TEST-BH-04 | OWNER: SA-TEST | STATUS: FAILED | Sbloccato da
   `IMP-BH-04` (commit `bce13f4`, working tree pulito). Comandi:
   `docker compose build backend-test && docker compose run --rm backend-test`,
   `python3 -m unittest discover -s deploy/tests`,
@@ -2746,6 +2748,66 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   coerente per quelli dichiarati non disponibili; spawn di subagent
   pubblicato come evento senza seguirne il contenuto; `claude-history`
   resta indipendente (disattivarla non altera il drill-down e viceversa).
+  **Esito (`SA-TEST`, 03/08/2026).** Suite tutte verdi con i numeri attesi:
+  backend 285 (Ruff pulito), collector host 59, frontend 56. Confine
+  confermato sull'istanza pubblicata: estrazione esaustiva delle stringhe su
+  tre payload reali (Claude senza subagent, Codex, Claude con spawn reale) —
+  nessuna chiave o valore fuori da `provider`, `session_uuid`, istanti ISO,
+  `model` e contatori numerici; nessun testo, nome di strumento o percorso a
+  nessun livello di annidamento. `model` vuoto su Codex quando manca
+  `payload.info.model`, coerente con il contratto. Spawn di subagent
+  pubblicato come solo istante, senza identificativo del thread figlio.
+  Transcript inesistente → `available:false` con motivo e `200`. Parametri
+  malformati → `422`. Raffiche di 25 e 30 richieste → `200` + `429` con
+  `Retry-After`, socket rimasta `active (listening)`, nessun
+  `trigger-limit-hit`: entrambi i difetti del deploy risultano chiusi.
+  Scansione dati personali sul diff: nessuna occorrenza (l'unico match del
+  pattern è la stringa `0.0.0.0` dentro una regola di sicurezza).
+  **Difetto che motiva il `FAILED`:** `GET /api/v1/session-usage/timeline`
+  **senza** `bucket_start` risponde `500` grezzo invece di `422`. Atteso:
+  `422` con `loc: ["query", "bucket_start"]`, come già accade per
+  `provider`/`session_uuid` mancanti. Ottenuto: `500 Internal Server Error`.
+  Riproduzione (sessione admin valida in `jar.txt`, host da `.env`):
+  `curl -sk -b jar.txt "$BASE/api/v1/session-usage/timeline?provider=claude&session_uuid=<uuid-valido>"`.
+  Causa: `bucket_start: Annotated[datetime, Query()] = ...` in
+  `backend/app/main.py` — il sentinella `Ellipsis` finisce nel corpo
+  dell'errore di validazione, `jsonable_encoder` non lo serializza e solleva
+  dentro l'handler di `RequestValidationError`, che degrada a `500`. Non è un
+  bypass del confine (nessuno stack trace esposto, sessione admin comunque
+  richiesta), ma viola l'invariante "errore genuino → HTTP tipizzato, mai un
+  500 grezzo" rispettata ovunque altrove nel contratto. Nessun test copriva
+  l'assenza del parametro: i test esistenti passavano sempre tutti e tre.
+  Due punti dichiarati non verificati da `SA-TEST`, da non dare per chiusi:
+  la copertura di `wait_closed()` contro un *hang* (non solo contro un errore
+  immediato) non è riproducibile e resta un rischio teorico — il timeout è
+  chiuso prima del `finally`; e la struttura `compactions` non è stata
+  osservata su un bucket reale, perché nella finestra disponibile non ce
+  n'erano, quindi è coperta solo da fixture.
+
+- [x] IMP-BH-04-R1 | OWNER: ROOT | STATUS: DONE | Rework del difetto trovato
+  da `TEST-BH-04`. I tre parametri di query dell'endpoint passano allo stile
+  `Annotated[...]` **senza default**, che è già la convenzione del repo per i
+  parametri obbligatori (vedi gli endpoint di lettura file in
+  `backend/app/main.py`): il `= ...` era l'unica occorrenza anomala del
+  repository. Test di regressione
+  `test_missing_query_parameters_are_422_never_a_raw_500` in
+  `backend/tests/test_session_timeline_api.py`: verifica tutti e tre i
+  parametri a rotazione, non solo `bucket_start`, per non reintrodurre
+  l'asimmetria che ha nascosto il difetto: finché due parametri su tre si
+  comportano bene, il terzo non salta all'occhio. Verificato che il test
+  fallisce davvero contro il codice difettoso — l'istanza pubblicata, che in
+  quel momento eseguiva ancora il codice vecchio, ha risposto `500` dove il
+  test pretende `422`. Suite backend: 286 passati, Ruff pulito.
+
+- [ ] TEST-BH-04-T2 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Sbloccato da
+  `IMP-BH-04-R1`. Stessi comandi e stessi criteri di `TEST-BH-04`, che restano
+  autorevoli. In più: confermare che i tre parametri mancanti diano `422` con
+  `loc` corretto sull'**istanza pubblicata** (non solo nei test) e che il
+  difetto non si ripresenti in altri endpoint — cercare nel repository altri
+  `Annotated[...] = ...`, che è la forma esatta del difetto. Non serve
+  ripetere l'ispezione avversariale dei payload se il diff del rework non
+  tocca il confine: dichiararlo esplicitamente invece di rieseguirla per
+  abitudine.
 
 #### BH-05 — Ripristino del prossimo reset nel pannello quote
 
