@@ -2926,7 +2926,7 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
      non equivale a un provider specifico. Vincola `OC-03` e qualunque
      estensione di `BH-*` che la incroci.
 
-- [ ] IMP-OC-00 | OWNER: SA-IMP | STATUS: READY | Spike host TUI: **dimostrare
+- [ ] IMP-OC-00 | OWNER: ROOT | STATUS: IN_PROGRESS | Spike host TUI: **dimostrare
   che la TUI è controllabile con il protocollo corrente, senza modificare il
   prodotto.** Nessuna modifica a `backend/`, `frontend/` o al deployment in
   questa voce: l'unico output committabile è documentazione più eventuali
@@ -2969,6 +2969,40 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   di scansione dei dati personali.
   **Gate di uscita:** nessuna regressione per tmux, nessun segreto nei dati
   acquisiti, flusso base usabile da mobile. Chiudere con `TEST-OC-00`.
+  **Avanzamento (03/08/2026, parte eseguibile senza provider).**
+  Installazione: `opencode-ai@1.18.11` da npm nel prefisso utente
+  (`npm install -g --prefix ~/.local opencode-ai@1.18.11`), **senza `sudo`** e
+  senza toccare `/usr` — il prefisso npm di sistema non è scrivibile
+  dall'utente, e un'installazione di sistema sarebbe stata la scelta sbagliata
+  comunque: il binario deve appartenere allo stesso utente che possiede il
+  server tmux. Integrità del tarball dichiarata dal registry:
+  `sha512-2omDujweL9HNMCvz18PKUUkdOf5TbbzxhH43nLDHIQrWQIXM2poXjAjKpLyBCLP3LGj6vRNmB+1Q6CLKdV90cQ==`.
+  Il pacchetto risolve un binario per piattaforma via dipendenze opzionali
+  (`opencode-linux-x64` e varianti musl/baseline). Rollback:
+  `npm uninstall -g --prefix ~/.local opencode-ai`, più rimozione di
+  `~/.config/opencode` e `~/.local/share/opencode` se si vuole azzerare anche
+  stato e credenziali.
+  1. **`pane_current_command` = `opencode`**, senza wrapper che ne mascheri il
+     nome: il riconoscimento del profilo può basarsi sul valore atteso.
+  2. **ANSI**: `capture-pane -e` conserva sequenze *truecolor*
+     (`ESC[38;2;R;G;B`) e caratteri di box-drawing UTF-8.
+  3. **Schermo alternativo attivo** (`#{alternate_on}` = 1). È la stessa
+     condizione che rende inaffidabile la classificazione testuale di stato per
+     Antigravity (chrome permanente ripetuto in ogni frame): `OC-03` non dovrà
+     dare per scontato che i pattern testuali funzionino, e lo scrollback non
+     sarà disponibile per costruzione.
+  4. **Resize**: la TUI riflette correttamente a 80x24, 60x24 e 50x22. A **40
+     colonne** il suggerimento di piè di pagina si sovrappone al percorso del
+     progetto (due stringhe sulla stessa cella); il difetto si auto-ripara
+     tornando a una larghezza maggiore. Difetto upstream di rendering, non
+     bloccante, ma rilevante per il gate "usabile da mobile": va riverificato
+     su viewport reali prima di `OC-01`.
+  10. **Autenticazione mancante**: la TUI parte comunque e degrada con un
+      suggerimento esplicito (`/connect`), senza errori né uscita — il caso
+      "provider non configurato" non è un crash.
+  Il resto della matrice (input e paste, richieste di autorizzazione,
+  interrupt, resume, sessioni multiple) richiede un provider configurato:
+  l'autenticazione è un'azione dell'utente, per la decisione 4 del gate.
 
 - [ ] TEST-OC-00 | OWNER: SA-TEST | STATUS: BLOCKED | Sbloccato da `IMP-OC-00`.
   Verifica indipendente dello spike: rieseguire la matrice sui punti
