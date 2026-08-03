@@ -2872,6 +2872,38 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   osservabile nell'ambiente e non sono conteggiati come prova; la copertura del
   rendering normale/compatto resta nei test UI automatici verdi sopra.
 
+## INC-PASTE-01 — il testo multilinea arriva a tmux come righe separate da Invio
+
+- [ ] INC-PASTE-01 | OWNER: ROOT | STATUS: READY | Trovato il 03/08/2026
+  durante lo spike OpenCode, ma **non è un difetto di OpenCode**: è del
+  prodotto, e riguarda potenzialmente tutti i profili.
+  `TmuxService.send_text` esegue `paste-buffer -b … -t … -d` **senza `-r`**.
+  Il manuale di tmux: in assenza di `-r`, ogni LF del buffer viene sostituito
+  con un separatore, per default **CR**. Il testo multilinea inviato dalla PWA
+  non arriva quindi mai come testo multilinea — arriva come righe separate da
+  Invio.
+  **Conseguenza osservata** su una TUI OpenCode, con gli stessi flag del
+  prodotto: `AAA\nBBB` è stato **inviato da solo**, senza che nessuno avesse
+  chiamato l'endpoint dei tasti, e il newline è sparito dal testo. Con
+  `paste-buffer -r` lo stesso identico testo è rimasto nell'input, su due
+  righe, non inviato. La differenza è quel singolo flag.
+  **Perché conta più di un difetto di rendering:** `CLAUDE.md` e
+  `docs/architecture.md` dichiarano che l'invio di Enter è un'operazione
+  separata e distinta (`POST /api/v1/sessions/{id}/keys`), ed è una scelta di
+  sicurezza — l'utente deve poter incollare, rileggere e solo poi inviare. Con
+  i flag attuali quella garanzia non vale per il testo multilinea, che è
+  esattamente il caso in cui rileggere prima di inviare serve di più.
+  **Da fare:** verificare il comportamento attuale su Codex, Claude e
+  Antigravity prima di cambiare il flag — è possibile che alcune TUI
+  dipendano oggi dalla conversione, e la correzione non deve rompere l'invio
+  di prompt su una riga sola. Poi applicare `-r`, con test automatico che
+  asseriti l'argv (il fake gateway rende il controllo banale) e un test
+  manuale per profilo. Aggiornare `docs/architecture.md` se la sezione
+  sull'input non menziona la semantica del separatore.
+  **Nota di metodo:** questo difetto è stato trovato mentre si verificava
+  tutt'altro, ed era invisibile ai test perché i test asseriscono l'argv che
+  il codice costruisce, non l'effetto che quell'argv produce dentro tmux.
+
 ## Integrazione OpenCode
 
 **Stato: gate prodotto approvato dall'utente il 03/08/2026. `IMP-OC-00`
@@ -3021,7 +3053,12 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
      lasciandolo scoprire all'utente su un prompt lungo. Il paste in sé
      funziona, ed è confermato che **Enter resta un'operazione separata**: il
      comando compare in palette senza essere eseguito.
-  6. **Richieste di autorizzazione — nessuna osservata.** Con configurazione
+  6. **Richieste di autorizzazione — di norma assenti, ma esistono.**
+     *(Rettificato da `IMP-OC-00-R1`: la formulazione originale diceva
+     "nessuna osservata" ed è stata falsificata da `TEST-OC-00`, che ne ha
+     vista una reale con azioni `Allow once`/`Allow always`/`Reject`. Non è
+     riproducibile in modo deterministico e sembra dipendere dalla decisione
+     del modello nel singolo turno.)* Con configurazione
      vuota (`~/.config/opencode/opencode.jsonc` contiene solo `$schema`) e
      **senza** `--auto`, l'agente ha eseguito comandi di shell (`wc -l`,
      `ls -la`) **senza chiedere alcuna conferma**. Il permesso di eseguire
@@ -3053,6 +3090,13 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
      **Attenzione al confine:** i titoli sono generati dal contenuto della
      conversazione, quindi esporre un elenco di sessioni OpenCode
      significherebbe esporre contenuto, non solo identificatori.
+     *(Rettificato da `IMP-OC-00-R1`: il rischio è più ampio di come descritto
+     qui. Lo store non è per progetto ma **globale per utente** —
+     `opencode session list` eseguito in una directory vuota mai toccata
+     elenca conversazioni di altri progetti dell'host. Quindi l'elenco non
+     esporrebbe il contenuto delle conversazioni di questo progetto, ma di
+     tutti. In una cartella nuova `--continue` produce inoltre un errore
+     grezzo di server invece di dichiarare che non c'è nulla da riprendere.)*
   12. **Nessuna regressione per tmux.** Le cinque sessioni preesistenti
       dell'utente sono rimaste intatte per tutta la durata dello spike; tutte
       le sessioni sonda sono state rimosse. `tmux-runtime` mai coinvolto: lo
@@ -3105,9 +3149,12 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   **Fixture acquisite:** sei frame reali in
   `backend/tests/fixtures/opencode-tui/`, sanitizzati (l'unico dato variabile
   era il percorso del progetto), con un README che ne dichiara provenienza e
-  limiti. Manca — e il README lo dice — il frame di richiesta di
-  autorizzazione: non è un'omissione, è che OpenCode non ne ha mai prodotta
-  una. Verificato sui frame, non assunto: `esc interrupt` compare solo nel
+  limiti. Manca il frame di richiesta di autorizzazione perché in questo
+  spike non se ne è presentata nessuna — *rettificato da `IMP-OC-00-R1`: la
+  formulazione originale sosteneva che OpenCode non ne producesse mai, ed è
+  stata falsificata da `TEST-OC-00`. Il frame va provocato deliberatamente
+  prima di scrivere il classificatore di `OC-03`.*
+  Verificato sui frame, non assunto: `esc interrupt` compare solo nel
   frame attivo e `interrupted` solo in quello interrotto, quindi i due
   marcatori sono discriminanti; sei frame di un solo turno restano comunque
   una base insufficiente per un classificatore.
@@ -3115,7 +3162,7 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   sono confermati su `capture-pane -e`, ma la resa effettiva nel terminale
   della PWA non è stata osservata, e richiederebbe un browser.
 
-- [ ] TEST-OC-00 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Sbloccato da
+- [x] TEST-OC-00 | OWNER: SA-TEST | STATUS: FAILED | Sbloccato da
   `IMP-OC-00` (commit dello spike; nessuna modifica al prodotto).
   Verifica indipendente dello spike: rieseguire la matrice sui punti
   riproducibili senza fidarsi del rapporto dell'implementatore, controllare che
@@ -3124,6 +3171,75 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   e confermare che nessuna sessione tmux preesistente sia stata persa o
   alterata dallo spike. Verificare inoltre che il repo non contenga modifiche
   di prodotto: `IMP-OC-00` non è autorizzata a farne.
+  **Esito (`SA-TEST`, 03/08/2026).** Confermati: nessuna modifica di prodotto
+  (i tre commit toccano solo `docs/backlog.md` e le fixture), nessuna sessione
+  tmux dell'utente persa, fixture prive di dati personali all'ispezione
+  integrale, scansione dati personali senza occorrenze, tre suite verdi
+  (286/59/56). Riprodotte e confermate le affermazioni su installazione, round
+  senza credenziali, esecuzione di comandi senza conferma, `Ctrl-C` che uccide
+  la sessione, doppio `Escape` che interrompe pulito, warm-up che scarta il
+  primo invio (in un caso **due** invii), path lunghi/Unicode,
+  `pane_current_command`, schermo alternativo, log senza testo dei turni.
+  Verificata sui file anche l'affermazione del README sui marcatori
+  `esc interrupt`/`interrupted`: vera.
+  **Tre difetti che motivano il `FAILED`**, tutti riverificati da `ROOT` prima
+  di accettarli:
+  1. **Il paste multilinea si auto-invia.** Atteso: il testo incollato resta
+     nell'input, perché in Mobile Agent Console l'invio di Enter è
+     un'operazione separata e distinta. Ottenuto: con un `\n` incorporato il
+     messaggio parte da solo. Riprodotto da `ROOT` con gli stessi flag usati
+     dal prodotto: `AAA\nBBB` è stato inviato senza alcun `send-keys Enter`.
+  2. **`--continue` è più pericoloso di come lo aveva descritto lo spike.**
+     Non è ambiguità *fra conversazioni della stessa cartella*: lo store è
+     **globale per utente**. Verificato da `ROOT`: `opencode session list`
+     eseguito in una directory vuota mai toccata prima elenca conversazioni di
+     altri progetti dell'host. In una cartella nuova `--continue` ha inoltre
+     restituito un errore grezzo di server invece di dichiarare che non c'è
+     nulla da riprendere.
+  3. **La richiesta di autorizzazione esiste.** Lo spike affermava che
+     OpenCode non ne avesse "mai prodotta una". `SA-TEST` ne ha osservata una
+     reale, con azioni `Allow once`/`Allow always`/`Reject` su un pattern di
+     percorsi, non riproducibile in modo deterministico. `ROOT` non è
+     riuscito a riprodurla: l'affermazione categorica va comunque ritirata,
+     perché una sola osservazione credibile basta a falsificarla, mentre
+     nessun numero di tentativi falliti basta a confermarla.
+
+- [x] IMP-OC-00-R1 | OWNER: ROOT | STATUS: DONE | Rework documentale dei tre
+  difetti di `TEST-OC-00`. Nessuna modifica al prodotto: il gate `OC-00` non
+  la consente, e il difetto 1 ne richiederebbe una.
+  **Difetto 1 — causa individuata, e non è di OpenCode.** `TmuxService.send_text`
+  invoca `paste-buffer -b … -t … -d` **senza `-r`**. Il manuale di tmux è
+  esplicito: in assenza di `-r` ogni LF del buffer viene sostituito con un
+  separatore, per default **CR** — cioè un Invio. Il testo multilinea del
+  prodotto non arriva quindi mai come testo multilinea: arriva come righe
+  separate da Invio. Verifica differenziale eseguita sulla stessa sessione:
+  con i flag attuali `AAA\nBBB` si è auto-inviato e il newline è sparito; con
+  `paste-buffer -r` lo stesso testo è rimasto nell'input **su due righe** e
+  **non** è stato inviato. La correzione è un singolo flag, ma è una modifica
+  di prodotto che tocca tutti i profili, quindi va aperta come voce propria e
+  verificata anche contro Codex, Claude e Antigravity prima di essere
+  applicata: vedi `INC-PASTE-01`.
+  **Difetto 2 — corretta la caratterizzazione** nella voce `IMP-OC-00`: il
+  rischio non è l'ambiguità dentro un progetto ma l'esposizione trasversale
+  di tutte le conversazioni dell'utente. Rafforza, non indebolisce, la
+  decisione di `OC-02` di partire dal selettore nativo, e aggiunge un vincolo:
+  un eventuale elenco di sessioni esposto da Mobile Agent Console mostrerebbe
+  titoli generati dal contenuto di conversazioni di **altri** progetti.
+  **Difetto 3 — ritirata l'affermazione categorica** in `IMP-OC-00` e nel
+  `README.md` delle fixture, sostituita dalla formulazione verificabile: di
+  norma non chiede, ma esiste un percorso di autorizzazione non ancora
+  caratterizzato. Per il classificatore di `OC-03` è il caso peggiore — uno
+  stato raro non viene coperto per caso — quindi il frame va provocato
+  deliberatamente prima di scrivere il classificatore, non atteso.
+
+- [ ] TEST-OC-00-T2 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Sbloccato da
+  `IMP-OC-00-R1`. Il rework è documentale: verificare che le tre correzioni
+  siano effettivamente riportate in `IMP-OC-00` e nel `README.md` delle
+  fixture, che non sia rimasta da nessuna parte l'affermazione "nessuna
+  richiesta di autorizzazione osservata", e che `INC-PASTE-01` esista e
+  descriva il difetto in modo riproducibile. Non rieseguire l'intera matrice:
+  dichiarare esplicitamente cosa è stato ricontrollato e cosa no. Confermare
+  che il repository continui a non contenere modifiche di prodotto.
 
 #### OC-01 — Profilo TUI di base
 

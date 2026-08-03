@@ -27,12 +27,27 @@ ogni frame occupa 24 righe. Chi confronta questi file con un
 
 ## Cosa manca, e perché
 
-**Non esiste un frame di richiesta di autorizzazione.** Non è un'omissione:
-durante lo spike OpenCode non ne ha mai prodotta una. Con configurazione
-vuota e senza `--auto` ha eseguito comandi di shell senza chiedere, quindi
-lo stato `waiting_authorization` non è osservabile finché non si applica una
-policy dei permessi esplicita. Quando `OC-01` la introdurrà, i frame
-corrispondenti andranno aggiunti qui prima di scrivere il classificatore.
+**Non esiste un frame di richiesta di autorizzazione**, e la ragione è più
+sottile di quanto scritto qui in origine.
+
+La prima versione di questo file affermava che OpenCode "non ne ha mai
+prodotta una". **È falso.** La verifica indipendente (`TEST-OC-00`) ne ha
+osservata una reale, con azioni selezionabili `Allow once` / `Allow always` /
+`Reject` su un pattern di percorsi. Non è stata riprodotta in modo
+deterministico — né da chi l'ha vista né in un tentativo successivo — e
+sembra dipendere dalla decisione del modello in quel turno, non da un comando
+fisso.
+
+Quindi la formulazione corretta è: con configurazione vuota e senza `--auto`
+l'agente esegue comandi di shell **di norma** senza chiedere, ma **esiste** un
+percorso di autorizzazione che si attiva in modo non ancora caratterizzato per
+un sottoinsieme di azioni. Per il classificatore questo è il caso peggiore:
+uno stato che compare di rado non verrà mai coperto per caso, e un falso
+negativo su `waiting_authorization` nasconde all'utente una richiesta che
+blocca il turno.
+
+Prima di scrivere il classificatore di `OC-03` va quindi catturato un frame
+reale di autorizzazione, provocandolo deliberatamente invece di aspettarlo.
 
 ## Avvertenza per chi scriverà il classificatore
 
