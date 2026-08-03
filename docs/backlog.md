@@ -2785,3 +2785,174 @@ suffisso `-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
   Due tentativi di automazione browser Playwright non hanno restituito un esito
   osservabile nell'ambiente e non sono conteggiati come prova; la copertura del
   rendering normale/compatto resta nei test UI automatici verdi sopra.
+
+## Integrazione OpenCode
+
+**Stato: gate prodotto approvato dall'utente il 03/08/2026. `IMP-OC-00`
+(spike host TUI) è aperto; nessuna modifica al prodotto è autorizzata prima
+del suo esito.** L'analisi tecnica e la roadmap di riferimento vivono in
+`docs/opencode-integration.md`: quel documento è la fonte dei confini e delle
+verifiche, questa coda ne è l'esecuzione. Non riaprire né contraddire da qui
+le sue conclusioni; se lo spike le smentisce, si aggiorna il documento e si
+registra lo scostamento nella voce.
+
+Vale lo stesso protocollo dei subagent già in uso per `HO-*` e `BH-*` (vedi
+sopra, "Protocollo della roadmap per i subagent"): nomi logici
+`ROOT`/`SA-IMP`/`SA-TEST`, `STATUS` come esito autorevole, rework con suffisso
+`-R<n>` e nuovo check `-T<n+1>` a ogni fallimento.
+
+#### OC-00 — Gate prodotto e spike host TUI
+
+- [x] GATE-OC-00 | OWNER: ROOT | STATUS: PASSED | Integrazione approvata
+  dall'utente il 03/08/2026. **Confine approvato:** percorso incrementale che
+  parte da un profilo TUI eseguito dentro tmux, allo stesso livello di Codex,
+  Claude e Antigravity — cioè riusando trasporto, sicurezza e semantica già
+  esistenti, senza introdurre un secondo runtime di sessione. Restano
+  esplicitamente **fuori** da questa autorizzazione, ciascuno dietro il proprio
+  gate successivo: l'adapter sull'API HTTP nativa di OpenCode (`OC-04`), il
+  supporto nel runtime Docker (`OC-05`, che richiede una finestra di
+  manutenzione perché obbliga a ricreare `tmux-runtime` e a terminare tutte le
+  sessioni vive), e qualunque forma di incorporazione di OpenCode Web o di
+  esposizione diretta del suo server — quest'ultima non è rimandata, è
+  sconsigliata: aggirerebbe l'API tipizzata, la CSRF e l'audit di Mobile Agent
+  Console anziché preservarli.
+  **Decisioni prese dal gate, vincolanti per le fasi successive:**
+  1. Il comando di avvio resta una **costante server-side** in `PROFILE_ARGV`,
+     come per gli altri profili. Non diventa un profilo configurabile dal
+     client in nessuna fase.
+  2. Il flag `--auto` non è il default e non lo diventa: approverebbe
+     automaticamente le richieste non negate, cambiando materialmente il
+     modello di rischio. Le policy OpenCode restano conservative sulle
+     operazioni mutative o esterne, e versionabili solo se prive di segreti.
+  3. L'installazione avviene **in host mode**, per lo stesso utente che possiede
+     il server tmux, con versione pinnata e upgrade separato dal deploy
+     ordinario di `web`/`backend`. Il backend non monta la configurazione né lo
+     storage di OpenCode.
+  4. L'autenticazione del provider è un'azione **dell'utente**: è interattiva e
+     le credenziali non devono mai transitare per il backend né comparire in
+     log, audit, snapshot o rapporti dei subagent.
+  5. La persistenza di OpenCode (conversazioni, messaggi, credenziali) resta
+     **fuori dai backup** di Mobile Agent Console: è fuori dal contratto
+     minimizzato attuale.
+  6. La separazione fra `agent_kind` e `model_provider` non va introdotta
+     incidentalmente nel profilo TUI, ma è **necessaria prima** di attribuire
+     quote, consumo o modello a una sessione OpenCode: una sessione OpenCode
+     non equivale a un provider specifico. Vincola `OC-03` e qualunque
+     estensione di `BH-*` che la incroci.
+
+- [ ] IMP-OC-00 | OWNER: SA-IMP | STATUS: READY | Spike host TUI: **dimostrare
+  che la TUI è controllabile con il protocollo corrente, senza modificare il
+  prodotto.** Nessuna modifica a `backend/`, `frontend/` o al deployment in
+  questa voce: l'unico output committabile è documentazione più eventuali
+  fixture sanitizzate. Se lo spike richiede una modifica di prodotto per
+  procedere, ci si ferma e la si registra come esito, non la si fa.
+  Primo passo vincolante: **installare OpenCode a versione pinnata** sull'host
+  (metodo, versione esatta, checksum se disponibile e procedura di rollback
+  vanno documentati nella voce, non solo eseguiti), poi far configurare
+  all'utente un provider — l'installazione e il login sono azioni sull'host,
+  non nel container.
+  Verifica del `PATH` **effettivo** del processo avviato da tmux con login
+  shell, non di quello di una shell interattiva: se il binario non è visibile
+  lì, il profilo non partirà anche se l'installazione è riuscita. Questo è un
+  criterio di uscita, non un dettaglio.
+  Matrice di verifiche da eseguire su una sessione tmux avviata a mano, con
+  esito riportato per esteso voce per voce:
+  1. `pane_current_command` osservato realmente durante l'esecuzione — wrapper
+     o runtime possono esporre un nome diverso da `opencode`, e da quel valore
+     dipende il riconoscimento del profilo.
+  2. Resa ANSI con `capture-pane -e` e xterm.js.
+  3. Comportamento su schermo alternativo e disponibilità dello scrollback.
+  4. Reazione della TUI ai resize del pane, in particolare su viewport mobile.
+  5. Paste di prompt brevi e multilinea via `load-buffer -`/`paste-buffer`,
+     con Enter come operazione separata.
+  6. Navigazione e risposta a **ciascun** tipo di richiesta di autorizzazione,
+     usando solo i tasti già ammessi dall'allowlist.
+  7. Interruzione con Escape e Ctrl-C senza lasciare processi orfani.
+  8. Avvio in directory consentite con path lunghi e caratteri Unicode.
+  9. Resume con più sessioni OpenCode nello stesso repository — è il caso in
+     cui `--continue` può agganciare la conversazione sbagliata.
+  10. Persistenza dopo riavvio dell'host e comportamento con configurazione o
+      autenticazione mancanti.
+  11. Assenza di segreti, prompt e output in audit, log, snapshot e backup.
+  12. Compatibilità con le sessioni tmux preesistenti e con i client desktop
+      collegati allo stesso server.
+  Acquisire fixture TUI **sanitizzate** per la classificazione e il parsing
+  futuri: servono a `OC-03`, dove i pattern di stato vanno raccolti da output
+  reali e non riusati alla cieca da Codex o Claude. Le fixture sono file
+  versionati in un repository pubblico: valgono per intero la regola vincolante
+  di scansione dei dati personali.
+  **Gate di uscita:** nessuna regressione per tmux, nessun segreto nei dati
+  acquisiti, flusso base usabile da mobile. Chiudere con `TEST-OC-00`.
+
+- [ ] TEST-OC-00 | OWNER: SA-TEST | STATUS: BLOCKED | Sbloccato da `IMP-OC-00`.
+  Verifica indipendente dello spike: rieseguire la matrice sui punti
+  riproducibili senza fidarsi del rapporto dell'implementatore, controllare che
+  le fixture acquisite siano davvero prive di segreti, prompt e percorsi
+  personali (ispezione dell'insieme completo delle stringhe, non a campione),
+  e confermare che nessuna sessione tmux preesistente sia stata persa o
+  alterata dallo spike. Verificare inoltre che il repo non contenga modifiche
+  di prodotto: `IMP-OC-00` non è autorizzata a farne.
+
+#### OC-01 — Profilo TUI di base
+
+- [ ] IMP-OC-01 | OWNER: SA-IMP | STATUS: BLOCKED | Sbloccato da `TEST-OC-00`
+  `PASSED`. Creare e controllare sessioni OpenCode dalla PWA come terminali
+  generici: aggiungere `opencode` alle union backend/frontend, argv costante
+  server-side, aggiornare creazione, fake e test, mostrare il profilo nel
+  selettore. Mantenere inizialmente la sola vista Terminale se "Blocchi" non è
+  ancora affidabile per questa TUI. Documentare il prerequisito host e il
+  messaggio d'errore quando il binario manca — un profilo che fallisce in
+  silenzio perché `opencode` non è nel `PATH` di tmux è il modo più probabile
+  in cui questa fase si rompe in produzione.
+  **Gate:** creazione, prompt, output, tasti speciali e terminazione verificati
+  sull'istanza pubblicata.
+
+#### OC-02 — Archivio e snapshot
+
+- [ ] IMP-OC-02 | OWNER: SA-IMP | STATUS: BLOCKED | Sbloccato da `OC-01`.
+  Estendere archivio, snapshot e restore preservando la semantica già offerta
+  agli altri profili. Usare inizialmente il **selettore nativo delle sessioni**
+  (strategia B dell'analisi): è la scelta prudente per il primo rilascio e non
+  richiede di persistere un identificatore OpenCode. Testare esplicitamente il
+  caso con più conversazioni nello stesso progetto. La persistenza dell'ID
+  OpenCode (strategia C) richiede una decisione separata, con ADR se necessario:
+  l'ID resterebbe un dato distinto dal target tmux e non dovrebbe mai diventare
+  input shell. Conversazioni e credenziali restano fuori dai backup MAC.
+  **Gate:** restore non ambiguo, o esplicitamente mediato dall'utente, senza
+  comandi arbitrari persistiti.
+
+#### OC-03 — Stato agente e notifiche
+
+- [ ] IMP-OC-03 | OWNER: SA-IMP | STATUS: BLOCKED | Sbloccato da `OC-02`.
+  Introdurre `opencode` come tipo agente **senza attribuirgli un provider
+  modello fittizio** (vedi decisione 6 del gate). Classificatore dedicato
+  costruito su fixture reali, non su pattern presi in prestito da Codex o
+  Claude; coprire attività, inattività, feedback e autorizzazione. Web Push
+  solo dopo la validazione dei falsi positivi/negativi: un falso negativo
+  nasconde una richiesta importante, un falso positivo erode la fiducia in
+  tutte le notifiche. Valutare la vista Blocchi come trasformazione
+  client-side opzionale.
+  **Gate:** classificazione conservativa, fallback `unknown`, nessuna
+  persistenza dell'output.
+
+#### OC-04 — Adapter strutturato (opzionale, gate a sé)
+
+- [ ] GATE-OC-04 | OWNER: ROOT | STATUS: BLOCKED | Non autorizzato da
+  `GATE-OC-00`. Richiede un ADR sul secondo runtime di sessione e sulla
+  correlazione dei due identificatori prima di qualunque implementazione. Da
+  aprire solo se l'uso di API ed eventi OpenCode migliora **materialmente**
+  affidabilità o UX rispetto al terminale tmux: il server OpenCode dovrebbe
+  ascoltare esclusivamente su loopback o socket locale, mai su `0.0.0.0`, con
+  FastAPI come adapter minimizzato e nessun accesso diretto del browser. tmux
+  resta autorevole per il terminale live e il fallback deve essere completo.
+
+#### OC-05 — Supporto Docker (opzionale, finestra di manutenzione)
+
+- [ ] GATE-OC-05 | OWNER: ROOT | STATUS: BLOCKED | Non autorizzato da
+  `GATE-OC-00`. Il rollout obbliga a ricreare `tmux-runtime`, terminando tutte
+  le sessioni vive: richiede una finestra di manutenzione esplicita,
+  comunicazione preventiva della perdita dei processi attivi e un gate
+  separato. Binario con versione e checksum pinnati, mai un installer remoto
+  non verificato durante l'avvio del container; storage, secret e rete del
+  runtime vanno progettati prima, preservando filesystem read-only e container
+  non-root.

@@ -1,7 +1,10 @@
 # Valutazione dell'integrazione OpenCode
 
-**Stato:** analisi e roadmap proposta, non ancora pianificata per
-implementazione.
+**Stato:** roadmap approvata dall'utente il 3 agosto 2026 e presa in carico
+dalla coda in `docs/backlog.md` (sezione "Integrazione OpenCode",
+`GATE-OC-00` `PASSED`). L'autorizzazione copre il percorso incrementale fino
+a `OC-03`; `OC-04` (adapter sull'API nativa) e `OC-05` (runtime Docker)
+restano dietro gate propri e non sono autorizzati.
 
 **Data della valutazione:** 3 agosto 2026.
 
@@ -12,9 +15,13 @@ e controllato da Mobile Agent Console senza indebolire gli invarianti di
 sicurezza e senza trasformare il core agent-agnostic in un'integrazione
 strettamente dipendente da un singolo agente.
 
-Questa analisi non autorizza modifiche al runtime o al deployment. In
-particolare, non deve interferire con i round funzionali già programmati né
-causare la ricreazione di `tmux-runtime` e la perdita delle sessioni attive.
+L'approvazione non è un permesso generico di toccare runtime e deployment:
+autorizza le fasi nell'ordine in cui sono scritte qui, ciascuna dietro il
+proprio gate di uscita. In particolare nessuna fase deve interferire con i
+round funzionali già programmati né causare la ricreazione di `tmux-runtime`
+e la perdita delle sessioni attive — l'unica fase che lo richiederebbe è
+`OC-05`, che per questo resta non autorizzata e vincolata a una finestra di
+manutenzione esplicita.
 
 ## Sintesi
 
