@@ -1548,6 +1548,21 @@ il protocollo di rework già definito per HO-00–HO-06.
 
 ## Storico del consumo di budget e attribuzione per sessione
 
+**Nota di verifica del 03/08/2026.** Esito `FAILED`: la suite backend conta
+`267 passed, 15 failed` (il collector BH-04 non è incluso nell'immagine di
+test e due asserzioni del config non sono aggiornate), mentre deploy è
+`59/59`, frontend `55/55` con build riuscita e Ruff è pulito con cache
+disabilitata. Il deployment corrente è sano (`/health` 200 con tmux `ok`,
+login e sessione autenticata 200 dall'interno del backend), ma non contiene
+BH-04: flag assente ed endpoint timeline `404`. Il collector non committato,
+provato su un bucket reale Claude e uno Codex, ha restituito solo i metadati
+ammessi, senza campi extra né percorsi; non esiste un payload timeline
+persistito. Il working tree resta intenzionalmente sporco con l'implementazione
+BH-04 in corso, `main` è avanti di 6 commit e non risultano branch non
+mergiati. Scostamento documentale: il riepilogo di sezione qui sotto dichiara
+ancora `IMP-BH-04` `READY` e non preso in carico, mentre la voce autorevole è
+`IN_PROGRESS`; `TEST-BH-04` resta correttamente `BLOCKED`.
+
 **Stato: fasi A e B verificate (con un rework ciascuna), `PASSED`. Fase
 BH-03 (proprietà dello strato quote e segnale sul fallback) chiusa `PASSED`
 dopo un rework. Fase C (`BH-04`) approvata da `GATE-BH-04` con confine
