@@ -22,12 +22,22 @@ ammessi restano quelli del v1. Le differenze sono limitate a queste evidenze:
   non è disponibile i tre risultati sono `null`, mai zero sintetici;
 - ogni gruppo processo aggiunge `policy_status`, uno fra `not_configured`,
   `within_limits` e `violated`. Le soglie private non attraversano il boundary;
+- processi e gruppi portano `swap_bytes`, e il componente processi aggiunge
+  `top_swap` e `swap_attributed_bytes`. Sono tutti campi opzionali: uno snapshot
+  v2 prodotto da un collector precedente resta valido e vale `null`/`[]`, cioè
+  "non accertato", mai zero. La classifica `top_swap` è ordinata per swap
+  decrescente ed è indipendente da `top`, perché un processo quasi interamente
+  paginato ha per definizione poca memoria residente;
 - il listener rinomina il fatto locale in `bind_scope`, mantiene porta e
   processo sanitizzato, e aggiunge `external_reachability`, che in v2 può
   essere soltanto `not_assessed`;
 - `listeners.items[].policy_status` distingue `not_configured`, `allowed` e
   `violated`. Nessuna policy può cancellare il bind osservato o attestare che
-  una porta sia chiusa da un firewall.
+  una porta sia chiusa da un firewall;
+- il componente Docker aggiunge `containers` (label e `memory_bytes` dei soli
+  container con una label configurata), `unmapped_count` e
+  `state_age_seconds`. Anche questi sono opzionali e assenti valgono "non
+  accertato". `memory_bytes` è `null` per un container fermo, mai zero.
 
 I reason v2 sono enumerati separatamente. Lo scoring contestuale può usare
 `swap_sample_unavailable`, `swap_activity_high`, `swap_pressure_critical`,
@@ -60,6 +70,38 @@ legacy continua a produrre v1 con la semantica storica. Nel v2:
   lettura parziale e troncamento producono evidenza partial/unknown e mai, da
   soli, critical.
 
+## Attribuzione della swap
+
+`swap_bytes` per processo viene da `VmSwap` in `/proc/<pid>/status`, letto solo
+sotto configurazione v2. Un file non leggibile lascia `null`; un processo senza
+spazio di indirizzi (thread di kernel) non ha `VmSwap` e vale 0 accertato. Un
+gruppo somma i soli membri letti e resta `null` se nessun membro era leggibile.
+
+`swap_attributed_bytes` è la somma dei valori accertati e va confrontata con
+`memory.swap_used_bytes`: la differenza appartiene a processi terminati o non
+leggibili e non è attribuibile. Il collector non la ripartisce e la vista non la
+presenta come se lo fosse.
+
+## Evidenza Docker fuori banda
+
+Con `docker.state_file` configurato l'evidenza Docker arriva dal file scritto
+dalla unit `mobile-agent-console-docker-state`, non da un subprocess del
+collector: il perché è in ADR 011. È l'unico componente della fotografia che non
+è istantaneo, e la sua età viaggia in `state_age_seconds`.
+
+File assente, scaduto oltre `docker.max_age_seconds`, malformato, con
+`schema_version` diverso da 1, con timestamp non UTC-aware o con un nome di
+container non sanificato producono `available=false` con reason esplicito —
+`docker_unavailable`, `docker_state_stale` o `docker_output_invalid` — e mai un
+elenco vuoto presentato come "nessun problema". `docker_state_stale` non è
+valido nel v1, dove la modalità a file non esiste.
+
+In v2 solo i container con una label configurata concorrono alla severità; gli
+altri restano conteggiati in `unmapped_count` e, se problematici, in
+`unmapped_problematic_count`. È la stessa regola dei gruppi di processi senza
+policy: ciò che non è sotto sorveglianza è visibile ma non giudicato. Nel v1 la
+semantica storica resta invariata e ogni container problematico pesa.
+
 ## Coerenza del campione swap
 
 `swap_io_sample.available=true` richiede tutti e tre i risultati. Con
@@ -82,6 +124,10 @@ gruppi e soglie swap storiche. La v2 usa:
   `critical_pages_delta`; warning non può superare critical;
 - `tcp_listener_policies`: massimo 128 record univoci con `port` e
   `allowed_scopes`; non esistono campi firewall, raggiungibilità o rete esterna;
+- `docker.state_file`: path assoluto del file di stato, e `max_age_seconds`
+  fra 1 e 3600 (default 120). Entrambi esistono solo nella v2; il periodo del
+  timer deve stare abbondantemente dentro `max_age_seconds`, così un giro perso
+  non fa lampeggiare la dashboard;
 - `process_policies`: massimo 128 chiavi `comm` sanificate. Ogni policy può
   avere una label e soglie warning/critical per `count` e/o `rss_bytes`, ma deve
   definire almeno un limite. Una soglia warning non può superare la critical.

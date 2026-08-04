@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh Mobile Agent Console Docker container state
+
+[Timer]
+OnBootSec=30s
+# Il collector considera lo stato scaduto oltre 120s (docker.max_age_seconds):
+# a 30s di periodo restano tre tentativi prima che il dato diventi "non
+# accertato", quindi un giro perso non fa lampeggiare la dashboard.
+OnUnitActiveSec=30s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

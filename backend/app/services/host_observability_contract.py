@@ -67,6 +67,7 @@ HostReasonV2 = Literal[
     "tcp_listener_unexpected",
     "docker_disabled",
     "docker_unavailable",
+    "docker_state_stale",
     "docker_output_excessive",
     "docker_output_invalid",
     "containers_problematic",
@@ -253,17 +254,28 @@ class FilesystemsComponentV2(ComponentV2):
     items: list[FilesystemItemV2] = Field(max_length=16)
 
 
+class ProcessItemV2(ProcessItem):
+    # Assente negli snapshot prodotti da collector precedenti alla raccolta di
+    # VmSwap: `None` significa "non accertato", mai "nessuna swap".
+    swap_bytes: int | None = Field(default=None, ge=0)
+
+
 class ProcessGroupV2(StrictModel):
     name: SafeProcessName
     label: SafeLabel | None = None
     count: int = Field(ge=1, le=4096)
     rss_bytes: int = Field(ge=0)
+    swap_bytes: int | None = Field(default=None, ge=0)
     oldest_age_seconds: int = Field(ge=0)
     policy_status: Literal["not_configured", "within_limits", "violated"]
 
 
 class ProcessesComponentV2(ComponentV2):
-    top: list[ProcessItem] = Field(max_length=10)
+    top: list[ProcessItemV2] = Field(max_length=10)
+    top_swap: list[ProcessItemV2] = Field(default_factory=list, max_length=10)
+    # Somma della swap attribuita ai processi osservati: confrontabile con
+    # `memory.swap_used_bytes` per capire quanta swap resta non attribuita.
+    swap_attributed_bytes: int | None = Field(default=None, ge=0)
     groups: list[ProcessGroupV2] = Field(max_length=20)
     scanned: int = Field(ge=0, le=4096)
     skipped: int = Field(ge=0, le=4096)
@@ -286,10 +298,23 @@ class ListenersComponentV2(ComponentV2):
     truncated: bool
 
 
+class ContainerUsage(StrictModel):
+    label: SafeLabel
+    # `None` = container fermo o memoria non campionata; mai zero sintetico.
+    memory_bytes: int | None = Field(default=None, ge=0)
+
+
 class DockerComponentV2(ComponentV2):
     available: bool
     problematic: list[ContainerProblem] = Field(max_length=50)
     unmapped_problematic_count: int = Field(ge=0, le=1000)
+    # Solo container con una label configurata: i nomi reali non attraversano
+    # il boundary, quelli senza label restano un conteggio.
+    containers: list[ContainerUsage] = Field(default_factory=list, max_length=50)
+    unmapped_count: int = Field(default=0, ge=0, le=1000)
+    # Eta' dell'evidenza Docker: a differenza del resto della fotografia arriva
+    # da un file aggiornato a timer, quindi non e' istantanea (ADR 011).
+    state_age_seconds: int | None = Field(default=None, ge=0, le=86400)
 
 
 class HostObservabilitySnapshotV2(TimestampedSnapshot):

@@ -136,7 +136,20 @@ def test_admin_receives_v2_snapshot_without_wrapper_or_export_changes() -> None:
     response = client.get("/api/v1/host-observability")
 
     assert response.status_code == 200
-    assert response.json() == payload
+    # Nessun wrapper e nessuna riscrittura: l'unica differenza ammessa è che i
+    # campi opzionali assenti nello snapshot compaiano al loro default esplicito
+    # di "non accertato".
+    expected = deepcopy(payload)
+    expected["processes"]["top_swap"] = []
+    expected["processes"]["swap_attributed_bytes"] = None
+    expected["docker"]["containers"] = []
+    expected["docker"]["unmapped_count"] = 0
+    expected["docker"]["state_age_seconds"] = None
+    for item in expected["processes"]["top"]:
+        item["swap_bytes"] = None
+    for group in expected["processes"]["groups"]:
+        group["swap_bytes"] = None
+    assert response.json() == expected
     listener = response.json()["listeners"]["items"][0]
     assert listener["external_reachability"] == "not_assessed"
 

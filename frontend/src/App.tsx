@@ -1452,6 +1452,7 @@ const HOST_REASON_LABEL: Record<string, string> = {
   tcp_listener_unexpected: "Porta TCP inattesa",
   docker_disabled: "Docker disabilitato",
   docker_unavailable: "Docker non disponibile",
+  docker_state_stale: "Stato Docker non aggiornato",
   docker_output_excessive: "Risposta Docker troppo grande",
   docker_output_invalid: "Risposta Docker non valida",
   containers_problematic: "Container con problemi",
@@ -1475,6 +1476,497 @@ const HOST_EMPTY_ASSESSMENT_LABEL: Record<HostComponent["status"], string> = {
   critical: "Stato critico rilevato; il collector non ha fornito un dettaglio della valutazione.",
   unknown: "Valutazione non disponibile: l’esito non è accertato.",
 };
+
+// Cosa fare, non come si chiama il codice di reason: il titolo resta
+// HOST_REASON_LABEL, questa è la riga che dice perché importa.
+const HOST_REASON_HINT: Record<string, string> = {
+  memory_available_low: "Resta poca memoria libera: la prossima sessione pesante rischia di finire in swap.",
+  memory_available_critical: "Memoria libera quasi esaurita: chiudi qualche sessione prima di avviarne altre.",
+  memory_unavailable: "Il collector non ha potuto leggere i valori di memoria: nessuna misura, non un esito positivo.",
+  swap_used_high: "Spazio di swap occupato oltre la soglia. Guarda l'attività: se è ferma sono pagine parcheggiate.",
+  swap_used_critical: "Spazio di swap quasi esaurito: senza margine il kernel non può più scaricare pagine.",
+  swap_activity_high: "Il sistema sta leggendo e scrivendo swap adesso: è questo che rallenta la macchina.",
+  swap_pressure_critical: "Memoria esaurita e swap in movimento insieme: la macchina sta trascinando.",
+  swap_sample_unavailable: "Senza campione non si può dire se la swap sia in uso o solo occupata.",
+  load_high: "Più lavoro in coda che CPU per eseguirlo: i comandi rispondono lenti.",
+  load_critical: "Coda di esecuzione molto oltre il numero di CPU: la macchina non sta dietro.",
+  load_unavailable: "Carico non leggibile in questa fotografia.",
+  filesystem_used_high: "Spazio in esaurimento: controlla log e immagini prima che si riempia.",
+  filesystem_used_critical: "Spazio quasi finito: le scritture stanno per fallire.",
+  filesystem_unavailable: "Volume non interrogabile: spazio non accertato.",
+  filesystems_not_configured: "Nessun volume da sorvegliare è configurato nel collector.",
+  processes_partial: "Parte dei processi non è leggibile: le classifiche qui sotto possono essere incomplete.",
+  processes_unavailable: "Elenco processi non disponibile: nessuna attribuzione possibile.",
+  process_group_count_high: "Molti processi con lo stesso nome: di solito è qualcosa che non è stato chiuso.",
+  process_group_count_critical: "Numero di processi omonimi fuori scala: quasi certamente processi orfani.",
+  process_policy_count_high: "Il gruppo supera il numero di processi ammesso dalla policy locale.",
+  process_policy_count_critical: "Il gruppo supera di molto il numero di processi ammesso dalla policy locale.",
+  process_policy_rss_high: "Il gruppo supera la memoria aggregata ammessa dalla policy locale.",
+  process_policy_rss_critical: "Il gruppo supera di molto la memoria aggregata ammessa dalla policy locale.",
+  wildcard_listener_unexpected: "Una porta ascolta su tutte le interfacce dove la policy si aspetta un bind ristretto.",
+  tcp_listener_unexpected: "Una porta in ascolto non compare tra quelle previste dalla policy locale.",
+  listeners_partial: "Alcuni socket non hanno un processo associato: il proprietario resta ignoto.",
+  listeners_unavailable: "Porte in ascolto non leggibili in questa fotografia.",
+  docker_unavailable: "Senza Docker non si vede la memoria per container: metà delle diagnosi manca.",
+  docker_state_stale: "Il timer che raccoglie lo stato dei container si è fermato: quello mostrato sarebbe vecchio, quindi non viene mostrato affatto.",
+  docker_disabled: "Raccolta Docker disattivata nella configurazione del collector.",
+  docker_output_excessive: "Risposta di Docker troppo grande: scartata senza interpretarla.",
+  docker_output_invalid: "Risposta di Docker non interpretabile: stato dei container non accertato.",
+  containers_problematic: "Uno o più container non sono in stato sano.",
+};
+
+type HostIssue = { key: string; severity: HostComponent["status"]; title: string; hint: string };
+
+const HOST_SEVERITY_RANK: Record<HostComponent["status"], number> = {
+  critical: 0,
+  warning: 1,
+  unknown: 2,
+  ok: 3,
+};
+
+// Il suffisso del reason porta già la gravità; `fallback` è lo stato del
+// componente da cui il reason proviene, usato quando il nome non la dichiara.
+function hostReasonSeverity(reason: string, fallback: HostComponent["status"]): HostComponent["status"] {
+  if (reason.endsWith("_critical")) return "critical";
+  if (reason.endsWith("_unavailable") || reason.endsWith("_partial")) return "unknown";
+  if (
+    reason.endsWith("_high")
+    || reason.endsWith("_low")
+    || reason.endsWith("_unexpected")
+    || reason === "containers_problematic"
+  ) return "warning";
+  return fallback;
+}
+
+function hostSwapIdle(snapshot: HostObservabilitySnapshot): boolean {
+  if (snapshot.schema_version !== 2) return false;
+  const sample = snapshot.memory.swap_io_sample;
+  return sample.available && sample.pages_in_delta === 0 && sample.pages_out_delta === 0;
+}
+
+function buildHostIssues(snapshot: HostObservabilitySnapshot): HostIssue[] {
+  const components: Array<[string, HostComponent]> = [
+    ["memoria", snapshot.memory],
+    ["carico", snapshot.load],
+    ["dischi", snapshot.filesystems],
+    ["processi", snapshot.processes],
+    ["porte", snapshot.listeners],
+    ["docker", snapshot.docker],
+  ];
+  const issues: HostIssue[] = [];
+  const seen = new Set<string>();
+  for (const [scope, component] of components) {
+    for (const reason of component.reasons) {
+      if (seen.has(reason)) continue;
+      seen.add(reason);
+      issues.push({
+        key: `${scope}-${reason}`,
+        severity: hostReasonSeverity(reason, component.status),
+        title: HOST_REASON_LABEL[reason] ?? reason.replaceAll("_", " "),
+        hint: hostIssueHint(reason, snapshot),
+      });
+    }
+  }
+  return issues.sort((a, b) => HOST_SEVERITY_RANK[a.severity] - HOST_SEVERITY_RANK[b.severity]);
+}
+
+// Il reason dice la categoria; qui si aggiunge il soggetto concreto già
+// presente nello snapshot, così la riga nomina la porta o il volume.
+function hostIssueHint(reason: string, snapshot: HostObservabilitySnapshot): string {
+  const base = HOST_REASON_HINT[reason] ?? "";
+  if (reason === "swap_used_high" && hostSwapIdle(snapshot)) {
+    // L'attività è già stata misurata: inutile rimandare l'utente a guardarla.
+    return "Spazio di swap occupato oltre la soglia, ma fermo: nessuna pagina letta o scritta nel campione. Sono pagine parcheggiate.";
+  }
+  if (reason === "wildcard_listener_unexpected" || reason === "tcp_listener_unexpected") {
+    const wildcardOnly = reason === "wildcard_listener_unexpected";
+    const ports = snapshot.listeners.items
+      .filter((item) => {
+        if (item.status === "ok") return false;
+        const scope = "bind_scope" in item ? item.bind_scope : item.address_scope;
+        return wildcardOnly ? scope === "wildcard" : scope !== "wildcard";
+      })
+      .map((item) => `TCP ${item.port}${item.process_label ?? item.process_name ? ` (${item.process_label ?? item.process_name})` : ""}`);
+    return ports.length > 0 ? `${base} Interessate: ${ports.join(", ")}.` : base;
+  }
+  if (reason.startsWith("filesystem_used")) {
+    const volumes = snapshot.filesystems.items
+      .filter((item) => item.status !== "ok")
+      .map((item) => `${item.label} ${formatPercent(item.used_percent)}`);
+    return volumes.length > 0 ? `${base} Interessati: ${volumes.join(", ")}.` : base;
+  }
+  if (reason.startsWith("process_policy") || reason.startsWith("process_group_count")) {
+    const groups = snapshot.processes.groups
+      .filter((group) => group.policy_status === "violated")
+      .map((group) => `${group.label ?? group.name} (${group.count}×)`);
+    return groups.length > 0 ? `${base} Interessati: ${groups.join(", ")}.` : base;
+  }
+  return base;
+}
+
+function hostVerdictHeadline(snapshot: HostObservabilitySnapshot, issues: HostIssue[]): string {
+  const criticals = issues.filter((issue) => issue.severity === "critical").length;
+  const warnings = issues.filter((issue) => issue.severity === "warning").length;
+  if (snapshot.status === "critical") {
+    return criticals === 1 ? "1 problema critico" : `${criticals} problemi critici`;
+  }
+  if (snapshot.status === "warning") {
+    return warnings === 1 ? "1 segnalazione, nessuna critica" : `${warnings} segnalazioni, nessuna critica`;
+  }
+  if (snapshot.status === "unknown") return "Fotografia incompleta";
+  return "Tutto regolare";
+}
+
+function hostVerdictDetail(snapshot: HostObservabilitySnapshot, issues: HostIssue[]): string {
+  const swapHigh = snapshot.memory.reasons.some((reason) => reason.startsWith("swap_used"));
+  if (swapHigh && hostSwapIdle(snapshot) && snapshot.schema_version === 2) {
+    const sample = snapshot.memory.swap_io_sample;
+    return (
+      `La swap è occupata (${formatSize(snapshot.memory.swap_used_bytes)} di `
+      + `${formatSize(snapshot.memory.swap_total_bytes)}) ma non viene toccata: 0 pagine lette e 0 scritte `
+      + `nel campione da ${sample.duration_ms} ms. È memoria parcheggiata, non un collo di bottiglia.`
+    );
+  }
+  const first = issues.find((issue) => issue.hint);
+  if (first) return first.hint;
+  return "Nessuna anomalia rilevata dai controlli disponibili.";
+}
+
+function HostVerdict({ snapshot, issues }: { snapshot: HostObservabilitySnapshot; issues: HostIssue[] }) {
+  const counts = {
+    warning: issues.filter((issue) => issue.severity === "warning").length,
+    unknown: issues.filter((issue) => issue.severity === "unknown").length,
+    critical: issues.filter((issue) => issue.severity === "critical").length,
+  };
+  return (
+    <section className={`host-verdict status-${snapshot.status}`} aria-labelledby="host-verdict-title">
+      <span className="eyebrow">VERDETTO</span>
+      <h2 id="host-verdict-title">
+        <i className={snapshot.status} aria-hidden="true" />
+        {hostVerdictHeadline(snapshot, issues)}
+      </h2>
+      <p>{hostVerdictDetail(snapshot, issues)}</p>
+      <div className="host-verdict-chips">
+        <span className="host-chip">{HOST_STATUS_LABEL[snapshot.status]}</span>
+        {counts.critical > 0 && <span className="host-chip critical">{counts.critical} critiche</span>}
+        {counts.warning > 0 && <span className="host-chip warning">{counts.warning} da controllare</span>}
+        {counts.unknown > 0 && <span className="host-chip unknown">{counts.unknown} non accertate</span>}
+      </div>
+    </section>
+  );
+}
+
+function HostKpi({
+  label,
+  value,
+  unit,
+  fill,
+  status,
+  note,
+  tag,
+  idle,
+  children,
+}: {
+  label: string;
+  value: string;
+  unit?: string;
+  fill: number | null;
+  status: HostComponent["status"];
+  note: string;
+  tag?: string;
+  idle?: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <article className={`host-kpi status-${status}`}>
+      <header>
+        <span className="eyebrow">{label}</span>
+        {tag && <span className="host-kpi-tag">{tag}</span>}
+      </header>
+      <strong className="host-kpi-value">{value}{unit && <span>{unit}</span>}</strong>
+      <div className="host-meter" aria-hidden="true">
+        <i
+          className={`${status}${idle ? " idle" : ""}`}
+          style={{ width: `${Math.max(0, Math.min(100, fill ?? 0))}%` }}
+        />
+      </div>
+      {children}
+      <small>{note}</small>
+    </article>
+  );
+}
+
+// Storia locale alla visita: nessuna raccolta in background, solo gli snapshot
+// che l'utente ha già chiesto (ADR 009).
+function HostSparkline({ points, label }: { points: number[]; label: string }) {
+  if (points.length < 2) return null;
+  const step = 100 / (points.length - 1);
+  const path = points
+    .map((point, index) => `${(index * step).toFixed(1)},${(18 - (Math.max(0, Math.min(100, point)) / 100) * 16).toFixed(1)}`)
+    .join(" ");
+  const last = points[points.length - 1];
+  return (
+    <svg className="host-spark" viewBox="0 0 100 20" preserveAspectRatio="none" role="img" aria-label={label}>
+      <polyline points={path} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="100" cy={18 - (Math.max(0, Math.min(100, last)) / 100) * 16} r="1.8" fill="currentColor" />
+    </svg>
+  );
+}
+
+function HostIssueList({ issues }: { issues: HostIssue[] }) {
+  if (issues.length === 0) {
+    return <p className="host-empty">Nessuna segnalazione: i controlli disponibili non hanno rilevato anomalie.</p>;
+  }
+  return (
+    <ul className="host-issue-list">
+      {issues.map((issue) => (
+        <li key={issue.key} className={`status-${issue.severity}`}>
+          <i className={issue.severity} aria-hidden="true" />
+          <div>
+            <strong>{issue.title}</strong>
+            {issue.hint && <small>{issue.hint}</small>}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function HostKpiRow({ snapshot, swapHistory }: { snapshot: HostObservabilitySnapshot; swapHistory: number[] }) {
+  const memory = snapshot.memory;
+  const usedPercent = memory.available_percent === null ? null : Math.round((100 - memory.available_percent) * 10) / 10;
+  const memoryStatus: HostComponent["status"] = memory.total_bytes === null
+    ? "unknown"
+    : memory.reasons.includes("memory_available_critical")
+      ? "critical"
+      : memory.reasons.includes("memory_available_low")
+        ? "warning"
+        : "ok";
+  const swapStatus: HostComponent["status"] = memory.swap_total_bytes === null
+    ? "unknown"
+    : memory.reasons.includes("swap_pressure_critical") || memory.reasons.includes("swap_used_critical")
+      ? "critical"
+      : memory.reasons.some((reason) => reason.startsWith("swap_"))
+        ? "warning"
+        : "ok";
+  const idle = hostSwapIdle(snapshot);
+  const swapNote = snapshot.schema_version !== 2
+    ? "Attività non campionata su snapshot v1"
+    : snapshot.memory.swap_io_sample.available
+      ? idle
+        ? `Nessuna pagina letta o scritta in ${snapshot.memory.swap_io_sample.duration_ms} ms`
+        : `${snapshot.memory.swap_io_sample.pages_in_delta} lette · ${snapshot.memory.swap_io_sample.pages_out_delta} scritte`
+      : "Attività non accertata: campione non disponibile";
+  const load = snapshot.load;
+  const volumes = [...snapshot.filesystems.items].sort(
+    (a, b) => (b.used_percent ?? -1) - (a.used_percent ?? -1),
+  );
+  const worstVolume = volumes[0];
+
+  return (
+    <div className="host-kpis">
+      <HostKpi
+        label="Memoria"
+        value={usedPercent === null ? "n/d" : usedPercent.toFixed(0)}
+        unit={usedPercent === null ? undefined : "%"}
+        fill={usedPercent}
+        status={memoryStatus}
+        note={
+          memory.total_bytes === null
+            ? "Valori di memoria non leggibili"
+            : `${formatSize((memory.total_bytes ?? 0) - (memory.available_bytes ?? 0))} usati di ${formatSize(memory.total_bytes)} · ${formatSize(memory.available_bytes)} liberi`
+        }
+      />
+      <HostKpi
+        label="Swap"
+        value={memory.swap_used_percent === null ? "n/d" : memory.swap_used_percent.toFixed(0)}
+        unit={memory.swap_used_percent === null ? undefined : "%"}
+        fill={memory.swap_used_percent}
+        status={swapStatus}
+        idle={idle}
+        tag={idle ? "Inattiva" : undefined}
+        note={`${formatSize(memory.swap_used_bytes)} di ${formatSize(memory.swap_total_bytes)} · ${swapNote}`}
+      >
+        <HostSparkline points={swapHistory} label="Swap occupata negli aggiornamenti di questa visita" />
+      </HostKpi>
+      <HostKpi
+        label="Carico per CPU"
+        value={load.normalized_one === null ? "n/d" : load.normalized_one.toFixed(2)}
+        unit={load.normalized_one === null ? undefined : "×"}
+        fill={load.normalized_one === null ? null : load.normalized_one * 100}
+        status={load.status}
+        note={
+          load.one === null
+            ? "Carico non leggibile"
+            : `${load.one.toFixed(2)} in coda su ${load.cpu_count} CPU · 5m ${load.five?.toFixed(2) ?? "—"} · 15m ${load.fifteen?.toFixed(2) ?? "—"}`
+        }
+      />
+      <HostKpi
+        label="Disco"
+        value={worstVolume?.used_percent === null || worstVolume === undefined ? "n/d" : worstVolume.used_percent.toFixed(0)}
+        unit={worstVolume?.used_percent == null ? undefined : "%"}
+        fill={worstVolume?.used_percent ?? null}
+        status={worstVolume?.status ?? snapshot.filesystems.status}
+        note={
+          worstVolume
+            ? `${worstVolume.label} · ${formatSize(worstVolume.available_bytes)} liberi di ${formatSize(worstVolume.total_bytes)}${volumes.length > 1 ? ` · ${volumes.length} volumi sorvegliati` : ""}`
+            : "Nessun volume configurato nel collector"
+        }
+      />
+    </div>
+  );
+}
+
+// L'unico dato della fotografia che non è istantaneo: l'età va detta, non
+// lasciata intendere.
+function HostContainersNote({ snapshot }: { snapshot: HostObservabilitySnapshot }) {
+  if (snapshot.schema_version !== 2) {
+    return <>Snapshot legacy v1: la memoria per container non è raccolta.</>;
+  }
+  const age = snapshot.docker.state_age_seconds;
+  const unmapped = snapshot.docker.unmapped_count ?? 0;
+  return (
+    <>
+      {age === null || age === undefined
+        ? "Età dello stato Docker non accertata."
+        : `Stato Docker raccolto ${formatAge(age)} fa, non all'apertura di questa pagina.`}
+      {unmapped > 0 && ` ${unmapped} container senza label configurata non sono elencati.`}
+    </>
+  );
+}
+
+type HostConsumerTab = "rss" | "swap" | "groups" | "containers";
+
+function HostConsumers({ snapshot }: { snapshot: HostObservabilitySnapshot }) {
+  const [tab, setTab] = useState<HostConsumerTab>("rss");
+  const swapRanking = snapshot.schema_version === 2 ? snapshot.processes.top_swap ?? [] : [];
+  const swapAvailable = snapshot.schema_version === 2 && snapshot.processes.top_swap !== undefined;
+  const attributed = snapshot.schema_version === 2 ? snapshot.processes.swap_attributed_bytes ?? null : null;
+  const containers = snapshot.schema_version === 2 ? snapshot.docker.containers ?? [] : [];
+  const containersAvailable = snapshot.schema_version === 2 && snapshot.docker.containers !== undefined;
+  const tabs: Array<[HostConsumerTab, string]> = [
+    ["rss", "Memoria"],
+    ...(swapAvailable ? ([["swap", "Swap"]] as Array<[HostConsumerTab, string]>) : []),
+    ["groups", "Gruppi"],
+    ...(containersAvailable ? ([["containers", "Container"]] as Array<[HostConsumerTab, string]>) : []),
+  ];
+  const rows = tab === "rss" ? snapshot.processes.top : tab === "swap" ? swapRanking : [];
+
+  return (
+    <section className="host-consumers" aria-labelledby="host-consumers-title">
+      <header>
+        <h2 id="host-consumers-title">Chi consuma</h2>
+        <small>{snapshot.processes.scanned} processi analizzati{snapshot.processes.truncated ? " · elenco troncato" : ""}</small>
+      </header>
+      <div className="host-tabs" role="tablist" aria-label="Ordina i consumatori">
+        {tabs.map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            className={tab === key ? "active" : undefined}
+            onClick={() => setTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "containers" ? (
+        !snapshot.docker.available ? (
+          <p className="host-empty">
+            Stato dei container non accertato: {HOST_REASON_LABEL[snapshot.docker.reasons[0]] ?? "Docker non disponibile"}.
+          </p>
+        ) : containers.length === 0 ? (
+          <p className="host-empty">Nessun container con una label configurata nel collector.</p>
+        ) : (
+          <table className="host-table">
+            <thead>
+              <tr><th scope="col">Container</th><th scope="col">Memoria</th></tr>
+            </thead>
+            <tbody>
+              {containers.map((container) => (
+                <tr key={container.label}>
+                  <th scope="row"><span className="host-table-name">{container.label}</span></th>
+                  <td>{container.memory_bytes === null ? "fermo" : formatSize(container.memory_bytes)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      ) : tab === "groups" ? (
+        snapshot.processes.groups.length === 0 ? (
+          <p className="host-empty">Nessun gruppo disponibile.</p>
+        ) : (
+          <table className="host-table">
+            <thead>
+              <tr><th scope="col">Gruppo</th><th scope="col">Memoria</th><th scope="col">Swap</th><th scope="col">Attivi</th></tr>
+            </thead>
+            <tbody>
+              {snapshot.processes.groups.map((group) => (
+                <tr key={group.name}>
+                  <th scope="row">
+                    <span className="host-table-name">{group.label ?? group.name}</span>
+                    <span className="host-table-sub">{group.count}× · più vecchio {formatAge(group.oldest_age_seconds)}</span>
+                  </th>
+                  <td>{formatSize(group.rss_bytes)}</td>
+                  <td className={group.swap_bytes ? "host-table-swap" : undefined}>
+                    {group.swap_bytes === undefined || group.swap_bytes === null ? "n/a" : formatSize(group.swap_bytes)}
+                  </td>
+                  <td>{group.count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      ) : rows.length === 0 ? (
+        <p className="host-empty">
+          {tab === "swap"
+            ? "Nessun processo osservato ha pagine in swap: la swap occupata appartiene a processi non più esistenti o non leggibili."
+            : "Nessun processo disponibile."}
+        </p>
+      ) : (
+        <table className="host-table">
+          <thead>
+            <tr><th scope="col">Processo</th><th scope="col">Memoria</th><th scope="col">Swap</th><th scope="col">Età</th></tr>
+          </thead>
+          <tbody>
+            {rows.map((process) => (
+              <tr key={process.pid}>
+                <th scope="row">
+                  <span className="host-table-name">{process.label ?? process.name}</span>
+                  <span className="host-table-sub">{process.label ? process.name : `PID ${process.pid}`}</span>
+                </th>
+                <td>{formatSize(process.rss_bytes)}</td>
+                <td className={process.swap_bytes ? "host-table-swap" : undefined}>
+                  {process.swap_bytes === undefined || process.swap_bytes === null ? "n/a" : formatSize(process.swap_bytes)}
+                </td>
+                <td>{formatAge(process.age_seconds)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <p className="host-note">
+        {tab === "containers" ? (
+          <HostContainersNote snapshot={snapshot} />
+        ) : snapshot.schema_version !== 2 ? (
+          "Snapshot legacy v1: la swap per processo non è raccolta, la colonna resta non accertata."
+        ) : attributed === null ? (
+          "Swap per processo non accertata in questa fotografia."
+        ) : (
+          <>
+            Swap attribuita ai processi osservati: {formatSize(attributed)} su{" "}
+            {formatSize(snapshot.memory.swap_used_bytes)} occupati. La differenza appartiene a processi
+            terminati o non leggibili e non è attribuibile.
+          </>
+        )}
+      </p>
+    </section>
+  );
+}
 
 function HostStatusBadge({ status }: { status: HostComponent["status"] }) {
   return <span className={`host-status ${status}`}>{HOST_STATUS_LABEL[status]}</span>;
@@ -2334,6 +2826,9 @@ function HostView({ onBack }: { onBack: () => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [copyFeedback, setCopyFeedback] = useState("");
+  // Serie locale alla visita: si allunga solo quando l'utente chiede un
+  // aggiornamento, quindi non introduce raccolta periodica (ADR 009).
+  const [swapHistory, setSwapHistory] = useState<number[]>([]);
   const mounted = useRef(false);
   const requestVersion = useRef(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -2350,6 +2845,10 @@ function HostView({ onBack }: { onBack: () => void }) {
       if (mounted.current && version === requestVersion.current) {
         setSnapshot(next);
         setCopyFeedback("");
+        if (next.memory.swap_used_percent !== null) {
+          const percentValue = next.memory.swap_used_percent;
+          setSwapHistory((history) => [...history, percentValue].slice(-12));
+        }
       }
     } catch (value) {
       if (mounted.current && version === requestVersion.current) setError(errorMessage(value));
@@ -2384,6 +2883,7 @@ function HostView({ onBack }: { onBack: () => void }) {
     Boolean(error) || !Number.isFinite(collectedAt) || Date.now() - collectedAt > 2 * 60_000
   );
   const snapshotJson = snapshot ? JSON.stringify(snapshot, null, 2) : "";
+  const issues = snapshot ? buildHostIssues(snapshot) : [];
 
   function selectJsonForManualCopy() {
     const textarea = jsonTextareaRef.current;
@@ -2444,59 +2944,26 @@ function HostView({ onBack }: { onBack: () => void }) {
 
       {snapshot && (
         <div className="host-content">
-          <section className={`host-summary status-${snapshot.status}`} aria-labelledby="host-summary-title">
-            <div>
-              <span className="eyebrow">STATO COMPLESSIVO</span>
-              <h2 id="host-summary-title">{HOST_STATUS_LABEL[snapshot.status]}</h2>
-              <small>
-                Contratto {snapshot.schema_version === 1 ? "v1 legacy" : "v2"} · Raccolta in {snapshot.duration_ms} ms
-              </small>
-            </div>
-            <HostStatusBadge status={snapshot.status} />
-            <HostReasons reasons={snapshot.reasons} />
-            <div className="host-component-statuses" aria-label="Stato componenti">
-              {([
-                ["Memoria", snapshot.memory],
-                ["Carico", snapshot.load],
-                ["Dischi", snapshot.filesystems],
-                ["Processi", snapshot.processes],
-                ["Porte", snapshot.listeners],
-                ["Docker", snapshot.docker],
-              ] as Array<[string, HostComponent]>).map(([label, component]) => (
-                <span key={label}><i className={component.status} aria-hidden="true" />{label}: {HOST_STATUS_LABEL[component.status]}</span>
-              ))}
-            </div>
+          <HostVerdict snapshot={snapshot} issues={issues} />
+
+          <HostKpiRow snapshot={snapshot} swapHistory={swapHistory} />
+
+          <section className="host-issues" aria-labelledby="host-issues-title">
+            <header>
+              <h2 id="host-issues-title">Da controllare</h2>
+              <span className="host-chip">{issues.length}</span>
+            </header>
+            <HostIssueList issues={issues} />
           </section>
 
-          <details className="host-reading-guide">
-            <summary id="host-reading-guide-title">Come leggere la fotografia</summary>
-            <dl aria-labelledby="host-reading-guide-title">
-              <div><dt>Fatti locali</dt><dd>Misure raccolte sull’host e scope di bind osservati.</dd></div>
-              <div><dt>Valutazione</dt><dd>Esito derivato dalle soglie e dalle policy locali disponibili.</dd></div>
-              <div><dt>Non accertato</dt><dd>Dato non raccolto o non verificato; non esprime un esito positivo.</dd></div>
-            </dl>
-          </details>
+          <HostConsumers snapshot={snapshot} />
 
-          <details
-            className={`host-json-export${snapshot.status === "critical" ? " status-critical" : ""}`}
-          >
-            <summary>
-              <span>Esporta snapshot JSON</span>
-              {snapshot.status === "critical" && <strong>Stato critico</strong>}
-            </summary>
-            <div className="host-json-export-body">
-              <p>È lo stesso snapshot sanitizzato mostrato in questa vista.</p>
-              <textarea
-                ref={jsonTextareaRef}
-                value={snapshotJson}
-                readOnly
-                spellCheck={false}
-                aria-label="JSON snapshot osservabilità host"
-              />
-              <button type="button" onClick={() => void copySnapshotJson()}>Copia JSON</button>
-              <p className="host-copy-feedback" aria-live="polite" aria-atomic="true">{copyFeedback}</p>
-            </div>
-          </details>
+          <div className="host-detail-heading">
+            <span className="eyebrow">DETTAGLIO</span>
+            <small>
+              Contratto {snapshot.schema_version === 1 ? "v1 legacy" : "v2"} · Raccolta in {snapshot.duration_ms} ms
+            </small>
+          </div>
 
           <div className="host-grid">
             <HostCard title="Memoria e swap" component={snapshot.memory}>
@@ -2548,8 +3015,11 @@ function HostView({ onBack }: { onBack: () => void }) {
             )}
           </HostCard>
 
-          <HostCard title="Gruppi di processi" component={snapshot.processes}>
-            <p className="host-note">{snapshot.processes.scanned} processi analizzati{snapshot.processes.truncated ? " · elenco troncato" : ""}</p>
+          <HostCard title="Policy sui processi" component={snapshot.processes}>
+            <p className="host-note">
+              {snapshot.processes.scanned} processi analizzati · {snapshot.processes.skipped} saltati ·{" "}
+              {snapshot.processes.inaccessible} non accessibili{snapshot.processes.truncated ? " · elenco troncato" : ""}
+            </p>
             {snapshot.processes.groups.length === 0 ? <p className="host-empty">Nessun gruppo disponibile.</p> : (
               <div className="host-process-list">
                 {snapshot.processes.groups.map((group) => (
@@ -2561,19 +3031,6 @@ function HostView({ onBack }: { onBack: () => void }) {
                         Valutazione policy: {HOST_PROCESS_POLICY_LABEL[group.policy_status]}
                       </p>
                     )}
-                  </article>
-                ))}
-              </div>
-            )}
-          </HostCard>
-
-          <HostCard title="Processi con più memoria" component={snapshot.processes}>
-            {snapshot.processes.top.length === 0 ? <p className="host-empty">Nessun processo disponibile.</p> : (
-              <div className="host-process-list">
-                {snapshot.processes.top.map((process) => (
-                  <article key={process.pid}>
-                    <span><strong>{process.label ?? process.name}</strong><small>{process.label ? process.name : `PID ${process.pid}`}</small></span>
-                    <span><strong>{formatSize(process.rss_bytes)}</strong><small>attivo da {formatAge(process.age_seconds)}</small></span>
                   </article>
                 ))}
               </div>
@@ -2635,7 +3092,40 @@ function HostView({ onBack }: { onBack: () => void }) {
             {snapshot.docker.unmapped_problematic_count > 0 && (
               <p className="host-note">Altri container problematici senza label: {snapshot.docker.unmapped_problematic_count}</p>
             )}
+            {snapshot.schema_version === 2 && (
+              <p className="host-note"><HostContainersNote snapshot={snapshot} /></p>
+            )}
           </HostCard>
+
+          <details className="host-reading-guide">
+            <summary id="host-reading-guide-title">Come leggere la fotografia</summary>
+            <dl aria-labelledby="host-reading-guide-title">
+              <div><dt>Fatti locali</dt><dd>Misure raccolte sull’host e scope di bind osservati.</dd></div>
+              <div><dt>Valutazione</dt><dd>Esito derivato dalle soglie e dalle policy locali disponibili.</dd></div>
+              <div><dt>Non accertato</dt><dd>Dato non raccolto o non verificato; non esprime un esito positivo.</dd></div>
+            </dl>
+          </details>
+
+          <details
+            className={`host-json-export${snapshot.status === "critical" ? " status-critical" : ""}`}
+          >
+            <summary>
+              <span>Esporta snapshot JSON</span>
+              {snapshot.status === "critical" && <strong>Stato critico</strong>}
+            </summary>
+            <div className="host-json-export-body">
+              <p>È lo stesso snapshot sanitizzato mostrato in questa vista.</p>
+              <textarea
+                ref={jsonTextareaRef}
+                value={snapshotJson}
+                readOnly
+                spellCheck={false}
+                aria-label="JSON snapshot osservabilità host"
+              />
+              <button type="button" onClick={() => void copySnapshotJson()}>Copia JSON</button>
+              <p className="host-copy-feedback" aria-live="polite" aria-atomic="true">{copyFeedback}</p>
+            </div>
+          </details>
         </div>
       )}
     </main>

@@ -1,0 +1,24 @@
+[Unit]
+Description=Collect Mobile Agent Console Docker container state and memory
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/mobile-agent-console/environment
+ExecStart=/usr/bin/python3 ${MAC_INSTALL_DIR}/deploy/docker-state-collector.py --output ${MAC_WORKSPACE_ROOT}/.mobile-agent-console/docker-state.json
+# L'hardening diverge da quello del collector di osservabilita' host per una
+# ragione precisa, non per disattenzione: qualsiasi direttiva che crea un mount
+# namespace (PrivateTmp, ProtectHome, ProtectSystem) fa ricadere il processo nel
+# profilo AppArmor `unprivileged_userns` di Ubuntu 24.04, che nega la connect()
+# sul socket Docker rootless. Riprodotto con:
+#   systemd-run --user --pipe --wait -q -p PrivateTmp=yes /usr/bin/docker ps -q
+# Il compromesso e' confinato qui: questa unit esegue solo `docker ps` e
+# `docker stats`, scrive un unico file 0600 e non legge /proc di terzi. Il
+# collector di osservabilita' conserva l'hardening completo (ADR 011).
+UMask=0077
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+LockPersonality=yes
+# `docker stats` interroga ogni container: ~2s sull'host di riferimento.
+RuntimeMaxSec=45

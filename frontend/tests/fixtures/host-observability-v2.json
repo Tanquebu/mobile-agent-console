@@ -12,10 +12,20 @@
   "load": { "status": "ok", "reasons": [], "one": 0.4, "five": 0.3, "fifteen": 0.2, "cpu_count": 4, "normalized_one": 0.1 },
   "filesystems": { "status": "ok", "reasons": [], "items": [{ "label": "System disk", "status": "ok", "reasons": [], "total_bytes": 4096, "available_bytes": 2048, "used_percent": 50 }] },
   "processes": {
-    "status": "critical", "reasons": [], "top": [],
+    "status": "critical", "reasons": [],
+    "top": [
+      { "pid": 4210, "name": "node", "label": "Agents", "rss_bytes": 8192, "swap_bytes": 200, "age_seconds": 3600 },
+      { "pid": 981, "name": "python3", "label": null, "rss_bytes": 4096, "swap_bytes": 0, "age_seconds": 600 },
+      { "pid": 1198, "name": "tmux", "label": null, "rss_bytes": 1024, "swap_bytes": null, "age_seconds": 86400 }
+    ],
+    "top_swap": [
+      { "pid": 77, "name": "gnome-shell", "label": null, "rss_bytes": 512, "swap_bytes": 400, "age_seconds": 90000 },
+      { "pid": 4210, "name": "node", "label": "Agents", "rss_bytes": 8192, "swap_bytes": 200, "age_seconds": 3600 }
+    ],
+    "swap_attributed_bytes": 600,
     "groups": [
-      { "name": "agents", "label": "Agents", "count": 1, "rss_bytes": 1024, "oldest_age_seconds": 60, "policy_status": "not_configured" },
-      { "name": "workers", "label": "Workers", "count": 5, "rss_bytes": 8192, "oldest_age_seconds": 120, "policy_status": "violated" }
+      { "name": "agents", "label": "Agents", "count": 1, "rss_bytes": 1024, "swap_bytes": 200, "oldest_age_seconds": 60, "policy_status": "not_configured" },
+      { "name": "workers", "label": "Workers", "count": 5, "rss_bytes": 8192, "swap_bytes": null, "oldest_age_seconds": 120, "policy_status": "violated" }
     ],
     "scanned": 6, "skipped": 0, "inaccessible": 0, "truncated": false
   },
@@ -27,5 +37,13 @@
       { "port": 9090, "bind_scope": "other", "process_name": "server", "process_label": "metrics", "status": "critical", "policy_status": "violated", "external_reachability": "not_assessed" }
     ]
   },
-  "docker": { "status": "unknown", "available": false, "reasons": [], "problematic": [], "unmapped_problematic_count": 0 }
+  "docker": {
+    "status": "unknown", "available": true, "reasons": [], "problematic": [], "unmapped_problematic_count": 0,
+    "containers": [
+      { "label": "Backend", "memory_bytes": 122683392 },
+      { "label": "Web", "memory_bytes": null }
+    ],
+    "unmapped_count": 2,
+    "state_age_seconds": 27
+  }
 }

@@ -230,6 +230,15 @@ export type AppConfig = {
 export type HostStatus = "ok" | "warning" | "critical" | "unknown";
 export type HostComponent = { status: HostStatus; reasons: string[] };
 
+export type HostProcessItem = {
+  pid: number;
+  name: string;
+  label: string | null;
+  rss_bytes: number;
+  swap_bytes?: number | null;
+  age_seconds: number;
+};
+
 type HostObservabilitySnapshotBase = HostComponent & {
   collected_at: string;
   duration_ms: number;
@@ -257,18 +266,15 @@ type HostObservabilitySnapshotBase = HostComponent & {
     }>;
   };
   processes: HostComponent & {
-    top: Array<{
-      pid: number;
-      name: string;
-      label: string | null;
-      rss_bytes: number;
-      age_seconds: number;
-    }>;
+    top: HostProcessItem[];
     groups: Array<{
       name: string;
       label: string | null;
       count: number;
       rss_bytes: number;
+      // Assente su v1 e sugli snapshot v2 prodotti da collector precedenti:
+      // `null`/assente vuol dire non accertato, non "zero swap".
+      swap_bytes?: number | null;
       oldest_age_seconds: number;
       policy_status?: "not_configured" | "within_limits" | "violated";
     }>;
@@ -315,6 +321,19 @@ export type HostObservabilitySnapshotV2 = HostObservabilitySnapshotBase & {
       pages_in_delta: number | null;
       pages_out_delta: number | null;
     };
+  };
+  processes: HostObservabilitySnapshotBase["processes"] & {
+    // Classifica per swap: un processo quasi interamente paginato ha poca
+    // memoria residente e non comparirebbe mai in `top`.
+    top_swap?: HostProcessItem[];
+    swap_attributed_bytes?: number | null;
+  };
+  docker: HostObservabilitySnapshotBase["docker"] & {
+    containers?: Array<{ label: string; memory_bytes: number | null }>;
+    unmapped_count?: number;
+    // L'evidenza Docker arriva da un file aggiornato a timer: è l'unico
+    // componente della fotografia che non è istantaneo (ADR 011).
+    state_age_seconds?: number | null;
   };
   listeners: HostComponent & {
     items: Array<HostListenerBase & {

@@ -48,6 +48,8 @@
   },
   "docker": {
     "enabled": true,
+    "state_file": "/srv/example-workspace/.mobile-agent-console/docker-state.json",
+    "max_age_seconds": 120,
     "container_labels": {
       "example-backend": "Backend",
       "example-web": "Web"

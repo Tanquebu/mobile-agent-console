@@ -287,12 +287,77 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .host-fetch-error button { width: fit-content; margin-top: 5px; }
 .host-stale { border: 1px solid #665b32; border-radius: 10px; padding: 8px 10px; background: #2a2514; color: #e8cf77 !important; }
 .host-content { display: grid; gap: 10px; padding: 4px 14px 24px; }
-.host-summary, .host-card { min-width: 0; border: 1px solid #293a30; border-radius: 16px; padding: 14px; background: #141d17; }
-.host-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
-.host-summary > div:first-child { min-width: 0; }
-.host-summary h2 { margin: 3px 0 2px; font-size: 1.4rem; }
-.host-summary small, .host-note { color: #91a397; font-size: .72rem; }
-.host-summary > .host-reasons, .host-summary > .host-component-statuses { grid-column: 1 / -1; }
+.host-verdict, .host-issues, .host-consumers, .host-card { min-width: 0; border: 1px solid #293a30; border-radius: 16px; background: #141d17; }
+.host-verdict, .host-issues, .host-consumers { padding: 14px; }
+.host-note { color: #91a397; font-size: .72rem; }
+
+/* Verdetto: una frase in italiano prima di qualsiasi misura. Il bordo sinistro
+   porta lo stato del collector, che la vista non riscrive mai. */
+.host-verdict { display: grid; gap: 7px; border-left: 3px solid #4f7a5c; background: linear-gradient(180deg, #17241a, #141d17); }
+.host-verdict.status-warning { border-left-color: #e8cf77; }
+.host-verdict.status-critical { border-left-color: #ff8f83; }
+.host-verdict.status-unknown { border-left-color: #9fb4c4; }
+.host-verdict h2 { display: flex; align-items: center; gap: 9px; margin: 0; font-size: 1.25rem; text-wrap: balance; }
+.host-verdict p { margin: 0; color: #a9bcaf; font-size: .84rem; }
+.host-verdict-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.host-verdict h2 > i, .host-issue-list > li > i { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: #91a397; }
+.host-verdict h2 > i.ok, .host-issue-list > li > i.ok { background: #75d493; }
+.host-verdict h2 > i.warning, .host-issue-list > li > i.warning { background: #e8cf77; }
+.host-verdict h2 > i.critical, .host-issue-list > li > i.critical { background: #ff8f83; }
+.host-verdict h2 > i.unknown, .host-issue-list > li > i.unknown { background: #9fb4c4; }
+.host-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #293a30; border-radius: 999px; padding: 4px 9px; background: #18231b; color: #a9bcaf; font-size: .68rem; font-weight: 700; }
+.host-chip.warning { border-color: #5c5325; background: #3d3717; color: #e8cf77; }
+.host-chip.critical { border-color: #7a3a32; background: #48241f; color: #ffaaa0; }
+.host-chip.unknown { border-color: #3a444f; background: #29313a; color: #c1cad3; }
+
+/* Tessere: un valore per misura, con la barra che rende leggibile la soglia
+   senza dover interpretare il numero. */
+.host-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.host-kpi { display: grid; align-content: start; gap: 7px; min-width: 0; border: 1px solid #293a30; border-radius: 16px; padding: 11px 12px 12px; background: #141d17; }
+.host-kpi.status-warning { border-color: #5c5325; }
+.host-kpi.status-critical { border-color: #7a3a32; }
+.host-kpi.status-unknown { border-color: #3a444f; }
+.host-kpi > header { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0; }
+.host-kpi > header .eyebrow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.host-kpi-tag { flex: 0 0 auto; color: #e8cf77; font-size: .6rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.host-kpi-value { font-size: 1.85rem; font-weight: 800; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.host-kpi-value span { margin-left: 2px; color: #7d9186; font-size: .9rem; font-weight: 700; }
+.host-kpi small { color: #7d9186; font-size: .68rem; font-variant-numeric: tabular-nums; }
+.host-meter { overflow: hidden; height: 7px; border: 1px solid #1c2820; border-radius: 4px; background: #0d1410; }
+.host-meter i { display: block; height: 100%; border-radius: 4px; background: #75d493; }
+.host-meter i.warning { background: #e8cf77; }
+.host-meter i.critical { background: #ff8f83; }
+.host-meter i.unknown { background: #6c7c88; }
+/* Occupata ma ferma: la trama distingue le pagine parcheggiate dalla swap in uso. */
+.host-meter i.idle { background: repeating-linear-gradient(115deg, #6f6534 0 5px, #4a4423 5px 10px); }
+.host-spark { display: block; width: 100%; height: 20px; color: #e8cf77; }
+
+/* Anomalie: nessuna riga per ciò che funziona. */
+.host-issues > header, .host-consumers > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.host-issues h2, .host-consumers h2 { margin: 0; font-size: .82rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #7d9186; }
+.host-consumers > header small { color: #7d9186; font-size: .68rem; text-align: right; }
+.host-issue-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.host-issue-list > li { display: grid; grid-template-columns: 9px minmax(0, 1fr); gap: 10px; }
+.host-issue-list > li > i { margin-top: 6px; }
+.host-issue-list strong { display: block; font-size: .87rem; font-weight: 650; }
+.host-issue-list small { display: block; margin-top: 2px; color: #7d9186; font-size: .74rem; overflow-wrap: anywhere; }
+
+/* Consumatori: la tabella che risponde a "chi sta occupando cosa". */
+.host-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+.host-tabs button { min-height: 44px; border: 1px solid #293a30; border-radius: 999px; padding: 0 14px; background: #18231b; color: #7d9186; font-size: .72rem; font-weight: 700; }
+.host-tabs button.active { border-color: #275b38; background: #193e26; color: #86dda2; }
+.host-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.host-table th, .host-table td { padding: 8px 0; text-align: right; font-size: .8rem; font-weight: 600; }
+.host-table thead th { padding-bottom: 4px; color: #7d9186; font-size: .6rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.host-table tbody th, .host-table thead th:first-child { text-align: left; }
+.host-table tbody th { min-width: 0; font-weight: 600; }
+.host-table tbody tr > * { border-top: 1px solid #1c2820; }
+.host-table-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.host-table-sub { display: block; color: #7d9186; font-size: .66rem; font-weight: 500; font-family: ui-monospace, monospace; }
+.host-table-swap { color: #e8cf77; }
+.host-consumers .host-note { display: block; margin: 10px 0 0; }
+.host-detail-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 6px; padding: 0 2px; }
+.host-detail-heading small { color: #7d9186; font-size: .68rem; }
 .host-reading-guide { min-width: 0; overflow: hidden; border: 1px solid #31443a; border-radius: 16px; background: #101713; }
 .host-reading-guide > summary { min-height: 44px; padding: 12px 14px; color: #edf5ef; font-size: .92rem; font-weight: 800; cursor: pointer; }
 .host-reading-guide > summary::marker { color: #7ea58c; }
@@ -300,13 +365,6 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .host-reading-guide dl > div { min-width: 0; border-left: 2px solid #4f7a5c; padding-left: 9px; }
 .host-reading-guide dt { color: #b8d7c1; font-size: .7rem; font-weight: 800; }
 .host-reading-guide dd { margin: 3px 0 0; color: #91a397; font-size: .7rem; overflow-wrap: anywhere; }
-.host-component-statuses { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.host-component-statuses span { display: flex; align-items: center; gap: 6px; min-width: 0; color: #a9bcaf; font-size: .7rem; }
-.host-component-statuses i { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: #91a397; }
-.host-component-statuses i.ok { background: #75d493; }
-.host-component-statuses i.warning { background: #e8cf77; }
-.host-component-statuses i.critical { background: #ff8f83; }
-.host-component-statuses i.unknown { background: #91a397; }
 .host-json-export { min-width: 0; overflow: hidden; border: 1px solid #293a30; border-radius: 16px; background: #141d17; }
 .host-json-export.status-critical { border-color: #a95247; box-shadow: inset 3px 0 #ff8f83; background: #211714; }
 .host-json-export > summary { display: flex; min-height: 44px; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; color: #edf5ef; font-size: .82rem; font-weight: 800; cursor: pointer; }
@@ -328,10 +386,12 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .host-assessment { display: grid; gap: 5px; border-radius: 10px; padding: 9px 10px; background: #101713; }
 .host-assessment > p { margin: 0; color: #91a397; font-size: .72rem; }
 .host-facts-heading { margin: 0; color: #b8d7c1; font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; }
-.host-card.status-critical, .host-summary.status-critical { border-color: #704039; }
-.host-card.status-warning, .host-summary.status-warning { border-color: #665b32; }
-.host-card.status-unknown, .host-summary.status-unknown { border-color: #4b5660; }
-.host-status { flex: 0 0 auto; border-radius: 999px; padding: 4px 8px; font-size: .62rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.host-card.status-critical { border-color: #704039; }
+.host-card.status-warning { border-color: #665b32; }
+.host-card.status-unknown { border-color: #4b5660; }
+/* `align-self` non è decorativo: senza, dentro un contenitore grid il badge si
+   stira per l'altezza della riga e con border-radius 999px diventa un cerchio. */
+.host-status { flex: 0 0 auto; align-self: center; border-radius: 999px; padding: 4px 8px; font-size: .62rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
 .host-status.ok { background: #193e26; color: #86dda2; }
 .host-status.warning { background: #403917; color: #e8cf77; }
 .host-status.critical { background: #48241f; color: #ffaaa0; }
@@ -453,7 +513,7 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
   .modal-backdrop { place-items: center; }
   .snapshot-session { grid-template-columns: minmax(0, 1fr) minmax(180px, .8fr); }
   .host-grid, .host-item-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .host-component-statuses { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .host-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .host-reading-guide dl { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .budget-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

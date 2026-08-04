@@ -88,6 +88,12 @@ class ProcessPolicy:
 class DockerConfig:
     enabled: bool = False
     container_labels: dict[str, str] = field(default_factory=dict)
+    # Con `state_file` la raccolta arriva dal file scritto da
+    # docker-state-collector.py invece che da un subprocess: il collector gira
+    # in un mount namespace e AppArmor gli nega la connect() al socket Docker
+    # rootless (ADR 011). Senza, resta il comportamento storico a subprocess.
+    state_file: str | None = None
+    max_age_seconds: int = 120
 
 
 @dataclass(frozen=True)
@@ -108,6 +114,9 @@ class ProcessSample:
     name: str
     rss_bytes: int
     age_seconds: int
+    # `None` = swap non accertata per questo processo (file non leggibile),
+    # distinta da 0 = processo senza pagine in swap.
+    swap_bytes: int | None = None
 
 
 @dataclass(frozen=True)
@@ -117,7 +126,30 @@ class DockerCommandResult:
     excessive: bool = False
 
 
+@dataclass(frozen=True)
+class DockerContainerRow:
+    name: str
+    status: str
+    memory_bytes: int | None = None
+
+
+@dataclass(frozen=True)
+class DockerState:
+    """Evidenza Docker gia' estratta, qualunque sia la fonte.
+
+    `available=False` non e' mai "nessun container": e' assenza di evidenza, e
+    porta sempre un reason esplicito.
+    """
+
+    available: bool
+    rows: list[DockerContainerRow] = field(default_factory=list)
+    reason: str | None = None
+    age_seconds: int | None = None
+    truncated: bool = False
+
+
 DockerRunner = Callable[[], DockerCommandResult]
+DockerStateProvider = Callable[[], DockerState]
 Statvfs = Callable[[str], os.statvfs_result]
 Clock = Callable[[], float]
 Sleeper = Callable[[float], None]
@@ -388,10 +420,28 @@ def parse_config(payload: object) -> CollectorConfig:
         }
 
     raw_docker = require_mapping(raw.get("docker", {}), "docker")
-    require_keys(raw_docker, {"enabled", "container_labels"}, "docker")
+    docker_fields = {"enabled", "container_labels"}
+    if schema_version == 2:
+        docker_fields |= {"state_file", "max_age_seconds"}
+    require_keys(raw_docker, docker_fields, "docker")
     enabled = raw_docker.get("enabled", False)
     if not isinstance(enabled, bool):
         raise CollectorConfigError("docker enabled must be boolean")
+    state_file = raw_docker.get("state_file")
+    if state_file is not None and (
+        not isinstance(state_file, str)
+        or len(state_file) > 4096
+        or not Path(state_file).is_absolute()
+        or "\x00" in state_file
+    ):
+        raise CollectorConfigError("docker state file is invalid")
+    max_age_seconds = raw_docker.get("max_age_seconds", 120)
+    if (
+        isinstance(max_age_seconds, bool)
+        or not isinstance(max_age_seconds, int)
+        or not 1 <= max_age_seconds <= 3600
+    ):
+        raise CollectorConfigError("docker max age is invalid")
     raw_containers = require_mapping(raw_docker.get("container_labels", {}), "container_labels")
     if len(raw_containers) > MAX_CONTAINER_LABELS:
         raise CollectorConfigError("container labels exceeds limit")
@@ -413,7 +463,7 @@ def parse_config(payload: object) -> CollectorConfig:
         expected_listeners=tuple(expected),
         process_labels=process_labels,
         process_policies=process_policies,
-        docker=DockerConfig(enabled, container_labels),
+        docker=DockerConfig(enabled, container_labels, state_file, max_age_seconds),
     )
 
 
@@ -759,6 +809,25 @@ def clean_process_name(value: str) -> str:
     return SAFE_NAME_CHAR.sub("?", value.strip())[:64] or "unknown"
 
 
+def read_process_swap(path: Path) -> int | None:
+    """Pagine in swap del processo, da `VmSwap` in /proc/<pid>/status.
+
+    Un thread di kernel non ha `VmSwap` perche' non ha uno spazio di indirizzi:
+    e' 0 accertato, non un dato mancante. Un errore di lettura resta `None`.
+    """
+    try:
+        with (path / "status").open("rb") as handle:
+            for raw_line in handle:
+                if raw_line.startswith(b"VmSwap:"):
+                    kilobytes = int(raw_line.split()[1])
+                    if kilobytes < 0:
+                        return None
+                    return kilobytes * 1024
+    except (OSError, ValueError, IndexError):
+        return None
+    return 0
+
+
 def evaluate_process_policy(
     values: dict[str, int], policy: ProcessPolicy
 ) -> tuple[str, list[str]]:
@@ -813,6 +882,9 @@ def read_processes(
     skipped = 0
     inaccessible = 0
     truncated = len(pid_paths) > MAX_PROCESSES_SCANNED
+    # La swap per processo esiste solo nel contratto v2: sotto v1 il file
+    # `status` non viene nemmeno aperto, cosi' la raccolta resta invariata.
+    collect_swap = config.schema_version == 2
     for path in pid_paths[:MAX_PROCESSES_SCANNED]:
         try:
             stat_fields = (path / "stat").read_text(encoding="ascii").rstrip()
@@ -825,18 +897,28 @@ def read_processes(
             if closing < 1 or start_ticks < 0 or rss_pages < 0:
                 raise ValueError
             age = max(0, int(uptime - start_ticks / clock_ticks))
-            samples.append(ProcessSample(pid, name, rss_pages * page_size, age))
+            swap_bytes = read_process_swap(path) if collect_swap else None
+            samples.append(
+                ProcessSample(pid, name, rss_pages * page_size, age, swap_bytes)
+            )
         except PermissionError:
             inaccessible += 1
         except (OSError, UnicodeError, ValueError, IndexError):
             skipped += 1
     samples.sort(key=lambda item: (-item.rss_bytes, item.pid))
     groups: dict[str, dict[str, int]] = {}
+    # Tenuta fuori da `groups` perche' e' l'unica voce che puo' restare `None`:
+    # un gruppo con nessun membro leggibile non vale come "zero swap".
+    group_swap: dict[str, int | None] = {}
     for sample in samples:
         group = groups.setdefault(sample.name, {"count": 0, "rss_bytes": 0, "oldest_age_seconds": 0})
         group["count"] += 1
         group["rss_bytes"] += sample.rss_bytes
         group["oldest_age_seconds"] = max(group["oldest_age_seconds"], sample.age_seconds)
+        if sample.swap_bytes is None:
+            group_swap.setdefault(sample.name, None)
+        else:
+            group_swap[sample.name] = (group_swap.get(sample.name) or 0) + sample.swap_bytes
     ordered_groups = sorted(
         groups.items(), key=lambda item: (-item[1]["rss_bytes"], item[0])
     )
@@ -887,6 +969,7 @@ def read_processes(
                         "name": name,
                         "label": config.process_labels.get(name),
                         **values,
+                        "swap_bytes": group_swap.get(name),
                         "policy_status": policy_status,
                     },
                 )
@@ -900,26 +983,40 @@ def read_processes(
         reasons = [*reasons, "processes_partial"]
         if status == "ok":
             status = "unknown"
-    top = [
-        {
+    def process_item(sample: ProcessSample) -> dict[str, object]:
+        item: dict[str, object] = {
             "pid": sample.pid,
             "name": sample.name,
             "label": config.process_labels.get(sample.name),
             "rss_bytes": sample.rss_bytes,
             "age_seconds": sample.age_seconds,
         }
-        for sample in samples[:MAX_TOP_PROCESSES]
-    ]
-    return {
+        if collect_swap:
+            item["swap_bytes"] = sample.swap_bytes
+        return item
+
+    component: dict[str, object] = {
         "status": status if samples else "unknown",
         "reasons": fixed_reason(*reasons) if samples else ["processes_unavailable"],
-        "top": top,
+        "top": [process_item(sample) for sample in samples[:MAX_TOP_PROCESSES]],
         "groups": top_groups,
         "scanned": len(samples),
         "skipped": skipped,
         "inaccessible": inaccessible,
         "truncated": truncated,
-    }, samples
+    }
+    if collect_swap:
+        # Ordinamento indipendente da quello per RSS: un processo che ha ceduto
+        # quasi tutto alla swap ha per definizione poca memoria residente e non
+        # comparirebbe mai nella classifica per RSS.
+        swapped = sorted(
+            (sample for sample in samples if sample.swap_bytes),
+            key=lambda sample: (-(sample.swap_bytes or 0), sample.pid),
+        )
+        attributed = [sample.swap_bytes for sample in samples if sample.swap_bytes is not None]
+        component["top_swap"] = [process_item(sample) for sample in swapped[:MAX_TOP_PROCESSES]]
+        component["swap_attributed_bytes"] = sum(attributed) if attributed else None
+    return component, samples
 
 
 def decode_proc_address(encoded: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
@@ -1158,53 +1255,16 @@ def normalize_container_status(raw: str) -> tuple[str, str]:
     return "warning", "container_state_unknown"
 
 
-def docker_invalid_result() -> dict[str, object]:
-    return {
-        "status": "unknown",
-        "reasons": ["docker_output_invalid"],
-        "available": False,
-        "problematic": [],
-        "unmapped_problematic_count": 0,
-    }
+def parse_docker_ps_lines(lines: list[str]) -> list[DockerContainerRow] | None:
+    """Righe `nome\\tstato`, oppure None se una qualsiasi non e' interpretabile.
 
-
-def read_docker(config: DockerConfig, runner: DockerRunner) -> dict[str, object]:
-    if not config.enabled:
-        return {
-            "status": "unknown",
-            "reasons": ["docker_disabled"],
-            "available": False,
-            "problematic": [],
-            "unmapped_problematic_count": 0,
-        }
-    try:
-        completed = runner()
-    except (OSError, subprocess.TimeoutExpired):
-        return {
-            "status": "unknown",
-            "reasons": ["docker_unavailable"],
-            "available": False,
-            "problematic": [],
-            "unmapped_problematic_count": 0,
-        }
-    if completed.returncode != 0 or completed.excessive:
-        reason = "docker_output_excessive" if completed.excessive else "docker_unavailable"
-        return {
-            "status": "unknown",
-            "reasons": [reason],
-            "available": False,
-            "problematic": [],
-            "unmapped_problematic_count": 0,
-        }
-    problematic: list[dict[str, str]] = []
-    unmapped = 0
-    statuses: list[str] = []
-    try:
-        lines = completed.stdout.decode("utf-8").splitlines()
-    except UnicodeDecodeError:
-        return docker_invalid_result()
+    Fallisce sull'intero payload e non sulla singola riga: una riga inattesa
+    significa che il formato non e' quello previsto, e in quel caso nessuna
+    delle altre righe merita fiducia.
+    """
     if len(lines) > 1000:
-        return docker_invalid_result()
+        return None
+    rows: list[DockerContainerRow] = []
     for line in lines:
         name, separator, raw_status = line.partition("\t")
         if (
@@ -1214,24 +1274,163 @@ def read_docker(config: DockerConfig, runner: DockerRunner) -> dict[str, object]
             or not raw_status
             or len(raw_status) > 256
         ):
-            return docker_invalid_result()
-        status, reason = normalize_container_status(raw_status[:256])
+            return None
+        rows.append(DockerContainerRow(name, raw_status[:256]))
+    return rows
+
+
+def subprocess_docker_state(runner: DockerRunner) -> DockerState:
+    """Modalita' storica: `docker ps` eseguito dal collector, senza memoria."""
+    try:
+        completed = runner()
+    except (OSError, subprocess.TimeoutExpired):
+        return DockerState(available=False, reason="docker_unavailable")
+    if completed.returncode != 0 or completed.excessive:
+        return DockerState(
+            available=False,
+            reason="docker_output_excessive" if completed.excessive else "docker_unavailable",
+        )
+    try:
+        lines = completed.stdout.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        return DockerState(available=False, reason="docker_output_invalid")
+    rows = parse_docker_ps_lines(lines)
+    if rows is None:
+        return DockerState(available=False, reason="docker_output_invalid")
+    return DockerState(available=True, rows=rows)
+
+
+def read_docker_state_file(
+    path: Path, max_age_seconds: int, *, now: datetime | None = None
+) -> DockerState:
+    """Stato scritto dalla unit docker-state, con controllo di eta'.
+
+    Un file assente e uno scaduto sono due evidenze diverse: il primo dice che
+    l'helper non ha mai scritto, il secondo che ha smesso di scrivere.
+    """
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return DockerState(available=False, reason="docker_unavailable")
+    if len(raw) > MAX_DOCKER_OUTPUT_BYTES:
+        return DockerState(available=False, reason="docker_output_excessive")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return DockerState(available=False, reason="docker_output_invalid")
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        return DockerState(available=False, reason="docker_output_invalid")
+    collected_at = payload.get("collected_at")
+    if not isinstance(collected_at, str):
+        return DockerState(available=False, reason="docker_output_invalid")
+    try:
+        written = datetime.fromisoformat(collected_at)
+    except ValueError:
+        return DockerState(available=False, reason="docker_output_invalid")
+    if written.tzinfo is None:
+        return DockerState(available=False, reason="docker_output_invalid")
+    age = int(((now or datetime.now(UTC)) - written).total_seconds())
+    if age < 0 or age > max_age_seconds:
+        return DockerState(available=False, reason="docker_state_stale", age_seconds=max(0, age))
+    if payload.get("available") is not True:
+        # L'helper ha girato ma Docker non ha risposto: e' comunque assenza di
+        # evidenza, distinta dal file mancante solo nel journal.
+        return DockerState(available=False, reason="docker_unavailable", age_seconds=age)
+    raw_containers = payload.get("containers")
+    if not isinstance(raw_containers, list) or len(raw_containers) > 1000:
+        return DockerState(available=False, reason="docker_output_invalid")
+    rows: list[DockerContainerRow] = []
+    for item in raw_containers:
+        if not isinstance(item, dict):
+            return DockerState(available=False, reason="docker_output_invalid")
+        name = item.get("name")
+        status = item.get("status")
+        memory = item.get("memory_bytes")
+        if (
+            not isinstance(name, str)
+            or not SAFE_CONTAINER_NAME.fullmatch(name)
+            or not isinstance(status, str)
+            or not status
+            or len(status) > 256
+            or "\t" in status
+            or (memory is not None and (isinstance(memory, bool) or not isinstance(memory, int) or memory < 0))
+        ):
+            return DockerState(available=False, reason="docker_output_invalid")
+        rows.append(DockerContainerRow(name, status, memory))
+    return DockerState(
+        available=True,
+        rows=rows,
+        age_seconds=age,
+        truncated=payload.get("truncated") is True,
+    )
+
+
+def read_docker(
+    config: DockerConfig, provider: DockerStateProvider, *, schema_version: int = 1
+) -> dict[str, object]:
+    if not config.enabled:
+        return {
+            "status": "unknown",
+            "reasons": ["docker_disabled"],
+            "available": False,
+            "problematic": [],
+            "unmapped_problematic_count": 0,
+        }
+    state = provider()
+    # La memoria per container esiste solo nel contratto v2: sotto v1 l'output
+    # resta identico a prima, campo per campo.
+    detailed = schema_version == 2
+    if not state.available:
+        unavailable: dict[str, object] = {
+            "status": "unknown",
+            "reasons": [state.reason or "docker_unavailable"],
+            "available": False,
+            "problematic": [],
+            "unmapped_problematic_count": 0,
+        }
+        if detailed:
+            unavailable["containers"] = []
+            unavailable["unmapped_count"] = 0
+            unavailable["state_age_seconds"] = state.age_seconds
+        return unavailable
+    problematic: list[dict[str, str]] = []
+    containers: list[dict[str, object]] = []
+    unmapped_problematic = 0
+    unmapped = 0
+    statuses: list[str] = []
+    for row in state.rows:
+        label = config.container_labels.get(row.name)
+        if label is None:
+            unmapped += 1
+        elif len(containers) < MAX_CONTAINER_LABELS:
+            containers.append({"label": label, "memory_bytes": row.memory_bytes})
+        status, reason = normalize_container_status(row.status)
         if status == "ok":
             continue
-        statuses.append(status)
-        label = config.container_labels.get(name)
+        if label is not None or not detailed:
+            # In v2 solo i container con una label configurata pesano sulla
+            # severita', come gia' avviene per i gruppi di processi senza
+            # policy: cio' che non e' stato messo sotto sorveglianza non viene
+            # giudicato. Restano contati, quindi visibili.
+            statuses.append(status)
         if label and len(problematic) < MAX_CONTAINER_LABELS:
             problematic.append({"label": label, "status": status, "reason": reason})
         else:
-            unmapped += 1
+            unmapped_problematic += 1
     result_status = combine_status(statuses) if statuses else "ok"
-    return {
+    result: dict[str, object] = {
         "status": result_status,
         "reasons": [] if result_status == "ok" else ["containers_problematic"],
         "available": True,
         "problematic": problematic,
-        "unmapped_problematic_count": unmapped,
+        "unmapped_problematic_count": unmapped_problematic,
     }
+    if detailed:
+        containers.sort(key=lambda item: (-(item["memory_bytes"] or 0), str(item["label"])))
+        result["containers"] = containers
+        result["unmapped_count"] = unmapped
+        result["state_age_seconds"] = state.age_seconds
+    return result
 
 
 def collect_snapshot(
@@ -1263,7 +1462,13 @@ def collect_snapshot(
         clock_ticks=clock_ticks or os.sysconf("SC_CLK_TCK"),
     )
     listeners = read_listeners(proc_root, config, samples)
-    docker = read_docker(config.docker, docker_runner)
+    state_file = config.docker.state_file
+    provider: DockerStateProvider = (
+        (lambda: read_docker_state_file(Path(state_file), config.docker.max_age_seconds))
+        if state_file is not None
+        else (lambda: subprocess_docker_state(docker_runner))
+    )
+    docker = read_docker(config.docker, provider, schema_version=config.schema_version)
     components = [memory, load, filesystems, processes, listeners, docker]
     reasons = fixed_reason(
         *(reason for component in components for reason in component.get("reasons", []))

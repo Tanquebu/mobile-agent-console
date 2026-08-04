@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 import unittest
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -44,6 +45,17 @@ def base_config(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def base_docker_config():
+    return collector.parse_config(
+        base_config_v2(
+            docker={
+                "enabled": True,
+                "container_labels": {"private-backend-name": "Backend"},
+            }
+        )
+    ).docker
 
 
 def base_config_v2(**overrides):
@@ -96,6 +108,7 @@ def add_process(
     *,
     start_ticks: int = 100,
     socket_inode: str | None = None,
+    swap_kb: int | None = None,
 ) -> None:
     path = proc_root / str(pid)
     (path / "fd").mkdir(parents=True)
@@ -103,6 +116,13 @@ def add_process(
     (path / "stat").write_text(
         process_stat(pid, name, start_ticks, rss_pages), encoding="ascii"
     )
+    # Senza `swap_kb` il file `status` non esiste: e' il caso "non leggibile",
+    # che deve restare distinto da "zero pagine in swap".
+    if swap_kb is not None:
+        (path / "status").write_text(
+            f"Name:\t{name}\nVmRSS:\t{rss_pages * 4} kB\nVmSwap:\t{swap_kb} kB\n",
+            encoding="ascii",
+        )
     if socket_inode:
         (path / "fd" / "3").symlink_to(f"socket:[{socket_inode}]")
 
@@ -368,6 +388,89 @@ class HostObservabilityCollectorTest(unittest.TestCase):
         self.assertEqual(result["reasons"], [])
         self.assertEqual(result["groups"][0]["count"], 12)
         self.assertEqual(result["groups"][0]["policy_status"], "not_configured")
+
+    def test_v2_swap_ranking_is_independent_from_the_rss_ranking(self) -> None:
+        with TemporaryDirectory() as temporary:
+            proc_root = make_proc_root(Path(temporary))
+            # Il processo quasi interamente paginato ha poca memoria residente:
+            # per RSS non comparirebbe mai in cima.
+            add_process(proc_root, 100, "node", 1024, swap_kb=64)
+            add_process(proc_root, 101, "python3", 8, swap_kb=524_288)
+            result, samples = collector.read_processes(
+                proc_root,
+                collector.parse_config(base_config_v2(process_policies={})),
+                page_size=4096,
+                clock_ticks=100,
+            )
+
+        self.assertEqual([item["pid"] for item in result["top"]], [100, 101])
+        self.assertEqual([item["pid"] for item in result["top_swap"]], [101, 100])
+        self.assertEqual(result["top_swap"][0]["swap_bytes"], 524_288 * 1024)
+        self.assertEqual(result["swap_attributed_bytes"], (524_288 + 64) * 1024)
+        self.assertEqual({sample.swap_bytes for sample in samples}, {65_536, 536_870_912})
+        groups = {group["name"]: group["swap_bytes"] for group in result["groups"]}
+        self.assertEqual(groups, {"node": 65_536, "python3": 536_870_912})
+
+    def test_v2_unreadable_process_swap_is_not_reported_as_zero(self) -> None:
+        with TemporaryDirectory() as temporary:
+            proc_root = make_proc_root(Path(temporary))
+            add_process(proc_root, 100, "node", 32)  # nessun file status
+            add_process(proc_root, 101, "python3", 16, swap_kb=0)
+            # thread di kernel: il file esiste ma non ha VmSwap perche' non ha
+            # uno spazio di indirizzi, quindi zero e' accertato
+            add_process(proc_root, 102, "kworker", 0, swap_kb=None)
+            (proc_root / "102" / "status").write_text("Name:\tkworker\n", encoding="ascii")
+            result, _samples = collector.read_processes(
+                proc_root,
+                collector.parse_config(base_config_v2(process_policies={})),
+                page_size=4096,
+                clock_ticks=100,
+            )
+
+        swap_by_name = {item["name"]: item["swap_bytes"] for item in result["top"]}
+        self.assertIsNone(swap_by_name["node"])
+        self.assertEqual(swap_by_name["python3"], 0)
+        self.assertEqual(swap_by_name["kworker"], 0)
+        groups = {group["name"]: group["swap_bytes"] for group in result["groups"]}
+        self.assertIsNone(groups["node"])
+        self.assertEqual(groups["python3"], 0)
+        # nessun processo ha pagine in swap: la classifica resta vuota, non
+        # popolata di zeri
+        self.assertEqual(result["top_swap"], [])
+        self.assertEqual(result["swap_attributed_bytes"], 0)
+
+    def test_v2_group_swap_sums_only_the_members_it_could_read(self) -> None:
+        with TemporaryDirectory() as temporary:
+            proc_root = make_proc_root(Path(temporary))
+            add_process(proc_root, 100, "node", 32, swap_kb=128)
+            add_process(proc_root, 101, "node", 16)  # non leggibile
+            result, _samples = collector.read_processes(
+                proc_root,
+                collector.parse_config(base_config_v2(process_policies={})),
+                page_size=4096,
+                clock_ticks=100,
+            )
+
+        self.assertEqual(result["groups"][0]["swap_bytes"], 128 * 1024)
+        self.assertEqual(result["swap_attributed_bytes"], 128 * 1024)
+
+    def test_v1_snapshot_does_not_expose_process_swap(self) -> None:
+        with TemporaryDirectory() as temporary:
+            proc_root = make_proc_root(Path(temporary))
+            add_process(proc_root, 100, "node", 32, swap_kb=4096)
+            result, samples = collector.read_processes(
+                proc_root,
+                collector.parse_config(base_config()),
+                page_size=4096,
+                clock_ticks=100,
+            )
+
+        self.assertNotIn("top_swap", result)
+        self.assertNotIn("swap_attributed_bytes", result)
+        self.assertNotIn("swap_bytes", result["top"][0])
+        self.assertNotIn("swap_bytes", result["groups"][0])
+        # sotto v1 il file `status` non viene nemmeno aperto
+        self.assertEqual([sample.swap_bytes for sample in samples], [None])
 
     def test_v2_process_policies_apply_count_and_aggregate_rss_boundaries(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -792,7 +895,9 @@ class HostObservabilityCollectorTest(unittest.TestCase):
         ]
         for runner in cases:
             with self.subTest(runner=runner):
-                result = collector.read_docker(config, runner)
+                result = collector.read_docker(
+                    config, lambda runner=runner: collector.subprocess_docker_state(runner)
+                )
                 self.assertEqual(result["status"], "unknown")
                 self.assertFalse(result["available"])
                 self.assertNotIn("secret", json.dumps(result))
@@ -811,7 +916,10 @@ class HostObservabilityCollectorTest(unittest.TestCase):
             b"unlisted-private-name\tExited (1) 2 hours ago\n"
         )
         result = collector.read_docker(
-            config, lambda: collector.DockerCommandResult(0, output)
+            config,
+            lambda: collector.subprocess_docker_state(
+                lambda: collector.DockerCommandResult(0, output)
+            ),
         )
         serialized = json.dumps(result)
         self.assertEqual(result["status"], "critical")
@@ -820,6 +928,168 @@ class HostObservabilityCollectorTest(unittest.TestCase):
         self.assertNotIn("private-backend-name", serialized)
         self.assertNotIn("unlisted-private-name", serialized)
         self.assertNotIn("2 hours", serialized)
+
+    def test_docker_state_file_carries_container_memory(self) -> None:
+        config = collector.parse_config(
+            base_config_v2(
+                docker={
+                    "enabled": True,
+                    "container_labels": {"private-backend-name": "Backend"},
+                    "state_file": "/run/docker-state.json",
+                    "max_age_seconds": 120,
+                }
+            )
+        ).docker
+        with TemporaryDirectory() as temporary:
+            path = Path(temporary) / "docker-state.json"
+            written = datetime(2026, 8, 4, 12, 0, tzinfo=UTC)
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "collected_at": written.isoformat(),
+                        "available": True,
+                        "containers": [
+                            {"name": "private-backend-name", "status": "Up 2 hours", "memory_bytes": 122683392},
+                            {"name": "unlisted-private-name", "status": "Up 1 hour", "memory_bytes": 4096},
+                        ],
+                        "truncated": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            state = collector.read_docker_state_file(
+                path, 120, now=written + timedelta(seconds=30)
+            )
+            result = collector.read_docker(config, lambda: state, schema_version=2)
+
+        serialized = json.dumps(result)
+        self.assertTrue(result["available"])
+        self.assertEqual(result["containers"], [{"label": "Backend", "memory_bytes": 122683392}])
+        # il container senza label è contato, mai nominato
+        self.assertEqual(result["unmapped_count"], 1)
+        self.assertNotIn("unlisted-private-name", serialized)
+        self.assertNotIn("private-backend-name", serialized)
+        self.assertEqual(result["state_age_seconds"], 30)
+
+    def test_docker_state_file_distinguishes_missing_stale_and_invalid(self) -> None:
+        written = datetime(2026, 8, 4, 12, 0, tzinfo=UTC)
+        valid = {
+            "schema_version": 1,
+            "collected_at": written.isoformat(),
+            "available": True,
+            "containers": [],
+            "truncated": False,
+        }
+        cases: list[tuple[str, object, int, str]] = [
+            ("assente", None, 0, "docker_unavailable"),
+            ("scaduto", valid, 300, "docker_state_stale"),
+            ("json rotto", "{not json", 0, "docker_output_invalid"),
+            ("versione ignota", {**valid, "schema_version": 2}, 0, "docker_output_invalid"),
+            ("timestamp naive", {**valid, "collected_at": "2026-08-04T12:00:00"}, 0, "docker_output_invalid"),
+            ("helper senza docker", {**valid, "available": False}, 0, "docker_unavailable"),
+            (
+                "nome non sicuro",
+                {**valid, "containers": [{"name": "../x", "status": "Up", "memory_bytes": None}]},
+                0,
+                "docker_output_invalid",
+            ),
+            (
+                "memoria negativa",
+                {**valid, "containers": [{"name": "web", "status": "Up", "memory_bytes": -1}]},
+                0,
+                "docker_output_invalid",
+            ),
+        ]
+        for label, payload, offset, expected_reason in cases:
+            with self.subTest(case=label), TemporaryDirectory() as temporary:
+                path = Path(temporary) / "docker-state.json"
+                if payload is not None:
+                    path.write_text(
+                        payload if isinstance(payload, str) else json.dumps(payload),
+                        encoding="utf-8",
+                    )
+                state = collector.read_docker_state_file(
+                    path, 120, now=written + timedelta(seconds=offset)
+                )
+                self.assertFalse(state.available)
+                self.assertEqual(state.reason, expected_reason)
+                result = collector.read_docker(
+                    base_docker_config(), lambda state=state: state, schema_version=2
+                )
+                self.assertEqual(result["status"], "unknown")
+                self.assertEqual(result["reasons"], [expected_reason])
+                self.assertEqual(result["containers"], [])
+
+    def test_v2_containers_without_a_label_do_not_drive_severity(self) -> None:
+        # Container fermi di progetti che non si stanno sorvegliando non devono
+        # rendere critico l'host: restano contati, non giudicati.
+        state = collector.DockerState(
+            available=True,
+            rows=[
+                collector.DockerContainerRow("private-backend-name", "Up 2 hours", 4096),
+                collector.DockerContainerRow("unlisted-private-name", "Exited (255) 14 hours ago", None),
+            ],
+        )
+        v2 = collector.read_docker(base_docker_config(), lambda: state, schema_version=2)
+        v1 = collector.read_docker(base_docker_config(), lambda: state, schema_version=1)
+
+        self.assertEqual(v2["status"], "ok")
+        self.assertEqual(v2["reasons"], [])
+        self.assertEqual(v2["unmapped_problematic_count"], 1)
+        # la semantica storica v1 non cambia
+        self.assertEqual(v1["status"], "critical")
+        self.assertEqual(v1["reasons"], ["containers_problematic"])
+
+    def test_v2_labelled_containers_still_drive_severity(self) -> None:
+        state = collector.DockerState(
+            available=True,
+            rows=[collector.DockerContainerRow("private-backend-name", "Up 2 hours (unhealthy)", 4096)],
+        )
+        result = collector.read_docker(base_docker_config(), lambda: state, schema_version=2)
+
+        self.assertEqual(result["status"], "critical")
+        self.assertEqual(result["problematic"][0]["label"], "Backend")
+
+    def test_v1_docker_output_is_unchanged_by_the_state_file_support(self) -> None:
+        state = collector.DockerState(
+            available=True,
+            rows=[collector.DockerContainerRow("private-backend-name", "Up 2 hours", 4096)],
+            age_seconds=10,
+        )
+        result = collector.read_docker(base_docker_config(), lambda: state, schema_version=1)
+
+        self.assertEqual(
+            set(result),
+            {"status", "reasons", "available", "problematic", "unmapped_problematic_count"},
+        )
+
+    def test_docker_state_file_is_v2_only_and_validated(self) -> None:
+        with self.assertRaises(collector.CollectorConfigError):
+            collector.parse_config(
+                base_config(
+                    docker={"enabled": True, "container_labels": {}, "state_file": "/run/x.json"}
+                )
+            )
+        invalid = [
+            {"state_file": "relative/path.json"},
+            {"state_file": 5},
+            {"max_age_seconds": 0},
+            {"max_age_seconds": 3601},
+            {"max_age_seconds": True},
+        ]
+        for override in invalid:
+            with self.subTest(override=override), self.assertRaises(collector.CollectorConfigError):
+                collector.parse_config(
+                    base_config_v2(docker={"enabled": True, "container_labels": {}, **override})
+                )
+        parsed = collector.parse_config(
+            base_config_v2(
+                docker={"enabled": True, "container_labels": {}, "state_file": "/run/x.json"}
+            )
+        )
+        self.assertEqual(parsed.docker.state_file, "/run/x.json")
+        self.assertEqual(parsed.docker.max_age_seconds, 120)
 
     def test_docker_command_is_fixed_bounded_and_discards_stderr(self) -> None:
         completed = collector.DockerCommandResult(0, b"")

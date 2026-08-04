@@ -265,6 +265,131 @@ def test_host_observability_contract_enforces_complete_swap_sample_matrix(
             validate_host_observability_snapshot(payload)
 
 
+def test_host_observability_contract_accepts_v2_process_swap() -> None:
+    payload = valid_snapshot_v2()
+    processes = payload["processes"]
+    assert isinstance(processes, dict)
+    top = processes["top"]
+    assert isinstance(top, list)
+    top[0]["swap_bytes"] = 65_536
+    processes["groups"][0]["swap_bytes"] = 65_536
+    processes["top_swap"] = [dict(top[0])]
+    processes["swap_attributed_bytes"] = 65_536
+
+    snapshot = validate_host_observability_snapshot(payload)
+
+    assert snapshot.processes.top[0].swap_bytes == 65_536
+    assert snapshot.processes.top_swap[0].swap_bytes == 65_536
+    assert snapshot.processes.swap_attributed_bytes == 65_536
+
+
+def test_host_observability_contract_reads_missing_process_swap_as_unaccertained() -> None:
+    # Snapshot prodotto da un collector precedente alla raccolta di VmSwap:
+    # resta valido e i campi assenti valgono "non accertato", mai zero.
+    snapshot = validate_host_observability_snapshot(valid_snapshot_v2())
+
+    assert snapshot.processes.top[0].swap_bytes is None
+    assert snapshot.processes.groups[0].swap_bytes is None
+    assert snapshot.processes.swap_attributed_bytes is None
+    assert snapshot.processes.top_swap == []
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("processes", "top", 0, "swap_bytes"),
+        ("processes", "groups", 0, "swap_bytes"),
+        ("processes", "swap_attributed_bytes"),
+    ],
+)
+def test_host_observability_contract_rejects_negative_process_swap(
+    path: tuple[object, ...],
+) -> None:
+    payload = valid_snapshot_v2()
+    target: object = payload
+    for key in path[:-1]:
+        target = target[key]  # type: ignore[index]
+    target[path[-1]] = -1  # type: ignore[index]
+
+    with pytest.raises(ValidationError):
+        validate_host_observability_snapshot(payload)
+
+
+def test_host_observability_contract_keeps_process_swap_out_of_v1() -> None:
+    payload = valid_snapshot()
+    payload["processes"]["top"][0]["swap_bytes"] = 65_536
+
+    with pytest.raises(ValidationError):
+        validate_host_observability_snapshot(payload)
+
+
+def test_host_observability_contract_accepts_v2_container_memory() -> None:
+    payload = valid_snapshot_v2()
+    docker = payload["docker"]
+    assert isinstance(docker, dict)
+    docker["containers"] = [
+        {"label": "Backend", "memory_bytes": 122_683_392},
+        {"label": "Web", "memory_bytes": None},
+    ]
+    docker["unmapped_count"] = 3
+    docker["state_age_seconds"] = 30
+
+    snapshot = validate_host_observability_snapshot(payload)
+
+    assert snapshot.docker.containers[0].memory_bytes == 122_683_392
+    # container fermo: nessuna memoria campionata, non zero
+    assert snapshot.docker.containers[1].memory_bytes is None
+    assert snapshot.docker.unmapped_count == 3
+    assert snapshot.docker.state_age_seconds == 30
+
+
+def test_host_observability_contract_reads_missing_container_memory_as_absent() -> None:
+    snapshot = validate_host_observability_snapshot(valid_snapshot_v2())
+
+    assert snapshot.docker.containers == []
+    assert snapshot.docker.unmapped_count == 0
+    assert snapshot.docker.state_age_seconds is None
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("docker", "containers"), [{"label": "Backend", "memory_bytes": -1}]),
+        (("docker", "containers"), [{"label": "Backend", "cmdline": "x"}]),
+        (("docker", "unmapped_count"), -1),
+        (("docker", "state_age_seconds"), -1),
+        (("docker", "state_age_seconds"), 86_401),
+    ],
+)
+def test_host_observability_contract_rejects_invalid_container_usage(
+    path: tuple[str, ...], value: object
+) -> None:
+    payload = valid_snapshot_v2()
+    payload[path[0]][path[1]] = value  # type: ignore[index]
+
+    with pytest.raises(ValidationError):
+        validate_host_observability_snapshot(payload)
+
+
+def test_host_observability_contract_scopes_docker_state_reasons_to_v2() -> None:
+    v2 = valid_snapshot_v2()
+    v2["docker"]["reasons"] = ["docker_state_stale"]
+    assert validate_host_observability_snapshot(v2).docker.reasons == ["docker_state_stale"]
+
+    v1 = valid_snapshot()
+    v1["docker"]["reasons"] = ["docker_state_stale"]
+    with pytest.raises(ValidationError):
+        validate_host_observability_snapshot(v1)
+
+
+def test_host_observability_contract_keeps_container_memory_out_of_v1() -> None:
+    payload = valid_snapshot()
+    payload["docker"]["containers"] = [{"label": "Backend", "memory_bytes": 4096}]
+
+    with pytest.raises(ValidationError):
+        validate_host_observability_snapshot(payload)
+
+
 def test_host_observability_contract_forbids_v2_extra_fields() -> None:
     payload = valid_snapshot_v2()
     listener = payload["listeners"]["items"][0]

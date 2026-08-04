@@ -213,6 +213,22 @@ config supports the legacy v1 shape and the v2 contract, which adds
 per-process and per-listener policy scoring (allowed scopes, RSS/count
 thresholds) without changing the endpoint, auth or export format — see
 [docs/contracts/host-observability-v2.md](docs/contracts/host-observability-v2.md).
+Container state and per-container memory come from a separate user timer,
+`mobile-agent-console-docker-state.timer`, which writes a `0600` state file the
+collector reads. The collector cannot reach the rootless Docker socket itself:
+its sandboxing puts it under the `unprivileged_userns` AppArmor profile, which
+denies the connect — see
+[docs/adr/011-docker-state-out-of-band.md](docs/adr/011-docker-state-out-of-band.md).
+Install it beside the other user units and point `docker.state_file` at its
+output; without it the Docker component stays explicitly unavailable.
+
+```bash
+cp deploy/systemd/mobile-agent-console-docker-state.service ~/.config/systemd/user/
+cp deploy/systemd/mobile-agent-console-docker-state.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now mobile-agent-console-docker-state.timer
+```
+
 The expandable JSON export copies the exact already-sanitized API snapshot,
 without another fetch or UI-only metadata. Copying or sharing it is an
 explicit administrator action: the minimized operational data can still be

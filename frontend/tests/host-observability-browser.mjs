@@ -11,7 +11,9 @@ function json(route, body, status = 200) {
 }
 
 async function openHost(browser, snapshot, role = "admin") {
-  const context = await browser.newContext({ viewport: { width: 320, height: 720 } })
+  // La UI sceglie la lingua da navigator.language: senza locale esplicita il
+  // probe girerebbe in inglese e non troverebbe nessuna delle etichette attese.
+  const context = await browser.newContext({ viewport: { width: 320, height: 720 }, locale: "it-IT" })
   await context.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -45,7 +47,7 @@ async function openHost(browser, snapshot, role = "admin") {
   })
   await page.goto("http://127.0.0.1:4174")
   await page.getByRole("button", { name: /^(Mostra altre azioni|Altre azioni)$/ }).click()
-  const hostButton = page.getByRole("button", { name: "Osservabilità host" })
+  const hostButton = page.getByRole("button", { name: "Host", exact: true })
   if (role !== "admin") {
     await assert.rejects(hostButton.waitFor({ state: "visible", timeout: 500 }))
     return { context, page, hostRequests: () => hostRequests }
@@ -77,13 +79,40 @@ try {
     assert.equal(await page.locator("h1").textContent(), "Host")
     assert.equal(await page.evaluate(() => document.activeElement?.tagName), "H1")
     const cards = page.locator("details.host-card")
-    assert.equal(await cards.count(), 7)
+    assert.equal(await cards.count(), 6)
     assert.equal(await cards.evaluateAll((items) => items.every((item) => !item.open)), true)
-    const processGroups = cards.filter({ has: page.getByRole("heading", { name: "Gruppi di processi" }) })
+    const processGroups = cards.filter({ has: page.getByRole("heading", { name: "Policy sui processi" }) })
     assert.equal(await processGroups.getAttribute("open"), null)
     assert.equal(await processGroups.locator(".host-process-list").isVisible(), false)
     await processGroups.locator("summary").click()
     assert.equal(await processGroups.locator(".host-process-list").isVisible(), true)
+
+    // verdetto, tessere e tabella dei consumatori sono sopra il dettaglio
+    const verdict = page.locator(".host-verdict")
+    assert.match(await verdict.innerText(), /1 segnalazione, nessuna critica|segnalazioni, nessuna critica|problem[ai] critic/)
+    const kpiText = await page.locator(".host-kpis").innerText()
+    assert.match(kpiText, /CARICO PER CPU\n0\.10/i)
+    assert.match(kpiText, /SWAP\n68/i)
+    assert.match(kpiText, /Attività non accertata: campione non disponibile/)
+
+    const consumers = page.locator(".host-consumers")
+    assert.match(await consumers.innerText(), /Swap attribuita ai processi osservati: 600 B su 700 B/)
+    // swap non accertata per tmux: "n/a", mai 0
+    assert.match(await consumers.locator("tbody").innerText(), /tmux[\s\S]*n\/a/)
+    await consumers.getByRole("tab", { name: "Swap" }).click()
+    const swapRows = await consumers.locator("tbody tr").allInnerTexts()
+    assert.match(swapRows[0], /gnome-shell/, "la classifica per swap non segue quella per memoria")
+    assert.match(swapRows[1], /Agents/)
+    await consumers.getByRole("tab", { name: "Gruppi" }).click()
+    assert.match(await consumers.locator("tbody").innerText(), /Workers[\s\S]*n\/a/)
+    await consumers.getByRole("tab", { name: "Container" }).click()
+    const containerRows = await consumers.locator("tbody").innerText()
+    assert.match(containerRows, /Backend[\s\S]*117 MB/)
+    // container fermo: nessuna memoria campionata, e non deve leggersi come 0
+    assert.match(containerRows, /Web\tfermo|Web[\s\S]*fermo/)
+    assert.match(await consumers.innerText(), /Stato Docker raccolto 27s fa, non all'apertura di questa pagina/)
+    assert.match(await consumers.innerText(), /2 container senza label configurata non sono elencati/)
+    await consumers.getByRole("tab", { name: "Memoria" }).click()
     await cards.evaluateAll((items) => items.forEach((item) => { item.open = true }))
     await page.locator("details.host-reading-guide").evaluate((item) => { item.open = true })
     await page.getByText("Fatti locali", { exact: true }).first().waitFor()
@@ -159,6 +188,26 @@ try {
     await assertNoHorizontalOverflow(page)
     await page.getByText("Esporta snapshot JSON", { exact: true }).click()
     assert.deepEqual(JSON.parse(await page.getByRole("textbox", { name: "JSON snapshot osservabilità host" }).inputValue()), v1)
+    await run.context.close()
+  }
+
+  {
+    // swap piena ma ferma: il caso che la vista deve saper distinguere
+    const idle = {
+      ...v2,
+      memory: {
+        ...v2.memory,
+        reasons: ["swap_used_high"],
+        swap_used_bytes: 1024, swap_used_percent: 100,
+        swap_io_sample: { available: true, duration_ms: 101, pages_in_delta: 0, pages_out_delta: 0 },
+      },
+    }
+    const run = await openHost(browser, idle)
+    const { page } = run
+    assert.match(await page.locator(".host-verdict").innerText(), /memoria parcheggiata, non un collo di bottiglia/)
+    assert.match(await page.locator(".host-kpis").innerText(), /inattiva/i)
+    assert.match(await page.locator(".host-kpis").innerText(), /Nessuna pagina letta o scritta in 101 ms/)
+    await assertNoHorizontalOverflow(page)
     await run.context.close()
   }
 

@@ -84,17 +84,101 @@ test("il focus entra sul titolo Host e torna al trigger rimontato", () => {
 
 test("stati parziali, stale, empty e sezioni richieste restano visibili", () => {
   for (const text of [
-    "STATO COMPLESSIVO",
+    "Da controllare",
     "Memoria e swap",
     "Filesystem",
-    "Gruppi di processi",
-    "Processi con più memoria",
+    "Policy sui processi",
     "Porte inattese",
     "Container problematici",
     "ultima fotografia valida",
     "Dati non recenti",
   ]) assert.ok(hostView.includes(text), `testo mancante: ${text}`);
-  assert.match(hostView, /<HostReasons reasons=\{snapshot\.reasons\}/);
+  assert.match(app, /<h2 id="host-consumers-title">Chi consuma<\/h2>/);
+  assert.match(app, /<span className="eyebrow">VERDETTO<\/span>/);
+});
+
+test("il verdetto riporta lo stato del collector senza riscriverlo", () => {
+  const verdict = app.slice(app.indexOf("function hostVerdictHeadline("), app.indexOf("function HostKpi("));
+  assert.match(verdict, /if \(snapshot\.status === "critical"\)/);
+  assert.match(verdict, /if \(snapshot\.status === "warning"\)/);
+  assert.match(verdict, /if \(snapshot\.status === "unknown"\) return "Fotografia incompleta"/);
+  // il badge continua a mostrare l'esito del collector, non una rilettura
+  assert.match(verdict, /HOST_STATUS_LABEL\[snapshot\.status\]/);
+  assert.match(verdict, /className=\{`host-verdict status-\$\{snapshot\.status\}`\}/);
+  assert.match(hostView, /<HostVerdict snapshot=\{snapshot\} issues=\{issues\}/);
+});
+
+test("swap occupata e swap attiva restano due cose distinte", () => {
+  const idle = app.slice(app.indexOf("function hostSwapIdle("), app.indexOf("function buildHostIssues("));
+  // senza campione non si può dedurre inattività: v1 e sample assente sono falsi
+  assert.match(idle, /if \(snapshot\.schema_version !== 2\) return false/);
+  assert.match(idle, /sample\.available && sample\.pages_in_delta === 0 && sample\.pages_out_delta === 0/);
+  assert.match(app, /memoria parcheggiata, non un collo di bottiglia/);
+  assert.match(app, /tag=\{idle \? "Inattiva" : undefined\}/);
+  assert.match(styles, /\.host-meter i\.idle \{ background: repeating-linear-gradient/);
+  assert.match(app, /"Attività non accertata: campione non disponibile"/);
+  assert.match(app, /"Attività non campionata su snapshot v1"/);
+});
+
+test("la classifica per swap non è derivata da quella per memoria", () => {
+  assert.match(api, /top_swap\?: HostProcessItem\[\]/);
+  assert.match(api, /swap_attributed_bytes\?: number \| null/);
+  const consumers = app.slice(app.indexOf("function HostConsumers("), app.indexOf("function HostStatusBadge("));
+  assert.match(consumers, /snapshot\.schema_version === 2 \? snapshot\.processes\.top_swap \?\? \[\] : \[\]/);
+  assert.match(consumers, /tab === "rss" \? snapshot\.processes\.top : tab === "swap" \? swapRanking/);
+  // swap non accertata non diventa mai zero
+  assert.match(consumers, /swap_bytes === undefined \|\| \w+\.swap_bytes === null \? "n\/a"/);
+  assert.match(consumers, /Snapshot legacy v1: la swap per processo non è raccolta/);
+  assert.match(consumers, /Swap attribuita ai processi osservati/);
+  assert.match(consumers, /non è attribuibile/);
+});
+
+test("la memoria per container è mostrata con la sua età", () => {
+  assert.match(api, /containers\?: Array<\{ label: string; memory_bytes: number \| null \}>/);
+  assert.match(api, /state_age_seconds\?: number \| null/);
+  const consumers = app.slice(app.indexOf("function HostConsumers("), app.indexOf("function HostStatusBadge("));
+  assert.match(consumers, /snapshot\.schema_version === 2 \? snapshot\.docker\.containers \?\? \[\] : \[\]/);
+  // container fermo: nessuna memoria campionata, mai zero
+  assert.match(consumers, /container\.memory_bytes === null \? "fermo"/);
+  assert.match(consumers, /!snapshot\.docker\.available \?/);
+  const note = app.slice(app.indexOf("function HostContainersNote("), app.indexOf("type HostConsumerTab"));
+  assert.match(note, /Stato Docker raccolto \$\{formatAge\(age\)\} fa, non all'apertura di questa pagina/);
+  assert.match(note, /Età dello stato Docker non accertata/);
+  assert.match(note, /container senza label configurata non sono elencati/);
+  assert.match(app, /docker_state_stale: "Stato Docker non aggiornato"/);
+});
+
+test("le tessere mostrano la misura leggibile, non tutti i valori grezzi", () => {
+  const kpis = app.slice(app.indexOf("function HostKpiRow("), app.indexOf("type HostConsumerTab"));
+  // il carico utile è quello normalizzato per CPU, non i tre load average
+  assert.match(kpis, /label="Carico per CPU"/);
+  assert.match(kpis, /value=\{load\.normalized_one === null \? "n\/d" : load\.normalized_one\.toFixed\(2\)\}/);
+  assert.match(kpis, /in coda su \$\{load\.cpu_count\} CPU/);
+  assert.match(kpis, /label="Memoria"/);
+  assert.match(kpis, /label="Swap"/);
+  assert.match(styles, /\.host-kpis \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(styles, /@media \(min-width: 720px\)[\s\S]*\.host-kpis \{ grid-template-columns: repeat\(4/);
+});
+
+test("le anomalie dicono cosa è successo e su quale soggetto", () => {
+  assert.match(app, /const HOST_REASON_HINT: Record<string, string>/);
+  const issues = app.slice(app.indexOf("function buildHostIssues("), app.indexOf("function hostVerdictHeadline("));
+  assert.match(issues, /wildcard_listener_unexpected/);
+  assert.match(issues, /Interessate: \$\{ports\.join\(", "\)\}/);
+  assert.match(issues, /Interessati: \$\{volumes\.join\(", "\)\}/);
+  assert.match(app, /Nessuna segnalazione: i controlli disponibili non hanno rilevato anomalie/);
+});
+
+test("la storia della swap non introduce raccolta periodica", () => {
+  assert.doesNotMatch(hostView, /setInterval|setTimeout/);
+  const spark = app.slice(app.indexOf("function HostSparkline("), app.indexOf("function HostIssueList("));
+  assert.doesNotMatch(spark, /setInterval|setTimeout|fetch/);
+  assert.match(spark, /if \(points\.length < 2\) return null/);
+  assert.match(hostView, /setSwapHistory\(\(history\) => \[\.\.\.history, percentValue\]\.slice\(-12\)\)/);
+});
+
+test("il badge di stato non può stirarsi in un cerchio", () => {
+  assert.match(styles, /\.host-status \{[^}]*align-self: center/);
 });
 
 test("le sezioni Host partono chiuse e mostrano titolo e stato nel summary", () => {
