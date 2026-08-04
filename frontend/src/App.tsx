@@ -3075,10 +3075,10 @@ function SessionList({
       }}>
         <input
           required
-          pattern="[\\p{L}\\p{N}_-]+( [\\p{L}\\p{N}_-]+)*"
+          pattern="[\p{L}\p{N}_-]+( [\p{L}\p{N}_-]+)*"
           maxLength={64}
           title={SESSION_NAME_HINT}
-          placeholder="Nome sessione"
+          placeholder={t.sessionNamePlaceholder}
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
@@ -3088,10 +3088,10 @@ function SessionList({
             else setDirectory(event.target.value);
           }}>
             {presets.map(([label, path]) => <option key={label} value={path}>{label} — {path}</option>)}
-            <option value="__custom__">Directory personalizzata…</option>
+            <option value="__custom__">{t.customDirOption}</option>
           </select>
         ) : (
-          <input required placeholder="Directory consentita" value={directory} onChange={(event) => setDirectory(event.target.value)} />
+          <input required placeholder={t.allowedDirPlaceholder} value={directory} onChange={(event) => setDirectory(event.target.value)} />
         )}
         <select
           aria-label="Profilo sessione"
@@ -3104,7 +3104,7 @@ function SessionList({
           <option value="antigravity">Antigravity (agy)</option>
           <option value="opencode">OpenCode</option>
         </select>
-        <button type="submit">Crea sessione</button>
+        <button type="submit">{t.createSessionBtn}</button>
       </form>}
       {(providerLimits || orchestratorState) && (
         <div className={`dashboard-service-summary ${compactDashboard ? "compact" : ""}`}>
@@ -3132,7 +3132,7 @@ function SessionList({
                   ))}
                 </div>
               ) : (
-                <small className="provider-unavailable">{provider.error ?? "Dati non disponibili"}</small>
+                <p className="empty">Nessun dato provider</p>
               )}
             </article>
           ))}

@@ -134,6 +134,21 @@ export const translations = {
     splitting: "Divisione…",
     closePane: "Chiudi pane",
     closingPane: "Chiusura…",
+    // Toolbar & Session actions
+    sessionNamePlaceholder: "Nome sessione",
+    allowedDirPlaceholder: "Directory consentita",
+    customDirOption: "Directory personalizzata…",
+    createSessionBtn: "Crea sessione",
+    noDashboardSessions: "Nessuna sessione visibile sulla dashboard.",
+    noMatchingSessions: "Nessuna sessione corrisponde alla ricerca.",
+    quickHelpTitle: "GUIDA RAPIDA",
+    helpStep1: "Crea o apri una sessione. Le sessioni continuano a vivere in tmux.",
+    helpStep2: "Invia il prompt. Il testo e il tasto Enter restano azioni separate.",
+    helpStep3: "Allega file. Immagini e documenti vengono referenziati tramite path.",
+    helpStep4: "Controlla l’agente. Up, Down ed Esc sono disponibili nelle funzioni speciali.",
+    helpStep5: "Consulta la directory. \"Contenuto directory\" elenca file e cartelle della sessione con copy rapido per nome.",
+    helpStep6: "Interrompi con cautela. Ctrl-C ferma il processo; Termina chiude tutta la sessione.",
+    hide: "Nascondi",
 
     // Release Box
     whatsNew: "Cosa c'è di nuovo",
@@ -279,6 +294,21 @@ export const translations = {
     splitting: "Splitting…",
     closePane: "Close pane",
     closingPane: "Closing…",
+    // Toolbar & Session actions
+    sessionNamePlaceholder: "Session name",
+    allowedDirPlaceholder: "Allowed directory",
+    customDirOption: "Custom directory…",
+    createSessionBtn: "Create session",
+    noDashboardSessions: "No visible sessions on dashboard.",
+    noMatchingSessions: "No sessions match search.",
+    quickHelpTitle: "QUICK GUIDE",
+    helpStep1: "Create or open a session. Sessions persist in tmux.",
+    helpStep2: "Send prompt. Text input and Enter key remain separate actions.",
+    helpStep3: "Attach files. Images and documents are referenced by path.",
+    helpStep4: "Control agent. Up, Down, and Esc are in special functions.",
+    helpStep5: "Browse directory. \"Directory content\" lists session files with quick name copy.",
+    helpStep6: "Interrupt carefully. Ctrl-C stops process; Terminate closes full session.",
+    hide: "Hide",
 
     // Release Box
     whatsNew: "What's new",
