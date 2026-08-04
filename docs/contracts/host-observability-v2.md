@@ -34,10 +34,13 @@ ammessi restano quelli del v1. Le differenze sono limitate a queste evidenze:
 - `listeners.items[].policy_status` distingue `not_configured`, `allowed` e
   `violated`. Nessuna policy può cancellare il bind osservato o attestare che
   una porta sia chiusa da un firewall;
-- il componente Docker aggiunge `containers` (label e `memory_bytes` dei soli
-  container con una label configurata), `unmapped_count` e
+- il componente Docker aggiunge `containers` (label, `memory_bytes`, `state` e
+  `priority` dei soli container con una policy configurata), `unmapped_count` e
   `state_age_seconds`. Anche questi sono opzionali e assenti valgono "non
-  accertato". `memory_bytes` è `null` per un container fermo, mai zero.
+  accertato". `memory_bytes` è `null` per un container fermo, mai zero;
+- il container rinomina `container_labels` in `container_policies`, che portano
+  label e priorità come già fanno le `process_policies`. `priority` è
+  `essential` oppure `optional`, e in assenza vale `optional`.
 
 I reason v2 sono enumerati separatamente. Lo scoring contestuale può usare
 `swap_sample_unavailable`, `swap_activity_high`, `swap_pressure_critical`,
@@ -96,11 +99,20 @@ container non sanificato producono `available=false` con reason esplicito —
 elenco vuoto presentato come "nessun problema". `docker_state_stale` non è
 valido nel v1, dove la modalità a file non esiste.
 
-In v2 solo i container con una label configurata concorrono alla severità; gli
-altri restano conteggiati in `unmapped_count` e, se problematici, in
-`unmapped_problematic_count`. È la stessa regola dei gruppi di processi senza
-policy: ciò che non è sotto sorveglianza è visibile ma non giudicato. Nel v1 la
-semantica storica resta invariata e ogni container problematico pesa.
+In v2 la severità dipende dalla priorità dichiarata, non dal solo stato
+osservato. Un container `essential` che non è in esecuzione rende l'host
+critico con `essential_container_down`. Uno `optional` fermo non concorre alla
+severità: resta in `containers` con il suo `state`, perché quando riavviarlo è
+una decisione dell'operatore — magari da rimandare se in quel momento ci sono
+sessioni pesanti in corso — non un allarme. I container senza policy non sono
+giudicati affatto e restano conteggiati in `unmapped_count` e, se problematici,
+in `unmapped_problematic_count`.
+
+È la stessa regola dei gruppi di processi senza policy: ciò che non è sotto
+sorveglianza è visibile ma non giudicato. `state` descrive l'osservazione
+(`running`, `stopped`, `restarting`, `unhealthy`, `starting`, `paused`,
+`unknown`) e resta separato dal giudizio. Nel v1 la semantica storica è
+invariata: ogni container problematico pesa, e le priorità non esistono.
 
 ## Coerenza del campione swap
 
@@ -128,6 +140,10 @@ gruppi e soglie swap storiche. La v2 usa:
   fra 1 e 3600 (default 120). Entrambi esistono solo nella v2; il periodo del
   timer deve stare abbondantemente dentro `max_age_seconds`, così un giro perso
   non fa lampeggiare la dashboard;
+- `container_policies`: massimo 50 nomi di container sanificati, ciascuno con
+  `label` e `priority` opzionale (`essential` o `optional`, default `optional`).
+  Sostituisce `container_labels`, che resta la forma della sola v1; mescolarle
+  è un errore di configurazione;
 - `process_policies`: massimo 128 chiavi `comm` sanificate. Ogni policy può
   avere una label e soglie warning/critical per `count` e/o `rss_bytes`, ma deve
   definire almeno un limite. Una soglia warning non può superare la critical.

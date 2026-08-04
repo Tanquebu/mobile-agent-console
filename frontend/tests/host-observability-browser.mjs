@@ -107,9 +107,13 @@ try {
     assert.match(await consumers.locator("tbody").innerText(), /Workers[\s\S]*n\/a/)
     await consumers.getByRole("tab", { name: "Container" }).click()
     const containerRows = await consumers.locator("tbody").innerText()
-    assert.match(containerRows, /Backend[\s\S]*117 MB/)
-    // container fermo: nessuna memoria campionata, e non deve leggersi come 0
-    assert.match(containerRows, /Web\tfermo|Web[\s\S]*fermo/)
+    assert.match(containerRows, /Backend[\s\S]*attivo[\s\S]*117 MB/)
+    // il non critico fermo va in cima: è lì che c'è una decisione da prendere
+    assert.match(containerRows, /Web[\s\S]*non critico[\s\S]*fermo/)
+    assert.ok(containerRows.indexOf("Web") < containerRows.indexOf("Backend"))
+    // e compare fra le righe da vedere, senza contare come segnalazione
+    assert.match(await page.locator(".host-issues").innerText(), /Web: fermo/)
+    assert.match(await page.locator(".host-verdict").innerText(), /1 non critici fermi/)
     assert.match(await consumers.innerText(), /Stato Docker raccolto 27s fa, non all'apertura di questa pagina/)
     assert.match(await consumers.innerText(), /2 container senza label configurata non sono elencati/)
     await consumers.getByRole("tab", { name: "Memoria" }).click()

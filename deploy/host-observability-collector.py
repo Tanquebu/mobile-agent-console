@@ -85,9 +85,18 @@ class ProcessPolicy:
 
 
 @dataclass(frozen=True)
+class ContainerPolicy:
+    label: str
+    # `essential`: se non e' in esecuzione l'host e' critico. `optional`: resta
+    # visibile con il suo stato, ma non concorre alla severita' — e' un
+    # servizio che si puo' decidere di riavviare con calma.
+    priority: str = "optional"
+
+
+@dataclass(frozen=True)
 class DockerConfig:
     enabled: bool = False
-    container_labels: dict[str, str] = field(default_factory=dict)
+    container_policies: dict[str, ContainerPolicy] = field(default_factory=dict)
     # Con `state_file` la raccolta arriva dal file scritto da
     # docker-state-collector.py invece che da un subprocess: il collector gira
     # in un mount namespace e AppArmor gli nega la connect() al socket Docker
@@ -420,9 +429,11 @@ def parse_config(payload: object) -> CollectorConfig:
         }
 
     raw_docker = require_mapping(raw.get("docker", {}), "docker")
-    docker_fields = {"enabled", "container_labels"}
+    docker_fields = {"enabled"}
     if schema_version == 2:
-        docker_fields |= {"state_file", "max_age_seconds"}
+        docker_fields |= {"container_policies", "state_file", "max_age_seconds"}
+    else:
+        docker_fields |= {"container_labels"}
     require_keys(raw_docker, docker_fields, "docker")
     enabled = raw_docker.get("enabled", False)
     if not isinstance(enabled, bool):
@@ -442,14 +453,27 @@ def parse_config(payload: object) -> CollectorConfig:
         or not 1 <= max_age_seconds <= 3600
     ):
         raise CollectorConfigError("docker max age is invalid")
-    raw_containers = require_mapping(raw_docker.get("container_labels", {}), "container_labels")
+    # v1 elenca solo le label, come per i processi; la v2 usa policy esplicite
+    # che portano label e priorita', nella stessa forma di `process_policies`.
+    container_key = "container_policies" if schema_version == 2 else "container_labels"
+    raw_containers = require_mapping(raw_docker.get(container_key, {}), container_key)
     if len(raw_containers) > MAX_CONTAINER_LABELS:
-        raise CollectorConfigError("container labels exceeds limit")
-    container_labels: dict[str, str] = {}
-    for name, label in raw_containers.items():
+        raise CollectorConfigError("container policies exceeds limit")
+    container_policies: dict[str, ContainerPolicy] = {}
+    for name, entry in raw_containers.items():
         if not isinstance(name, str) or not SAFE_CONTAINER_NAME.fullmatch(name):
             raise CollectorConfigError("container name is invalid")
-        container_labels[name] = safe_label(label, "container label")
+        if schema_version == 1:
+            container_policies[name] = ContainerPolicy(safe_label(entry, "container label"))
+            continue
+        policy = require_mapping(entry, f"container_policies[{name}]")
+        require_keys(policy, {"label", "priority"}, "container policy")
+        priority = policy.get("priority", "optional")
+        if priority not in {"essential", "optional"}:
+            raise CollectorConfigError("container priority is invalid")
+        container_policies[name] = ContainerPolicy(
+            safe_label(policy.get("label"), "container label"), priority
+        )
 
     return CollectorConfig(
         schema_version=schema_version,
@@ -463,7 +487,7 @@ def parse_config(payload: object) -> CollectorConfig:
         expected_listeners=tuple(expected),
         process_labels=process_labels,
         process_policies=process_policies,
-        docker=DockerConfig(enabled, container_labels, state_file, max_age_seconds),
+        docker=DockerConfig(enabled, container_policies, state_file, max_age_seconds),
     )
 
 
@@ -1255,6 +1279,22 @@ def normalize_container_status(raw: str) -> tuple[str, str]:
     return "warning", "container_state_unknown"
 
 
+def container_state(raw: str) -> str:
+    """Stato osservabile, separato dal giudizio: la severita' la decide la policy."""
+    lowered = raw.lower()
+    if lowered.startswith("up"):
+        return "unhealthy" if "unhealthy" in lowered else "running"
+    if lowered.startswith(("exited", "dead")):
+        return "stopped"
+    if lowered.startswith("restarting"):
+        return "restarting"
+    if lowered.startswith("created") or "health: starting" in lowered:
+        return "starting"
+    if "paused" in lowered:
+        return "paused"
+    return "unknown"
+
+
 def parse_docker_ps_lines(lines: list[str]) -> list[DockerContainerRow] | None:
     """Righe `nome\\tstato`, oppure None se una qualsiasi non e' interpretabile.
 
@@ -1398,29 +1438,48 @@ def read_docker(
     unmapped_problematic = 0
     unmapped = 0
     statuses: list[str] = []
+    essential_down = False
     for row in state.rows:
-        label = config.container_labels.get(row.name)
-        if label is None:
+        policy = config.container_policies.get(row.name)
+        if policy is None:
             unmapped += 1
         elif len(containers) < MAX_CONTAINER_LABELS:
-            containers.append({"label": label, "memory_bytes": row.memory_bytes})
+            containers.append(
+                {
+                    "label": policy.label,
+                    "memory_bytes": row.memory_bytes,
+                    "state": container_state(row.status),
+                    "priority": policy.priority,
+                }
+                if detailed
+                else {"label": policy.label, "memory_bytes": row.memory_bytes}
+            )
         status, reason = normalize_container_status(row.status)
         if status == "ok":
             continue
-        if label is not None or not detailed:
-            # In v2 solo i container con una label configurata pesano sulla
-            # severita', come gia' avviene per i gruppi di processi senza
-            # policy: cio' che non e' stato messo sotto sorveglianza non viene
-            # giudicato. Restano contati, quindi visibili.
+        if not detailed:
+            # Semantica storica v1: ogni container problematico pesa.
             statuses.append(status)
-        if label and len(problematic) < MAX_CONTAINER_LABELS:
-            problematic.append({"label": label, "status": status, "reason": reason})
-        else:
+            if policy and len(problematic) < MAX_CONTAINER_LABELS:
+                problematic.append({"label": policy.label, "status": status, "reason": reason})
+            else:
+                unmapped_problematic += 1
+            continue
+        # v2: solo i servizi dichiarati essenziali concorrono alla severita'.
+        # Uno opzionale fermo resta visibile in `containers` con il suo stato,
+        # perche' quando riavviarlo e' una decisione, non un allarme.
+        if policy is None:
             unmapped_problematic += 1
+        elif policy.priority == "essential":
+            essential_down = True
+            statuses.append(status)
+            if len(problematic) < MAX_CONTAINER_LABELS:
+                problematic.append({"label": policy.label, "status": status, "reason": reason})
     result_status = combine_status(statuses) if statuses else "ok"
+    reason = "essential_container_down" if detailed and essential_down else "containers_problematic"
     result: dict[str, object] = {
         "status": result_status,
-        "reasons": [] if result_status == "ok" else ["containers_problematic"],
+        "reasons": [] if result_status == "ok" else [reason],
         "available": True,
         "problematic": problematic,
         "unmapped_problematic_count": unmapped_problematic,

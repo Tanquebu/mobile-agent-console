@@ -305,10 +305,13 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .host-verdict h2 > i.warning, .host-issue-list > li > i.warning { background: #e8cf77; }
 .host-verdict h2 > i.critical, .host-issue-list > li > i.critical { background: #ff8f83; }
 .host-verdict h2 > i.unknown, .host-issue-list > li > i.unknown { background: #9fb4c4; }
+/* `info` non è un allarme attenuato: è una riga da leggere, non da temere. */
+.host-issue-list > li > i.info { background: #8ec7e8; }
 .host-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #293a30; border-radius: 999px; padding: 4px 9px; background: #18231b; color: #a9bcaf; font-size: .68rem; font-weight: 700; }
 .host-chip.warning { border-color: #5c5325; background: #3d3717; color: #e8cf77; }
 .host-chip.critical { border-color: #7a3a32; background: #48241f; color: #ffaaa0; }
 .host-chip.unknown { border-color: #3a444f; background: #29313a; color: #c1cad3; }
+.host-chip.info { border-color: #33566a; background: #14202a; color: #8ec7e8; }
 
 /* Tessere: un valore per misura, con la barra che rende leggibile la soglia
    senza dover interpretare il numero. */
@@ -355,6 +358,12 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .host-table-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .host-table-sub { display: block; color: #7d9186; font-size: .66rem; font-weight: 500; font-family: ui-monospace, monospace; }
 .host-table-swap { color: #e8cf77; }
+.host-container-state { font-weight: 700; }
+/* Lo stesso stato pesa diversamente secondo la priorità dichiarata: fermo è
+   rosso per un servizio strategico, informativo per uno che può attendere. */
+.host-container-state.state-running { color: #86dda2; }
+.host-container-state.priority-optional:not(.state-running) { color: #8ec7e8; }
+.host-container-state.priority-essential:not(.state-running) { color: #ffaaa0; }
 .host-consumers .host-note { display: block; margin: 10px 0 0; }
 .host-detail-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 6px; padding: 0 2px; }
 .host-detail-heading small { color: #7d9186; font-size: .68rem; }

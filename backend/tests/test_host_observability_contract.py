@@ -371,6 +371,60 @@ def test_host_observability_contract_rejects_invalid_container_usage(
         validate_host_observability_snapshot(payload)
 
 
+def test_host_observability_contract_carries_container_state_and_priority() -> None:
+    payload = valid_snapshot_v2()
+    payload["docker"]["containers"] = [
+        {"label": "Backend", "memory_bytes": 4096, "state": "running", "priority": "essential"},
+        {"label": "Batch", "memory_bytes": None, "state": "stopped", "priority": "optional"},
+    ]
+
+    snapshot = validate_host_observability_snapshot(payload)
+
+    assert snapshot.docker.containers[0].priority == "essential"
+    assert snapshot.docker.containers[1].state == "stopped"
+
+
+def test_host_observability_contract_defaults_container_priority_to_optional() -> None:
+    # Un container di cui non si sa nulla non e' un servizio sotto allarme:
+    # mettere qualcosa sotto sorveglianza deve essere una scelta dichiarata.
+    payload = valid_snapshot_v2()
+    payload["docker"]["containers"] = [{"label": "Backend"}]
+
+    snapshot = validate_host_observability_snapshot(payload)
+
+    assert snapshot.docker.containers[0].priority == "optional"
+    assert snapshot.docker.containers[0].state == "unknown"
+
+
+@pytest.mark.parametrize(
+    "container",
+    [
+        {"label": "Backend", "state": "zombie"},
+        {"label": "Backend", "priority": "important"},
+        {"label": "Backend", "priority": None},
+    ],
+)
+def test_host_observability_contract_rejects_unknown_state_or_priority(
+    container: dict[str, object],
+) -> None:
+    payload = valid_snapshot_v2()
+    payload["docker"]["containers"] = [container]
+
+    with pytest.raises(ValidationError):
+        validate_host_observability_snapshot(payload)
+
+
+def test_host_observability_contract_scopes_essential_reason_to_v2() -> None:
+    v2 = valid_snapshot_v2()
+    v2["docker"]["reasons"] = ["essential_container_down"]
+    assert validate_host_observability_snapshot(v2).docker.reasons == ["essential_container_down"]
+
+    v1 = valid_snapshot()
+    v1["docker"]["reasons"] = ["essential_container_down"]
+    with pytest.raises(ValidationError):
+        validate_host_observability_snapshot(v1)
+
+
 def test_host_observability_contract_scopes_docker_state_reasons_to_v2() -> None:
     v2 = valid_snapshot_v2()
     v2["docker"]["reasons"] = ["docker_state_stale"]

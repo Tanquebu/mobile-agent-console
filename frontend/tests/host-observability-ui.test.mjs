@@ -134,18 +134,36 @@ test("la classifica per swap non è derivata da quella per memoria", () => {
 });
 
 test("la memoria per container è mostrata con la sua età", () => {
-  assert.match(api, /containers\?: Array<\{ label: string; memory_bytes: number \| null \}>/);
+  assert.match(api, /containers\?: Array<\{\s*label: string;\s*memory_bytes: number \| null;/);
   assert.match(api, /state_age_seconds\?: number \| null/);
   const consumers = app.slice(app.indexOf("function HostConsumers("), app.indexOf("function HostStatusBadge("));
   assert.match(consumers, /snapshot\.schema_version === 2 \? snapshot\.docker\.containers \?\? \[\] : \[\]/);
   // container fermo: nessuna memoria campionata, mai zero
-  assert.match(consumers, /container\.memory_bytes === null \? "fermo"/);
+  assert.match(consumers, /container\.memory_bytes === null \? "—"/);
   assert.match(consumers, /!snapshot\.docker\.available \?/);
   const note = app.slice(app.indexOf("function HostContainersNote("), app.indexOf("type HostConsumerTab"));
   assert.match(note, /Stato Docker raccolto \$\{formatAge\(age\)\} fa, non all'apertura di questa pagina/);
   assert.match(note, /Età dello stato Docker non accertata/);
   assert.match(note, /container senza label configurata non sono elencati/);
   assert.match(app, /docker_state_stale: "Stato Docker non aggiornato"/);
+});
+
+test("la priorità decide se un container fermo è un allarme o una decisione", () => {
+  assert.match(api, /priority: "essential" \| "optional"/);
+  const issues = app.slice(app.indexOf("function buildHostIssues("), app.indexOf("function hostIssueHint("));
+  // un servizio non critico fermo non produce reason nel collector: la riga
+  // esiste solo perché l'utente deve poter decidere quando riavviarlo
+  assert.match(issues, /container\.priority !== "optional" \|\| container\.state === "running"\) continue/);
+  assert.match(issues, /severity: "info"/);
+  assert.match(app, /puoi riavviarlo quando non ci sono sessioni pesanti in corso/);
+  assert.match(app, /essential_container_down: "Servizio strategico non attivo"/);
+  // info non viene conteggiato fra le segnalazioni da gestire
+  const verdict = app.slice(app.indexOf("function HostVerdict("), app.indexOf("function HostKpi("));
+  assert.match(verdict, /info: issues\.filter\(\(issue\) => issue\.severity === "info"\)\.length/);
+  assert.match(verdict, /\{counts\.info\} non critici fermi/);
+  // lo stesso stato è rosso per uno strategico e informativo per uno opzionale
+  assert.match(styles, /\.host-container-state\.priority-optional:not\(\.state-running\) \{ color: #8ec7e8/);
+  assert.match(styles, /\.host-container-state\.priority-essential:not\(\.state-running\) \{ color: #ffaaa0/);
 });
 
 test("le tessere mostrano la misura leggibile, non tutti i valori grezzi", () => {

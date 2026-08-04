@@ -329,7 +329,12 @@ export type HostObservabilitySnapshotV2 = HostObservabilitySnapshotBase & {
     swap_attributed_bytes?: number | null;
   };
   docker: HostObservabilitySnapshotBase["docker"] & {
-    containers?: Array<{ label: string; memory_bytes: number | null }>;
+    containers?: Array<{
+      label: string;
+      memory_bytes: number | null;
+      state: "running" | "stopped" | "restarting" | "unhealthy" | "starting" | "paused" | "unknown";
+      priority: "essential" | "optional";
+    }>;
     unmapped_count?: number;
     // L'evidenza Docker arriva da un file aggiornato a timer: è l'unico
     // componente della fotografia che non è istantaneo (ADR 011).

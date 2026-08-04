@@ -47,12 +47,14 @@ def base_config(**overrides):
     return payload
 
 
-def base_docker_config():
+def base_docker_config(priority="essential"):
     return collector.parse_config(
         base_config_v2(
             docker={
                 "enabled": True,
-                "container_labels": {"private-backend-name": "Backend"},
+                "container_policies": {
+                    "private-backend-name": {"label": "Backend", "priority": priority}
+                },
             }
         )
     ).docker
@@ -86,7 +88,7 @@ def base_config_v2(**overrides):
                 "critical_rss_bytes": 2_147_483_648,
             }
         },
-        "docker": {"enabled": False, "container_labels": {}},
+        "docker": {"enabled": False, "container_policies": {}},
     }
     payload.update(overrides)
     return payload
@@ -242,7 +244,7 @@ class HostObservabilityCollectorTest(unittest.TestCase):
                         "warning_pages_delta": 1,
                         "critical_pages_delta": 128,
                     },
-                    docker={"enabled": True, "container_labels": {}},
+                    docker={"enabled": True, "container_policies": {}},
                 )
             )
             add_process(proc_root, 1, "shell", 10)
@@ -623,7 +625,7 @@ class HostObservabilityCollectorTest(unittest.TestCase):
             config = collector.parse_config(
                 base_config_v2(
                     process_policies={},
-                    docker={"enabled": True, "container_labels": {}},
+                    docker={"enabled": True, "container_policies": {}},
                 )
             )
             snapshot = collector.collect_snapshot(
@@ -934,7 +936,9 @@ class HostObservabilityCollectorTest(unittest.TestCase):
             base_config_v2(
                 docker={
                     "enabled": True,
-                    "container_labels": {"private-backend-name": "Backend"},
+                    "container_policies": {
+                        "private-backend-name": {"label": "Backend", "priority": "essential"}
+                    },
                     "state_file": "/run/docker-state.json",
                     "max_age_seconds": 120,
                 }
@@ -965,7 +969,17 @@ class HostObservabilityCollectorTest(unittest.TestCase):
 
         serialized = json.dumps(result)
         self.assertTrue(result["available"])
-        self.assertEqual(result["containers"], [{"label": "Backend", "memory_bytes": 122683392}])
+        self.assertEqual(
+            result["containers"],
+            [
+                {
+                    "label": "Backend",
+                    "memory_bytes": 122683392,
+                    "state": "running",
+                    "priority": "essential",
+                }
+            ],
+        )
         # il container senza label è contato, mai nominato
         self.assertEqual(result["unmapped_count"], 1)
         self.assertNotIn("unlisted-private-name", serialized)
@@ -1021,7 +1035,7 @@ class HostObservabilityCollectorTest(unittest.TestCase):
                 self.assertEqual(result["reasons"], [expected_reason])
                 self.assertEqual(result["containers"], [])
 
-    def test_v2_containers_without_a_label_do_not_drive_severity(self) -> None:
+    def test_v2_containers_without_a_policy_do_not_drive_severity(self) -> None:
         # Container fermi di progetti che non si stanno sorvegliando non devono
         # rendere critico l'host: restano contati, non giudicati.
         state = collector.DockerState(
@@ -1041,15 +1055,86 @@ class HostObservabilityCollectorTest(unittest.TestCase):
         self.assertEqual(v1["status"], "critical")
         self.assertEqual(v1["reasons"], ["containers_problematic"])
 
-    def test_v2_labelled_containers_still_drive_severity(self) -> None:
+    def test_v2_essential_container_down_is_critical(self) -> None:
         state = collector.DockerState(
             available=True,
-            rows=[collector.DockerContainerRow("private-backend-name", "Up 2 hours (unhealthy)", 4096)],
+            rows=[collector.DockerContainerRow("private-backend-name", "Exited (255) 2 hours ago", None)],
         )
-        result = collector.read_docker(base_docker_config(), lambda: state, schema_version=2)
+        result = collector.read_docker(
+            base_docker_config("essential"), lambda: state, schema_version=2
+        )
 
         self.assertEqual(result["status"], "critical")
+        self.assertEqual(result["reasons"], ["essential_container_down"])
         self.assertEqual(result["problematic"][0]["label"], "Backend")
+        self.assertEqual(result["containers"][0]["state"], "stopped")
+
+    def test_v2_optional_container_down_is_visible_but_not_an_alarm(self) -> None:
+        # Il caso che il modello deve saper esprimere: un servizio non critico
+        # fermo va visto per decidere quando riavviarlo, non deve suonare.
+        state = collector.DockerState(
+            available=True,
+            rows=[collector.DockerContainerRow("private-backend-name", "Exited (255) 2 hours ago", None)],
+        )
+        result = collector.read_docker(
+            base_docker_config("optional"), lambda: state, schema_version=2
+        )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["reasons"], [])
+        self.assertEqual(result["problematic"], [])
+        self.assertEqual(
+            result["containers"],
+            [{"label": "Backend", "memory_bytes": None, "state": "stopped", "priority": "optional"}],
+        )
+
+    def test_container_states_separate_observation_from_judgement(self) -> None:
+        cases = [
+            ("Up 3 hours", "running"),
+            ("Up 3 hours (healthy)", "running"),
+            ("Up 3 hours (unhealthy)", "unhealthy"),
+            ("Exited (255) 14 hours ago", "stopped"),
+            ("Dead", "stopped"),
+            ("Restarting (1) 5 seconds ago", "restarting"),
+            ("Created", "starting"),
+            ("Up 2 seconds (health: starting)", "running"),
+            ("Paused", "paused"),
+            ("Weird new docker wording", "unknown"),
+        ]
+        for raw, expected in cases:
+            with self.subTest(raw=raw):
+                self.assertEqual(collector.container_state(raw), expected)
+
+    def test_v2_container_priority_is_validated(self) -> None:
+        for priority in ["important", "", None, 1]:
+            with self.subTest(priority=priority), self.assertRaises(collector.CollectorConfigError):
+                collector.parse_config(
+                    base_config_v2(
+                        docker={
+                            "enabled": True,
+                            "container_policies": {"web": {"label": "Web", "priority": priority}},
+                        }
+                    )
+                )
+        # senza priorita' esplicita un container e' opzionale: mettere qualcosa
+        # sotto allarme deve essere una scelta dichiarata
+        parsed = collector.parse_config(
+            base_config_v2(
+                docker={"enabled": True, "container_policies": {"web": {"label": "Web"}}}
+            )
+        )
+        self.assertEqual(parsed.docker.container_policies["web"].priority, "optional")
+        # la forma v1 non e' accettata in v2 e viceversa
+        with self.assertRaises(collector.CollectorConfigError):
+            collector.parse_config(
+                base_config_v2(docker={"enabled": True, "container_labels": {"web": "Web"}})
+            )
+        with self.assertRaises(collector.CollectorConfigError):
+            collector.parse_config(
+                base_config(
+                    docker={"enabled": True, "container_policies": {"web": {"label": "Web"}}}
+                )
+            )
 
     def test_v1_docker_output_is_unchanged_by_the_state_file_support(self) -> None:
         state = collector.DockerState(
@@ -1068,7 +1153,7 @@ class HostObservabilityCollectorTest(unittest.TestCase):
         with self.assertRaises(collector.CollectorConfigError):
             collector.parse_config(
                 base_config(
-                    docker={"enabled": True, "container_labels": {}, "state_file": "/run/x.json"}
+                    docker={"enabled": True, "container_policies": {}, "state_file": "/run/x.json"}
                 )
             )
         invalid = [
@@ -1081,11 +1166,11 @@ class HostObservabilityCollectorTest(unittest.TestCase):
         for override in invalid:
             with self.subTest(override=override), self.assertRaises(collector.CollectorConfigError):
                 collector.parse_config(
-                    base_config_v2(docker={"enabled": True, "container_labels": {}, **override})
+                    base_config_v2(docker={"enabled": True, "container_policies": {}, **override})
                 )
         parsed = collector.parse_config(
             base_config_v2(
-                docker={"enabled": True, "container_labels": {}, "state_file": "/run/x.json"}
+                docker={"enabled": True, "container_policies": {}, "state_file": "/run/x.json"}
             )
         )
         self.assertEqual(parsed.docker.state_file, "/run/x.json")

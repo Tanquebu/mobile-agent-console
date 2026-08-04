@@ -1453,6 +1453,7 @@ const HOST_REASON_LABEL: Record<string, string> = {
   docker_disabled: "Docker disabilitato",
   docker_unavailable: "Docker non disponibile",
   docker_state_stale: "Stato Docker non aggiornato",
+  essential_container_down: "Servizio strategico non attivo",
   docker_output_excessive: "Risposta Docker troppo grande",
   docker_output_invalid: "Risposta Docker non valida",
   containers_problematic: "Container con problemi",
@@ -1509,19 +1510,34 @@ const HOST_REASON_HINT: Record<string, string> = {
   listeners_unavailable: "Porte in ascolto non leggibili in questa fotografia.",
   docker_unavailable: "Senza Docker non si vede la memoria per container: metà delle diagnosi manca.",
   docker_state_stale: "Il timer che raccoglie lo stato dei container si è fermato: quello mostrato sarebbe vecchio, quindi non viene mostrato affatto.",
+  essential_container_down: "Un servizio dichiarato strategico non è in esecuzione: va rimesso in piedi, non rimandato.",
   docker_disabled: "Raccolta Docker disattivata nella configurazione del collector.",
   docker_output_excessive: "Risposta di Docker troppo grande: scartata senza interpretarla.",
   docker_output_invalid: "Risposta di Docker non interpretabile: stato dei container non accertato.",
   containers_problematic: "Uno o più container non sono in stato sano.",
 };
 
-type HostIssue = { key: string; severity: HostComponent["status"]; title: string; hint: string };
+// `info` non è uno stato del collector: è una riga che esiste perché l'utente
+// deve vederla e decidere, non perché qualcosa stia andando male.
+type HostIssueSeverity = HostComponent["status"] | "info";
+type HostIssue = { key: string; severity: HostIssueSeverity; title: string; hint: string };
 
-const HOST_SEVERITY_RANK: Record<HostComponent["status"], number> = {
+const HOST_SEVERITY_RANK: Record<HostIssueSeverity, number> = {
   critical: 0,
   warning: 1,
   unknown: 2,
-  ok: 3,
+  info: 3,
+  ok: 4,
+};
+
+const HOST_CONTAINER_STATE_LABEL: Record<string, string> = {
+  running: "attivo",
+  stopped: "fermo",
+  restarting: "in riavvio",
+  unhealthy: "non sano",
+  starting: "in avvio",
+  paused: "in pausa",
+  unknown: "stato ignoto",
 };
 
 // Il suffisso del reason porta già la gravità; `fallback` è lo stato del
@@ -1564,6 +1580,19 @@ function buildHostIssues(snapshot: HostObservabilitySnapshot): HostIssue[] {
         severity: hostReasonSeverity(reason, component.status),
         title: HOST_REASON_LABEL[reason] ?? reason.replaceAll("_", " "),
         hint: hostIssueHint(reason, snapshot),
+      });
+    }
+  }
+  // I servizi non critici fermi non producono un reason: il collector non li
+  // giudica. Restano però una decisione da prendere, quindi vanno visti.
+  if (snapshot.schema_version === 2) {
+    for (const container of snapshot.docker.containers ?? []) {
+      if (container.priority !== "optional" || container.state === "running") continue;
+      issues.push({
+        key: `container-${container.label}`,
+        severity: "info",
+        title: `${container.label}: ${HOST_CONTAINER_STATE_LABEL[container.state] ?? container.state}`,
+        hint: "Servizio non critico: puoi riavviarlo quando non ci sono sessioni pesanti in corso.",
       });
     }
   }
@@ -1637,6 +1666,7 @@ function HostVerdict({ snapshot, issues }: { snapshot: HostObservabilitySnapshot
     warning: issues.filter((issue) => issue.severity === "warning").length,
     unknown: issues.filter((issue) => issue.severity === "unknown").length,
     critical: issues.filter((issue) => issue.severity === "critical").length,
+    info: issues.filter((issue) => issue.severity === "info").length,
   };
   return (
     <section className={`host-verdict status-${snapshot.status}`} aria-labelledby="host-verdict-title">
@@ -1651,6 +1681,7 @@ function HostVerdict({ snapshot, issues }: { snapshot: HostObservabilitySnapshot
         {counts.critical > 0 && <span className="host-chip critical">{counts.critical} critiche</span>}
         {counts.warning > 0 && <span className="host-chip warning">{counts.warning} da controllare</span>}
         {counts.unknown > 0 && <span className="host-chip unknown">{counts.unknown} non accertate</span>}
+        {counts.info > 0 && <span className="host-chip info">{counts.info} non critici fermi</span>}
       </div>
     </section>
   );
@@ -1879,17 +1910,33 @@ function HostConsumers({ snapshot }: { snapshot: HostObservabilitySnapshot }) {
             Stato dei container non accertato: {HOST_REASON_LABEL[snapshot.docker.reasons[0]] ?? "Docker non disponibile"}.
           </p>
         ) : containers.length === 0 ? (
-          <p className="host-empty">Nessun container con una label configurata nel collector.</p>
+          <p className="host-empty">Nessun container con una policy configurata nel collector.</p>
         ) : (
           <table className="host-table">
             <thead>
-              <tr><th scope="col">Container</th><th scope="col">Memoria</th></tr>
+              <tr><th scope="col">Container</th><th scope="col">Stato</th><th scope="col">Memoria</th></tr>
             </thead>
             <tbody>
-              {containers.map((container) => (
+              {/* Prima ciò su cui c'è una decisione da prendere: quello che non
+                  gira, con i servizi strategici in testa. */}
+              {[...containers].sort((a, b) => (
+                Number(a.state === "running") - Number(b.state === "running")
+                || Number(a.priority === "optional") - Number(b.priority === "optional")
+                || (b.memory_bytes ?? 0) - (a.memory_bytes ?? 0)
+              )).map((container) => (
                 <tr key={container.label}>
-                  <th scope="row"><span className="host-table-name">{container.label}</span></th>
-                  <td>{container.memory_bytes === null ? "fermo" : formatSize(container.memory_bytes)}</td>
+                  <th scope="row">
+                    <span className="host-table-name">{container.label}</span>
+                    <span className="host-table-sub">
+                      {container.priority === "essential" ? "strategico" : "non critico"}
+                    </span>
+                  </th>
+                  <td>
+                    <span className={`host-container-state state-${container.state} priority-${container.priority}`}>
+                      {HOST_CONTAINER_STATE_LABEL[container.state] ?? container.state}
+                    </span>
+                  </td>
+                  <td>{container.memory_bytes === null ? "—" : formatSize(container.memory_bytes)}</td>
                 </tr>
               ))}
             </tbody>

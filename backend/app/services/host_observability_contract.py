@@ -71,6 +71,7 @@ HostReasonV2 = Literal[
     "docker_output_excessive",
     "docker_output_invalid",
     "containers_problematic",
+    "essential_container_down",
 ]
 
 
@@ -302,6 +303,13 @@ class ContainerUsage(StrictModel):
     label: SafeLabel
     # `None` = container fermo o memoria non campionata; mai zero sintetico.
     memory_bytes: int | None = Field(default=None, ge=0)
+    # Stato osservato, separato dal giudizio: la severita' la decide `priority`.
+    state: Literal[
+        "running", "stopped", "restarting", "unhealthy", "starting", "paused", "unknown"
+    ] = "unknown"
+    # `essential`: fermo, rende l'host critico. `optional`: resta visibile con il
+    # suo stato senza concorrere alla severita'.
+    priority: Literal["essential", "optional"] = "optional"
 
 
 class DockerComponentV2(ComponentV2):

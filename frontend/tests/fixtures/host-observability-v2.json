@@ -40,8 +40,8 @@
   "docker": {
     "status": "unknown", "available": true, "reasons": [], "problematic": [], "unmapped_problematic_count": 0,
     "containers": [
-      { "label": "Backend", "memory_bytes": 122683392 },
-      { "label": "Web", "memory_bytes": null }
+      { "label": "Backend", "memory_bytes": 122683392, "state": "running", "priority": "essential" },
+      { "label": "Web", "memory_bytes": null, "state": "stopped", "priority": "optional" }
     ],
     "unmapped_count": 2,
     "state_age_seconds": 27

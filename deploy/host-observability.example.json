@@ -50,9 +50,10 @@
     "enabled": true,
     "state_file": "/srv/example-workspace/.mobile-agent-console/docker-state.json",
     "max_age_seconds": 120,
-    "container_labels": {
-      "example-backend": "Backend",
-      "example-web": "Web"
+    "container_policies": {
+      "example-backend": { "label": "Backend", "priority": "essential" },
+      "example-web": { "label": "Web", "priority": "essential" },
+      "example-batch": { "label": "Batch jobs", "priority": "optional" }
     }
   }
 }
