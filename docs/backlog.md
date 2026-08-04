@@ -52,8 +52,73 @@ terminal mode previsto in M3.
 ## INC-AS-01 — falso stato “in elaborazione” su sessione inattiva
 
 **Stato:** incidente confermato il 03/08/2026; analisi strutturata e
-remediation differite per non sovrapporsi al round OpenCode già programmato.
-Wakeup dedicato `cdf9abd2` previsto per il 04/08/2026 alle 17:05 Europe/Rome.
+remediation differite una seconda volta il 04/08/2026 alle 17:05 Europe/Rome
+per gate di concorrenza — vedi checkpoint sotto. Nuovo wakeup `pending`
+programmato per il 04/08/2026 alle 21:05 Europe/Rome (vedi comando in fondo
+alla sezione).
+
+### Checkpoint 04/08/2026 17:06 Europe/Rome — round non eseguito, gate di concorrenza
+
+Il round del wakeup `cdf9abd2` (dovuto 17:05) si è fermato subito dopo la
+verifica di concorrenza, senza toccare codice, senza deploy e senza commit,
+come prescrive il "Confine del prossimo round" sopra. Evidenza raccolta:
+
+- `git status`/`git diff` nel working tree mostravano modifiche non
+  committate a `frontend/src/App.tsx` e `frontend/src/api.ts`, più
+  `frontend/src/i18n.ts` non tracciato (layer i18n it/en + logout, non
+  correlato a OpenCode). `App.tsx` contiene però `AGENT_STATE_LEGEND`
+  (rinominata in `getAgentStateLegend()` nel diff in corso), cioè la
+  legenda UI degli stessi stati che il classificatore backend produce —
+  area adiacente a quella che la remediation di INC-AS-01 deve toccare sul
+  lato frontend.
+- `ps aux` mostra un processo `claude` interattivo (pid 443964, pts/5,
+  avviato Sun Aug 2 11:24:27 2026, elapsed 2-05:41+) con `cwd` risolto su
+  `<repo>` (`/proc/443964/cwd`), quindi
+  una sessione live nello stesso repository, non un round wakeup di questo
+  meccanismo.
+- `stat` sui tre file mostra mtime alle 16:30:59 (`App.tsx`), 15:30:02
+  (`api.ts`) e 15:56:26 (`i18n.ts`) del 04/08/2026 — cioè scritture avvenute
+  30-40 minuti prima dell'avvio di questo round (17:05), coerenti con quel
+  processo ancora attivo.
+- In `<home>/projects/<orchestratore>/wakeups.jsonl`, il wakeup `c7b74d4d`
+  (dovuto 03/08 17:05) aveva già segnalato working tree condiviso proprio
+  su `api.ts`/`App.tsx` (allora per la promozione di Antigravity); il
+  contenuto attuale del diff è diverso (i18n/logout) ma il pattern —
+  un'altra sessione viva che scrive sugli stessi file di frontend — si
+  ripete. Nessun wakeup con provider `opencode` risulta in `wakeups.jsonl`;
+  il riferimento del prompt a "wakeup OpenCode del 03/08" corrisponde ai
+  round con provider `claude`/`codex` della notte 02→03/08 (`66557dc2`,
+  `4a9797f3`, `a42366b9`) più la sessione interattiva su OpenCode
+  documentata in `docs/roadmap.md`/IMP-OC-01 — nessuno di questi risultava
+  attivo; il blocco è dovuto esclusivamente al processo interattivo
+  443964.
+
+Decisione: non implementare, non deployare, non committare in questo round.
+La sola modifica di questo round è questo checkpoint in `docs/backlog.md`.
+
+Riproduzione del gate (da rieseguire al prossimo wakeup prima di qualunque
+altra azione):
+
+```bash
+ps -o pid,lstart,etime,cmd -p 443964   # se ancora vivo, richiedere all'utente se il pid è cambiato
+ls -la /proc/<pid>/cwd                  # deve NON risolvere su questo repo
+git -C <repo> status
+git -C <repo> diff -- frontend/src/App.tsx frontend/src/api.ts
+```
+
+Se il processo interattivo non è più attivo e `git status` è pulito (o le
+modifiche residue non toccano `AGENT_STATE_LEGEND`/`AgentStatusService`/file
+del classificatore), procedere con l'analisi strutturata e la remediation
+come da "Confine del prossimo round". Prossimo wakeup programmato con:
+
+```bash
+cd <home>/projects/<orchestratore> && python3 add-wakeup.py \
+  --at 2026-08-04T21:05 \
+  --workdir <repo> \
+  --provider claude --permission-mode bypassPermissions \
+  --note "INC-AS-01: terza ripresa dopo due checkpoint di concorrenza" \
+  --prompt "Riprendi INC-AS-01 in docs/backlog.md, sezione 'Checkpoint 04/08/2026 17:06'. Riesegui il gate di concorrenza descritto lì (processo pid 443964 potrebbe essere terminato: verifica se esiste ancora e se il suo cwd risolve su questo repo) prima di qualunque altra azione. Se libero, procedi con l'analisi strutturata e la remediation completa di INC-AS-01 come da 'Confine del prossimo round'."
+```
 
 ### Evidenza e impatto
 
