@@ -79,6 +79,27 @@ all'utente di testare una modifica che non è ancora stata deployata. Durante
 il deploy ricreare soltanto i servizi stateless coinvolti e preservare sempre
 `tmux-runtime`, salvo richiesta esplicita contraria.
 
+**Contesto di build e contesto di esecuzione sono due cose distinte.**
+
+Il *contesto di build* può essere temporaneo. Quando il working tree contiene
+lavoro non committato — accade spesso, perché il checkout è condiviso con
+altre sessioni — l'immagine va costruita da un export isolato del commit
+(`git archive HEAD` in una directory di lavoro), così non incorpora modifiche
+altrui. Se invece il working tree è pulito, si costruisce direttamente dal
+repository e l'export non serve.
+
+Il *contesto di esecuzione* deve essere **stabile**: i container vanno sempre
+creati o ricreati **dalla directory del repository**, mai da una directory
+temporanea. I bind mount di un container puntano al percorso da cui è stato
+creato, e un percorso sotto `/tmp` può sparire per una pulizia di sistema: da
+quel momento il container non si riavvia più, con un errore
+`bind source path does not exist` su segreti o certificati. Il guasto non si
+manifesta al deploy ma al **riavvio successivo**, cioè mentre si sta già
+rimediando a un altro problema — è successo il 04/08/2026 e ha allungato
+un'indisponibilità già in corso (`INC-DEPLOY-01`).
+
+In pratica: costruire dove serve, ricreare sempre dal repository.
+
 Alla chiusura di ogni round funzionale significativo, aggiornare anche
 `LATEST_RELEASE` in `frontend/src/App.tsx`: il riquadro “What's new” deve
 descrivere l'ultima funzionalità effettivamente rilasciata e validata, non una

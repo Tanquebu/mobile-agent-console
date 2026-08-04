@@ -3731,7 +3731,7 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
 
 ## INC-DEPLOY-01 — i container non si riavviano se la directory di deploy sparisce
 
-- [ ] INC-DEPLOY-01 | OWNER: ROOT | STATUS: READY | Trovato il 04/08/2026
+- [x] INC-DEPLOY-01 | OWNER: ROOT | STATUS: DONE | Trovato il 04/08/2026
   durante il ripristino dopo l'incidente di memoria di `OC-CAP-01`.
   I deploy recenti sono stati eseguiti da un **export isolato del commit in una
   directory temporanea**, per evitare di includere nell'immagine il lavoro non
@@ -3756,6 +3756,38 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   scriverlo in `docs/architecture.md` o nella guida di deploy, perché oggi la
   procedura non è documentata da nessuna parte: esiste solo nella memoria di
   chi l'ha eseguita.
+  **Esito (`ROOT`, 04/08/2026).** La regola scelta separa le due cose invece
+  di sacrificarne una: **il contesto di build può essere temporaneo, il
+  contesto di esecuzione no.** Si costruisce da un export isolato quando il
+  working tree è sporco (il checkout è condiviso con altre sessioni), oppure
+  direttamente dal repository quando è pulito; ma i container si creano e si
+  ricreano **sempre dalla directory del repository**. Scritto in `AGENTS.md`,
+  nella sezione sul deploy, che è dove un round va a leggere le regole.
+  Applicato: `backend` e `web` ricreati dal repository. Mount fragili residui
+  su percorsi temporanei: **zero** su entrambi (erano due per i segreti del
+  backend e due per i certificati TLS di `web`). Il socket tmux dell'host
+  (`/tmp/tmux-1000`) resta in `/tmp` ed è corretto così: è il suo percorso di
+  progetto, non un artefatto di deploy.
+  Dettaglio operativo utile: Compose **non** ha ricreato `web` con un semplice
+  `up -d` pur essendo cambiato il percorso dei mount — l'ha riportato come
+  `Running`. È servito `--force-recreate`. Chi rifà questa migrazione deve
+  verificare i mount container per container, non fidarsi dell'output.
+  **Verifica decisiva:** rimossa la directory temporanea e il collegamento che
+  la puntava, quindi riavviati entrambi i container. Sono ripartiti puliti,
+  `health` `200` e `login` `200` — cioè esattamente lo scenario che al
+  mattino aveva impedito il ripristino, ora innocuo. Chiudere con
+  `TEST-DEPLOY-01`.
+
+- [ ] TEST-DEPLOY-01 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Sbloccato da
+  `INC-DEPLOY-01`. Verificare che nessun container in esecuzione abbia mount
+  che puntano fuori da percorsi stabili (repository, `~/.config`, runtime
+  utente, volumi Docker), con l'unica eccezione legittima del socket tmux
+  dell'host; che la regola in `AGENTS.md` sia coerente con quanto realmente
+  applicato; e che un riavvio dei soli servizi stateless riporti l'istanza
+  sana senza dipendere da alcuna directory temporanea. Verificare inoltre che
+  l'immagine in esecuzione corrisponda al codice pubblicato — la migrazione ha
+  ricreato i container senza ricostruire le immagini, quindi vale la pena
+  confermare che non ci sia deriva fra ciò che gira e ciò che è committato.
 
 #### OC-UX-01 — I dialog di autorizzazione non sono navigabili dall'app
 
