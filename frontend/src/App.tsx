@@ -4009,36 +4009,51 @@ function Console({
       </header>
       {agentic && (ownStatus || ownProviderLimit) && (
         <section className="agent-info-bar" aria-label="Stato agente">
-          {ownStatus && (
-            <span className="agent-info-state" title={`${ownStatus.provider}: ${ownStatus.detail}`}>
-              <i className={`agent-state ${ownStatus.state}`}>{AGENT_STATE_ICON[ownStatus.state]}</i>
-              {getAgentStateLegend().find(([st]) => st === ownStatus.state)?.[1] ?? ownStatus.detail}
-            </span>
+          <div className="agent-info-primary">
+            {ownStatus && (
+              <span className="agent-info-state" title={`${ownStatus.provider}: ${ownStatus.detail}`}>
+                <i className={`agent-state ${ownStatus.state}`}>{AGENT_STATE_ICON[ownStatus.state]}</i>
+                {getAgentStateLegend().find(([st]) => st === ownStatus.state)?.[1] ?? ownStatus.detail}
+              </span>
+            )}
+            {ownStatus?.context_used_percent != null && (
+              <span
+                className="context-badge"
+                style={{
+                  borderColor: rateLimitColor(ownStatus.context_used_percent),
+                  color: rateLimitColor(ownStatus.context_used_percent),
+                }}
+                title="Finestra di contesto utilizzata"
+              >
+                <small className="context-label">CTX</small>
+                <strong>{Math.round(ownStatus.context_used_percent)}%</strong>
+              </span>
+            )}
+          </div>
+          {ownProviderLimit?.available && ownProviderLimit.windows.length > 0 && (
+            <div className="agent-info-limits">
+              {ownProviderLimit.windows.map((window) => (
+                <div
+                  key={window.label}
+                  className="agent-limit-card"
+                  title={rateLimitWindowDescription(window) ?? undefined}
+                >
+                  <div className="agent-limit-header">
+                    <span className="agent-limit-label">{window.label}</span>
+                    <strong
+                      className="agent-limit-value"
+                      style={{ color: rateLimitColor(window.used_percent) }}
+                    >
+                      {window.used_percent === null ? "n/d" : `${Math.round(window.used_percent)}%`}
+                    </strong>
+                  </div>
+                  {formatRateLimitReset(window.resets_at) && (
+                    <small className="agent-info-reset">reset {formatRateLimitReset(window.resets_at)}</small>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
-          {ownStatus?.context_used_percent != null && (
-            <span
-              className="context-usage"
-              style={{ color: rateLimitColor(ownStatus.context_used_percent) }}
-              title="Finestra di contesto utilizzata"
-            >
-              ctx {Math.round(ownStatus.context_used_percent)}%
-            </span>
-          )}
-          {ownProviderLimit?.available && ownProviderLimit.windows.map((window) => (
-            <span
-              key={window.label}
-              className="agent-info-limit"
-              title={rateLimitWindowDescription(window) ?? undefined}
-            >
-              <small>{window.label}</small>{" "}
-              <strong style={{ color: rateLimitColor(window.used_percent) }}>
-                {window.used_percent === null ? "n/d" : `${Math.round(window.used_percent)}%`}
-              </strong>
-              {formatRateLimitReset(window.resets_at) && (
-                <small className="agent-info-reset">reset {formatRateLimitReset(window.resets_at)}</small>
-              )}
-            </span>
-          ))}
         </section>
       )}
       {showSwitcher && (
