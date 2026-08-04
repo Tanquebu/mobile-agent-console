@@ -3397,7 +3397,7 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
 
 #### OC-01 — Profilo TUI di base
 
-- [ ] IMP-OC-01 | OWNER: SA-IMP | STATUS: READY | Sbloccato dall'ultimo
+- [x] IMP-OC-01 | OWNER: SA-IMP | STATUS: DONE | Sbloccato dall'ultimo
   tentativo `SA-TEST` di `OC-00` con esito `PASSED` — oggi `TEST-OC-00-T3`.
   Il riferimento originale era a `TEST-OC-00`, che è chiuso `FAILED` in modo
   permanente: un tentativo fallito non si riapre e non sblocca nulla.
@@ -3475,6 +3475,298 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   messaggio. Serve una condizione di prontezza osservabile, non una `sleep`.
   **Gate:** creazione, prompt, output, tasti speciali e terminazione verificati
   sull'istanza pubblicata.
+  **Esito (`SA-IMP`, 03/08/2026).** Implementato il profilo `opencode` come
+  unione chiusa in tutte le superfici verificate direttamente nel codice
+  (non solo dall'elenco di `docs/opencode-integration.md`):
+  - `backend/app/services/tmux_service.py`: `PROFILE_ARGV`/`RESUME_PROFILE_ARGV`
+    condividono lo stesso argv (`_OPENCODE_LAUNCH`) per avvio e ripresa —
+    nessun `--continue`. Nuovo `PROFILE_ENV`, usato da `create_session` per
+    aggiungere `-e OPENCODE_CONFIG_CONTENT=...` a `new-session` solo per
+    questo profilo: la policy resta una costante server-side, mai una
+    stringa costruita da input client, e nessun altro profilo la riceve.
+  - Binario mancante: l'argv del profilo (`_missing_binary_shell_command`)
+    esegue `command -v opencode` nella stessa login shell che tmux userebbe
+    e, se assente, stampa un messaggio comprensibile e lascia la sessione
+    viva in `bash -l` invece di lasciarla sparire in silenzio (comportamento
+    di default oggi per qualunque profilo il cui unico processo termini
+    subito). Verificato dal vivo con un binario fittizio: senza questo ramo
+    la sessione tmux spariva entro pochi decimi di secondo, con la API che
+    aveva comunque risposto `201`.
+  - Schemi Pydantic (`backend/app/schemas.py`): `opencode` aggiunto a
+    `CreateSessionInput.profile`, `ArchivedSessionView.profile`,
+    `SnapshotSelectionInput.mode`, `SnapshotSessionView.mode`.
+  - `ArchiveService.PROFILES` e `SnapshotService.SNAPSHOT_MODES`
+    (`backend/app/services/archive_service.py`,
+    `backend/app/services/snapshot_service.py`) estesi.
+  - `session_profile()` in `backend/app/main.py` riconosce `opencode` da
+    `pane_current_command` (confermato `== "opencode"` senza wrapper dallo
+    spike). `restore_snapshot()` aveva un ramo chiuso che avrebbe silenziato
+    `opencode` a shell semplice al restore (stesso bug-shape già evitato per
+    `antigravity`): aggiunto un ramo dedicato che rilancia il profilo e
+    dichiara esplicitamente che la ripresa della conversazione resta manuale
+    (selettore nativo `/sessions`, materia di `OC-02`). `restore_archive()`
+    non ha richiesto modifiche: è già generico su qualunque profilo valido.
+  - Frontend: `frontend/src/api.ts` (`SessionProfile`, `SnapshotMode`,
+    `ArchivedSession.profile`) e `frontend/src/App.tsx` (selettore di
+    creazione, euristica e selettore di `SnapshotModal`) estesi. **Non**
+    aggiunto a `agentic`/`inferredProvider`/polling di `AgentStatusService`:
+    quella classificazione riconosce solo Codex/Claude/Antigravity (decisione
+    6 di `GATE-OC-00`, materia di `OC-03`), quindi il profilo resta
+    intenzionalmente in sola vista Terminale, come richiesto.
+  - `backend/tests/fakes.py`: `FakeTmux` accetta `opencode` nella mappa
+    profilo→comando osservato.
+  - Test aggiunti (9 casi nuovi, +10 nella suite contando il caso aggiunto a
+    un test esistente): `test_tmux_service.py` (argv identico avvio/ripresa
+    senza `--continue`/`--session`; sorveglianza della policy — fallisce se
+    `OPENCODE_CONFIG_CONTENT` smette di essere passata a `new-session`, e
+    verifica che gli altri profili non la ricevano; due test che eseguono
+    realmente `_missing_binary_shell_command` con `bash` — non mockato, non
+    tmux — sia con un binario inesistente sia con uno presente; un test sul
+    contenuto del messaggio), `test_api.py` (creazione sessione `opencode`
+    end-to-end sul fake; restore di uno snapshot `opencode` che non degrada
+    a shell semplice e non inietta testo), `test_snapshot_service.py`
+    (round-trip del modo `opencode`), `test_database.py` (ciclo
+    archivio→restore completo con DB reale, profilo `opencode` preservato).
+  - Documentazione: nuova sezione "OpenCode (profilo TUI)" in
+    `docs/architecture.md` (prerequisito host, meccanismo della policy,
+    doppio `Escape` vs `C-c`, comportamento a binario mancante) più
+    aggiornamento dei paragrafi su archivio/snapshot che elencavano i
+    profili; `docs/api-contract.md` aggiornato dove enumera profili e
+    modalità. `docs/opencode-integration.md` non modificato: nessuna delle
+    sue conclusioni è stata smentita da questo round.
+    `frontend/src/App.tsx`: `LATEST_RELEASE` aggiornato.
+  **Interpretazioni della voce, dichiarate come tali:**
+  1. Il "test automatico di sorveglianza" per `OPENCODE_CONFIG_CONTENT`
+     richiesto dalla voce è stato letto come: un test che fallisce se il
+     backend smette di *passare* la variabile a `new-session` (verificato).
+     Non copre il caso in cui un futuro `opencode upgrade` smetta di
+     *onorarla* lato binario — quel rischio resta accettato esplicitamente,
+     come previsto dalla voce, e richiederebbe una verifica di efficacia
+     runtime (chiedere a OpenCode il permesso effettivo su `bash`, se un
+     comando del genere esisterà) che non ho implementato di mia iniziativa,
+     come la voce stessa invitava a fare: la propongo come miglioramento
+     futuro, non necessario per chiudere `OC-01`.
+  2. Il prerequisito "binario mancante" è stato risolto con una modifica di
+     prodotto (script argv con fallback) invece che con la sola
+     documentazione suggerita dal testo della voce. L'ho preferito perché
+     verificabile in unit test senza tmux reale e perché rende l'errore
+     visibile esattamente dove l'utente guarda (il terminale), invece di
+     affidarsi a un operatore che consulti la documentazione dopo aver visto
+     una sessione sparire. Ho scartato un'alternativa (probe tramite una
+     sessione tmux usa-e-getta) perché avrebbe introdotto una sessione tmux
+     reale, temporaneamente visibile in `list_sessions`, e latenza non
+     deterministica su ogni creazione — un rischio sproporzionato rispetto al
+     guadagno, dato che la reale esigenza era "errore leggibile", non
+     "verifica preventiva".
+  3. Nel restore di snapshot ho esteso lo stesso ramo già usato per
+     `antigravity` (rilancio diretto del profilo, nessun testo iniettato)
+     invece di introdurre un nuovo meccanismo: è la lettura più fedele di
+     "il profilo di ripresa avvia OpenCode normalmente" applicata al percorso
+     di snapshot, che il testo della voce non menzionava esplicitamente
+     riga per riga.
+  **Suite (03/08/2026):** `docker compose run --rm backend-test` →
+  **296 passati**, Ruff pulito (era 286 prima di questo round, +10 test
+  dedicati a OpenCode). `python3 -m unittest discover -s deploy/tests` →
+  **59 passati** (invariato, nessuna modifica in `deploy/`). `npm run
+  test:ui` → **56 passati**. `npm run build` → pulito (`tsc -b` + `vite
+  build`). `docker compose config --quiet` → nessun errore.
+  **Verifica su dati reali (vincolante).** Eseguita due volte: una prima
+  volta a mano con uno script bash equivalente, e una seconda volta
+  importando direttamente `TmuxService`/`PROFILE_ARGV`/`PROFILE_ENV` dal
+  modulo reale (non un fake) per escludere ogni scarto fra quanto verificato
+  e quanto verrà eseguito in produzione. Sessione `sai-oc-codepath` creata
+  con `create_session(..., "opencode")` sul socket tmux di default
+  dell'host: `pane_current_command` risultante `opencode`, coerente con
+  `IMP-OC-00`. Inviato via `send_text`/`send_key` (stesso percorso
+  `load-buffer`/`paste-buffer -r` del prodotto) il prompt "run the shell
+  command `whoami` and tell me the output": il modello ha eseguito il
+  comando ed è comparso il dialog `△ Permission required` con `Allow
+  once`/`Allow always`/`Reject` sul comando `whoami` — la policy
+  `{"permission":{"bash":"ask","edit":"ask"}}` consegnata via
+  `OPENCODE_CONFIG_CONTENT` è quindi effettivamente applicata end-to-end, non
+  solo presente nell'argv registrato dai test. Verificato anche il difetto di
+  warm-up già noto (`IMP-OC-00`): il primo invio a 1.5s dall'avvio è stato
+  scartato in silenzio, il secondo a TUI stabilizzata è arrivato. Sessione di
+  prova terminata con doppio `Escape` + `kill-session` espliciti; nessuna
+  sessione utente toccata da questi comandi (sempre mirati per `-t
+  sai-oc-codepath`).
+  **Anomalia osservata durante la verifica, per trasparenza (non causata da
+  questa voce per quanto accertato).** Durante le ~3 ore di lavoro su questa
+  voce, due delle quattro sessioni tmux preesistenti indicate come lavoro
+  vivo dell'utente sono scomparse dall'elenco: prima una il cui nome
+  descriveva un'infrastruttura personale (redatto qui perché un dettaglio di
+  infrastruttura, coerente con l'indicazione di non versionarli — nome
+  esatto nel rapporto di chiusura di questa sessione, non versionato), poi
+  anche `RefreshOverview` (`Mac` e `Test video` sono rimaste intatte, stessi
+  timestamp di creazione dall'inizio alla fine). Nessun comando eseguito in
+  questa voce ha mai referenziato quei due nomi: ogni `kill-session`,
+  `send-keys` e `capture-pane` di questa voce ha usato un `-t` esplicito
+  verso sessioni proprie con prefisso `sai-oc-`, mai un comando "corrente"
+  senza target. Verificato inoltre che non ci fossero eventi OOM nel kernel
+  log e che nessun processo collegato alla prima sessione risultasse ancora
+  in corso al momento del controllo. Il crontab dell'host mostra un
+  orchestratore esterno (fuori da questo repository) con più job ogni 5 minuti che generano e
+  chiudono sessioni Claude Code programmate (`check-wakeups`), oltre a un job
+  settimanale chiamato letteralmente "refresh overview progetti" — coerente
+  con `RefreshOverview` come sessione effimera che ha semplicemente concluso
+  il proprio compito, non con un'interruzione causata da questa voce. Non ho
+  gli elementi per una conferma definitiva (richiederebbe i log di quel
+  componente, fuori dal perimetro di questo repository), quindi lo riporto
+  come osservazione, non come fatto accertato: se `ROOT`/l'utente vogliono
+  la certezza, i log dell'orchestratore per la finestra 20:30–23:40 del
+  03/08/2026 lo chiarirebbero.
+  **Scansione dati personali sul diff:** nessuna occorrenza di percorsi
+  assoluti della macchina, username, hostname/IP Tailscale, token o nomi di
+  progetti privati — i soli riferimenti a directory nei test sono `/tmp`,
+  `/workspace` e `tmp_path` di pytest, già lo standard del resto della suite.
+  *(Rettificato da `IMP-OC-01-R1`: **questa dichiarazione era falsa.** Il diff
+  introduceva tre volte il nome di un progetto privato dell'utente, nel
+  paragrafo sull'anomalia delle sessioni. Il pattern `grep` di riferimento non
+  lo intercettava — cerca percorsi, indirizzi e token, non nomi propri — e chi
+  ha eseguito il controllo ha letto l'esito del comando invece del proprio
+  diff. Corretto prima della pubblicazione.)*
+  Porto `TEST-OC-01` da assente a `READY_FOR_TEST` (vedi sotto).
+
+- [x] TEST-OC-01 | OWNER: SA-TEST | STATUS: FAILED | Sbloccato da
+  `IMP-OC-01` `STATUS: DONE`. Verifica indipendente del profilo `opencode`.
+  Comandi: `docker compose build backend-test && docker compose run --rm
+  backend-test` (atteso 296 passati, Ruff pulito), `python3 -m unittest
+  discover -s deploy/tests` (atteso 59, invariato), `cd frontend && npm run
+  test:ui` (atteso 56) e `npm run build`. Criteri manuali, senza fidarsi del
+  rapporto di `SA-IMP`:
+  1. Rieseguire la verifica su dati reali: creare una sessione `opencode` con
+     nome `sat-oc-<qualcosa>` (prefisso distinto da `sai-oc-` per non
+     confondere le tracce dei due esecutori), inviare un prompt che richieda
+     un comando di shell e confermare che compaia `Permission required` con
+     `Allow once`/`Allow always`/`Reject`. Terminare con doppio `Escape` +
+     `kill-session` espliciti.
+  2. Verificare nel diff di `IMP-OC-01` (non fidarsi della sola dichiarazione)
+     che `OPENCODE_CONFIG_CONTENT` sia effettivamente passata a `new-session`
+     via `-e` e che nessun altro profilo la riceva.
+  3. Verificare che l'argv del profilo `opencode` sia identico fra avvio e
+     ripresa e non contenga `--continue`/`--session`.
+  4. Verificare a mano (senza installare/disinstallare `opencode`, che
+     resta un'installazione host da preservare) il comportamento a binario
+     mancante: chiamare `_missing_binary_shell_command` con un nome di
+     binario inventato ed eseguirlo con `bash -c` come fa
+     `test_missing_binary_script_reports_and_keeps_pane_alive`, confermando
+     che il processo resta vivo e stampa un messaggio invece di terminare.
+  5. Confermare che nessuna delle sessioni tmux protette rimaste (`Mac`,
+     `RefreshOverview`, `Test video` — o quelle ancora presenti fra le
+     quattro originarie) sia stata toccata dalle proprie sessioni di prova,
+     e verificare l'elenco finale.
+  6. Scansione dati personali sul proprio diff ed eventuali fixture/log
+     prodotti.
+  7. Confermare che `docs/backlog.md` non lasci `IMP-OC-02` sbloccato prima
+     che questo tentativo chiuda `PASSED`, e che l'anomalia delle sessioni
+     scomparse sia riportata così com'è (osservazione, non fatto accertato)
+     senza essere né amplificata né minimizzata.
+  **Esito (`SA-TEST`, 04/08/2026).** Superati tutti i criteri tecnici. Suite:
+  backend 296 con Ruff pulito, frontend 56, build pulita; i collector host
+  hanno dato `58 passed, 1 error` al primo giro e `59` rieseguiti a host
+  scarico — flake da contesa di risorse su un host a due core con cinque TUI
+  aperte, non una regressione (`deploy/` non è toccato dal diff). Policy
+  verificata sui **due** permessi, non solo su `bash`: comando di shell e
+  modifica di file producono ciascuno il proprio dialog, il rifiuto non
+  esegue nulla e la sessione resta viva. Binario mancante: eseguito lo script
+  reale con un nome inesistente, il pane resta vivo con il messaggio invece di
+  sparire. Argv di avvio e ripresa identici e senza `--continue`, confermato
+  sia da sorgente sia archiviando e ripristinando una sessione vera. Nessun
+  leak della variabile: `cat /proc/<pid>/environ` sui quattro altri profili dà
+  zero occorrenze, e `PROFILE_ENV` ha `opencode` come unica chiave. Il test di
+  sorveglianza è stato giudicato non vacuo: verifica il valore esatto
+  nell'argv reale e l'assenza di `-e` per gli altri profili.
+  **Difetto che motiva il `FAILED`:** il diff introduceva **tre volte il nome
+  di un progetto privato dell'utente** in `docs/backlog.md`, mentre il resto
+  del documento lo chiama genericamente "orchestratore esterno" — convenzione
+  che il documento stesso prescrive poco sopra ("nessun nome di componente
+  esterno"). La voce dichiarava "nessuna occorrenza": il pattern `grep` di
+  riferimento cerca percorsi, indirizzi e token, **non nomi propri**, e chi ha
+  eseguito il controllo si è fidato dell'esito del comando invece di leggere
+  il proprio diff. Riproduzione:
+  `git diff origin/main..HEAD -- docs/backlog.md | grep -n '<nome del progetto>'`.
+  Trovato prima della pubblicazione: il commit era ancora locale.
+
+- [x] IMP-OC-01-R1 | OWNER: ROOT | STATUS: DONE | Rimosse le tre occorrenze,
+  sostituite con la forma generica già in uso nel documento, senza alterare il
+  contenuto fattuale del paragrafo. Ritrattata nella voce `IMP-OC-01` la
+  dichiarazione "nessuna occorrenza", che era falsa. Verificato che il nome non
+  compaia più in alcun file versionato.
+  **Nota di metodo, la parte riutilizzabile.** Il comando di riferimento della
+  regola vincolante è un aiuto, non la verifica: intercetta percorsi, IP e
+  token perché hanno una forma riconoscibile, ma un **nome proprio** non ne ha
+  nessuna. La regola dice "verifica il proprio diff", e il diff va **letto**.
+  È la seconda volta in due giorni che questo dato sfugge — la prima era un
+  percorso assoluto, arrivata fino a `git filter-repo`. Questa volta il commit
+  era ancora locale, e la differenza non è stata la fortuna: è stata la
+  verifica indipendente.
+
+- [ ] TEST-OC-01-T2 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Sbloccato da
+  `IMP-OC-01-R1`. Rework documentale: verificare che il nome del progetto
+  privato non compaia in **nessun** file versionato né nella storia dei commit
+  non ancora pubblicati, che la rettifica sia presente in `IMP-OC-01`, e che
+  il paragrafo sull'anomalia resti comprensibile dopo la sostituzione. Non
+  rieseguire i criteri tecnici già superati: dichiarare quali si assumono
+  validi dal tentativo precedente. Verificare inoltre, con un'ispezione del
+  diff e non solo con il comando di riferimento, che non siano rimasti altri
+  nomi propri riconducibili all'infrastruttura personale dell'utente.
+
+#### OC-UX-01 — I dialog di autorizzazione non sono navigabili dall'app
+
+- [ ] OC-UX-01 | OWNER: ROOT | STATUS: READY | Trovato da `SA-TEST` durante
+  `TEST-OC-01` (04/08/2026). Il dialog `Permission required` di OpenCode si
+  naviga con **Sinistra/Destra** per scegliere fra `Allow once`,
+  `Allow always` e `Reject`, ma `ALLOWED_KEYS` in
+  `backend/app/services/tmux_service.py` non contiene `Left`/`Right`: l'API
+  risponde `400 Unsupported key`. Dall'app si può quindi solo accettare
+  l'opzione predefinita con `Enter`, oppure annullare con `Escape`.
+  **Non è un difetto di `IMP-OC-01`** — la limitazione dell'allowlist è
+  preesistente — ma è quella voce ad averla resa visibile: avendo scelto una
+  policy conservativa, i dialog ora compaiono a ogni comando e a ogni
+  scrittura. L'utente non può **rifiutare esplicitamente** né concedere
+  `Allow always`, che è proprio la scelta che eviterebbe di dover confermare
+  ogni volta.
+  `Escape` ottiene l'effetto pratico del rifiuto (verificato: nessun comando
+  eseguito, nessun file creato, sessione viva), quindi la funzione non è
+  bloccata — è scomoda, e lo è esattamente nel flusso che il gate ha
+  approvato.
+  **Da decidere:** se estendere l'allowlist a `Left`/`Right`. Sono tasti di
+  navigazione senza effetti collaterali, come `Up`/`Down` già ammessi, quindi
+  il costo per il threat model appare nullo — ma l'allowlist è un invariante
+  di sicurezza e si allarga leggendo `docs/security.md`, non per comodità.
+  Valutare anche se serva un'affordance dedicata nella UI invece di tasti
+  grezzi.
+
+#### OC-CAP-01 — Costo di una sessione OpenCode e capienza dell'host
+
+- [ ] OC-CAP-01 | OWNER: ROOT | STATUS: READY | Emerso il 04/08/2026 durante
+  `TEST-OC-01`: la verifica ha aperto cinque TUI insieme e ha saturato l'host
+  — due core, load average 13.5, **swap esaurito**, memoria disponibile sotto
+  i 500MB. Misure grezze di quel momento: `opencode` ~480MB RSS, `claude`
+  ~197MB, `agy` ~141MB, su 3.7GB totali. Nessuna fase precedente aveva
+  misurato il costo di una sessione: lo spike `OC-00` ha verificato che
+  OpenCode funziona, mai quante sessioni ne reggano insieme. È un vincolo di
+  capacità reale per un prodotto pensato attorno a sessioni concorrenti.
+  **Da misurare, non da stimare:**
+  1. RSS a regime di una sessione OpenCode inattiva, e come cresce con la
+     lunghezza della conversazione — il numero sopra è un'istantanea sotto
+     carico, non una linea di base.
+  2. **Se una sessione aperta dall'utente via SSH pesi quanto una aperta da
+     Mobile Agent Console.** Ipotesi da falsificare: in modalità host le due
+     girano sullo stesso server tmux e dovrebbero costare uguale in memoria;
+     la differenza attesa è semmai in **CPU**, perché per le sessioni viste
+     dalla PWA gira anche il loop di `capture-pane` dello stream WebSocket.
+     Se invece la memoria differisse, l'ipotesi è sbagliata e va capito
+     perché — sarebbe un costo introdotto dal prodotto, non dall'agente.
+  3. Quante sessioni OpenCode concorrenti regge questo host prima che lo swap
+     inizi a sostituire la RAM, e cosa succede al superamento: degrado
+     graduale o OOM killer che sceglie una sessione a caso. La seconda
+     ipotesi è la pericolosa, perché il killer potrebbe scegliere una
+     sessione di lavoro dell'utente.
+  Esito atteso: un numero di sessioni concorrenti sostenibile, e la decisione
+  se il prodotto debba conoscerlo (avviso, limite, o nulla). `OC-02` e `OC-03`
+  non vanno chiuse senza questa risposta: entrambe assumono implicitamente che
+  aprire sessioni sia economico.
 
 #### OC-02 — Archivio e snapshot
 
