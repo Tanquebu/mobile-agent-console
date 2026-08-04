@@ -3729,6 +3729,34 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   `docs/backlog.md`.
   **Fase `OC-01` chiusa.** `IMP-OC-02` passa a `READY`.
 
+## INC-DEPLOY-01 — i container non si riavviano se la directory di deploy sparisce
+
+- [ ] INC-DEPLOY-01 | OWNER: ROOT | STATUS: READY | Trovato il 04/08/2026
+  durante il ripristino dopo l'incidente di memoria di `OC-CAP-01`.
+  I deploy recenti sono stati eseguiti da un **export isolato del commit in una
+  directory temporanea**, per evitare di includere nell'immagine il lavoro non
+  committato di sessioni parallele. Era la scelta giusta per quel problema, ma
+  ha introdotto una dipendenza fragile: i bind mount dei container puntano a
+  quella directory, e quando il sistema ha ripulito `/tmp` i container non si
+  sono più potuti riavviare — `bind source path does not exist` su
+  `.secrets/session_secret` e sul certificato TLS. Nessun problema
+  applicativo: soltanto un percorso svanito.
+  **Perché conta più di un fastidio:** il modo in cui questo si manifesta è il
+  peggiore possibile. Non si vede al deploy, si vede al **riavvio** — cioè
+  esattamente quando si sta già cercando di rimettere in piedi il servizio
+  dopo un altro guasto. Il 04/08/2026 ha allungato un'indisponibilità già in
+  corso.
+  **Da fare:** ricreare i container con il contesto nella directory del
+  repository, che è stabile, mantenendo però la garanzia che ha motivato
+  l'export isolato — l'immagine non deve contenere lavoro non committato.
+  Le due esigenze non sono in conflitto: `git stash` non è ammesso su un
+  checkout condiviso, ma si può costruire l'immagine da un export isolato e
+  poi **ricreare** i container dal repository, oppure verificare che il
+  working tree sia pulito prima di costruire dal repository. Decidere quale, e
+  scriverlo in `docs/architecture.md` o nella guida di deploy, perché oggi la
+  procedura non è documentata da nessuna parte: esiste solo nella memoria di
+  chi l'ha eseguita.
+
 #### OC-UX-01 — I dialog di autorizzazione non sono navigabili dall'app
 
 - [ ] OC-UX-01 | OWNER: ROOT | STATUS: READY | Trovato da `SA-TEST` durante
@@ -3785,6 +3813,35 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   se il prodotto debba conoscerlo (avviso, limite, o nulla). `OC-02` e `OC-03`
   non vanno chiuse senza questa risposta: entrambe assumono implicitamente che
   aprire sessioni sia economico.
+  **Misure (`ROOT`, 04/08/2026).**
+  1. **Una sessione OpenCode inattiva costa ~480 MB e si assesta lentamente.**
+     Partenza a 578 MB, poi 552 → 500 → 496 → 485 → 483 MB, plateau a ~484 MB
+     dopo circa tre minuti. `Pss` 479 MB, quindi quasi nulla è condiviso: il
+     costo è reale, non un artefatto di `Rss`. **Misurare subito dopo l'avvio
+     sovrastima di circa il 20%** — chiunque rifaccia questa misura deve
+     aspettare il plateau.
+  2. **Domanda chiusa: una sessione aperta via SSH e una aperta da Mobile
+     Agent Console costano uguale.** `Pss` 440 MB contro 452 MB, differenza
+     dentro il rumore delle due misure. L'ipotesi era corretta: in modalità
+     host girano sullo stesso server tmux e il prodotto non aggiunge peso al
+     processo dell'agente. Il costo del prodotto, se esiste, è in **CPU** e
+     solo mentre un client sta guardando: il loop di `capture-pane` vive per
+     connessione WebSocket, quindi una sessione senza spettatori non costa
+     nulla al backend. Quest'ultima parte è dedotta dall'architettura e
+     **non** misurata: resta da verificare con un client collegato.
+  3. **Quante ne regge l'host: due sono già troppe.** Non è una stima, è un
+     incidente. Tenendo vive contemporaneamente le due sessioni di questa
+     misura, con ~450 MB ciascuna su 3.7 GB e swap già saturo, il kernel ha
+     terminato i container `backend` e `web` (uscita 255) e l'app è diventata
+     irraggiungibile per l'utente. Le sessioni tmux dell'utente sono
+     sopravvissute perché vivono sul server tmux dell'host, mai toccato.
+     **La risposta alla domanda 3 è quindi: su questo host, due sessioni
+     OpenCode concorrenti non convivono con l'applicazione.**
+  **Decisione ancora aperta:** se il prodotto debba conoscere questo limite.
+  Le opzioni non sono equivalenti — un avviso informa ma non protegge, un
+  limite protegge ma va scelto su una soglia che dipende dall'host. Un dato
+  in più per deciderlo: il fallimento non è graduale, è un OOM che colpisce
+  **l'applicazione**, non la sessione che ha causato la pressione.
 
 #### OC-02 — Archivio e snapshot
 
