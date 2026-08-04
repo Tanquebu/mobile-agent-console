@@ -734,7 +734,7 @@ export type ArchivedSession = {
   id: string;
   name: string;
   directory: string;
-  profile: "shell" | "codex" | "claude" | "antigravity";
+  profile: "shell" | "codex" | "claude" | "antigravity" | "opencode";
   archived_by: string;
   archived_at: string;
 };
@@ -773,7 +773,7 @@ export async function renameSession(id: string, name: string) {
   });
 }
 
-export type SessionProfile = "shell" | "codex" | "claude" | "antigravity";
+export type SessionProfile = "shell" | "codex" | "claude" | "antigravity" | "opencode";
 
 export async function createSession(name: string, directory: string, profile: SessionProfile) {
   await request("/api/v1/sessions", {
@@ -782,7 +782,7 @@ export async function createSession(name: string, directory: string, profile: Se
   });
 }
 
-export type SnapshotMode = "shell" | "codex" | "claude" | "antigravity" | "manual";
+export type SnapshotMode = "shell" | "codex" | "claude" | "antigravity" | "opencode" | "manual";
 
 export type SessionSnapshot = {
   name: string;

@@ -1,5 +1,6 @@
 import asyncio
 import re
+import shlex
 import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -19,17 +20,70 @@ ALLOWED_KEYS = {
     "C-c": "C-c",
     "Shift-Tab": "BTab",
 }
+
+
+def _missing_binary_shell_command(binary: str, message: str) -> str:
+    """Costruisce lo script argv (costante server-side, mai da input client)
+    per un profilo il cui binario puo' mancare sull'host. Verifica la
+    risoluzione nella stessa login shell che tmux userebbe (`command -v`,
+    non un test nella shell interattiva del backend) ed esegue `binary` se
+    presente; altrimenti stampa `message` e lascia la sessione viva in una
+    shell di login invece di farla sparire in silenzio. Senza questo ramo,
+    un binario assente termina l'unico processo del pane subito dopo
+    l'avvio e tmux distrugge la sessione: dall'API la richiesta di
+    creazione risulta comunque riuscita (201), e l'unico segnale e' la
+    sessione che scompare dall'elenco pochi istanti dopo — verificato il
+    03/08/2026 con un binario fittizio al posto di `opencode`."""
+    quoted_binary = shlex.quote(binary)
+    return (
+        f"command -v {quoted_binary} >/dev/null 2>&1 && exec {quoted_binary} || "
+        f"{{ printf '%s\\n' {shlex.quote(message)}; exec bash -l; }}"
+    )
+
+
+# `OPENCODE_CONFIG_CONTENT` non e' documentata da OpenCode (verificata nel
+# binario 1.18.11): un upgrade potrebbe rimuoverla senza preavviso e la
+# policy smetterebbe di essere applicata in silenzio. Vedi
+# test_tmux_service.py::test_opencode_profile_ships_conservative_permission_policy,
+# che fallisce se questa costante smette di essere passata alla sessione.
+OPENCODE_PERMISSION_POLICY = '{"permission":{"bash":"ask","edit":"ask"}}'
+OPENCODE_MISSING_BINARY_MESSAGE = (
+    "opencode non trovato nel PATH della login shell di tmux. Installare "
+    "opencode sull'host prima di usare questo profilo (vedi "
+    "docs/architecture.md, sezione OpenCode)."
+)
+_OPENCODE_LAUNCH = (
+    "bash",
+    "-l",
+    "-c",
+    _missing_binary_shell_command("opencode", OPENCODE_MISSING_BINARY_MESSAGE),
+)
 PROFILE_ARGV = {
     "shell": ("bash", "-l"),
     "codex": ("bash", "-l", "-c", "exec codex"),
     "claude": ("bash", "-l", "-c", "exec claude"),
     "antigravity": ("bash", "-l", "-c", "exec agy"),
+    "opencode": _OPENCODE_LAUNCH,
 }
 RESUME_PROFILE_ARGV = {
     "shell": PROFILE_ARGV["shell"],
     "codex": ("bash", "-l", "-c", "exec codex resume"),
     "claude": ("bash", "-l", "-c", "exec claude --resume"),
     "antigravity": ("bash", "-l", "-c", "exec agy -c"),
+    # Lo store delle conversazioni OpenCode e' globale per utente, non per
+    # progetto: `--continue` puo' agganciare la conversazione di un altro
+    # progetto (verificato in IMP-OC-00). Il profilo di ripresa avvia quindi
+    # OpenCode normalmente, come un avvio nuovo; l'aggancio alla
+    # conversazione giusta e' materia di OC-02 (selettore nativo `/sessions`).
+    "opencode": _OPENCODE_LAUNCH,
+}
+# Variabili d'ambiente per profilo, passate a `tmux new-session -e` come
+# costante server-side — mai una stringa di shell, mai un file da montare
+# sull'host. E' il meccanismo scelto da ROOT per consegnare la policy dei
+# permessi di OpenCode (IMP-OC-01): verificato sul campo che un JSON
+# attraversa `tmux -e` integro, virgolette comprese.
+PROFILE_ENV: dict[str, tuple[tuple[str, str], ...]] = {
+    "opencode": (("OPENCODE_CONFIG_CONTENT", OPENCODE_PERMISSION_POLICY),),
 }
 
 
@@ -252,7 +306,12 @@ class TmuxService:
             raise ValueError("Unsupported profile")
         if self._external_server:
             await self._require_server()
-        await self._run("new-session", "-d", "-s", session_id, "-c", directory, *command)
+        env_args: list[str] = []
+        for key, value in PROFILE_ENV.get(profile, ()):
+            env_args += ["-e", f"{key}={value}"]
+        await self._run(
+            "new-session", "-d", "-s", session_id, "-c", directory, *env_args, *command
+        )
 
     async def rename_session(self, session_id: str, name: str) -> None:
         target = self.validate_target(session_id)

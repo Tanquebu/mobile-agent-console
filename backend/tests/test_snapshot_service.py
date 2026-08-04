@@ -18,6 +18,13 @@ def saved_session(mode: str = "shell") -> SnapshotSession:
     )
 
 
+def test_snapshot_service_accepts_opencode_mode(tmp_path) -> None:
+    service = SnapshotService(str(tmp_path))
+    created = service.create("Before reboot", [saved_session("opencode")])
+    loaded = service.get(created.id)
+    assert loaded.sessions == [saved_session("opencode")]
+
+
 def test_snapshot_service_persists_lists_and_deletes(tmp_path) -> None:
     service = SnapshotService(str(tmp_path))
     created = service.create("Before reboot", [saved_session("codex")])

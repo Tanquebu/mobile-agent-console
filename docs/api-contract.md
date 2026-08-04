@@ -22,9 +22,12 @@ Richiede cookie e CSRF; elimina il cookie.
 Richiede CSRF. Body: `{"name":"demo","directory":"/workspace","profile":"shell"}`.
 Il nome viene normalizzato NFC, ha al massimo 64 caratteri e accetta lettere e
 numeri Unicode, `_`, `-` e spazi singoli tra le parole; la directory deve essere
-sotto una root configurata. I profili ammessi sono `shell`, `codex` e `claude`;
-il server li risolve in argv costanti e il client non invia un comando
-eseguibile.
+sotto una root configurata. I profili ammessi sono `shell`, `codex`, `claude`,
+`antigravity` e `opencode`; il server li risolve in argv costanti e il client
+non invia un comando eseguibile. Il profilo `opencode` riceve inoltre una
+policy di permessi conservativa (`{"permission":{"bash":"ask","edit":"ask"}}`)
+come variabile d'ambiente della sessione tmux, mai come input del client —
+vedi `docs/architecture.md`, sezione OpenCode.
 
 ## Archivio sessioni
 
@@ -33,7 +36,8 @@ eseguibile.
   directory, profilo, autore e data, quindi termina la sessione tmux.
 - `POST /api/v1/archives/{id}/restore`: con `{"confirmed":true}` ricrea la
   sessione tramite il profilo server-side; per Codex e Claude apre il selettore
-  nativo di resume e rimuove la voce dopo il successo.
+  nativo di resume, OpenCode riavvia normalmente senza `--continue`, e rimuove
+  la voce dopo il successo.
 - `DELETE /api/v1/archives/{id}`: con `{"confirmed":true}` elimina
   definitivamente i soli metadati.
 
@@ -115,15 +119,19 @@ tipizzate; nomi e directory sono letti dal server tmux:
 }
 ```
 
-Le modalità sono `shell`, `codex`, `claude` e `manual`. Lo snapshot risultante
-contiene nome, directory, comando osservato e data, ma non output, environment,
-PID o comandi client.
+Le modalità sono `shell`, `codex`, `claude`, `antigravity`, `opencode` e
+`manual`. Lo snapshot risultante contiene nome, directory, comando osservato e
+data, ma non output, environment, PID o comandi client.
 
 `POST /api/v1/snapshots/{snapshot_id}/restore` con
 `{"confirmed":true}` ricrea le sessioni mancanti. I conflitti di nome vengono
 saltati. `codex` invia il comando costante `codex resume`; `claude` invia
-`claude --resume`, aprendo il picker nativo nella directory ripristinata. La
-risposta riporta per ogni sessione `restored`, `skipped`, `manual` o `error`.
+`claude --resume`, aprendo il picker nativo nella directory ripristinata;
+`opencode` riavvia il profilo normalmente, senza `--continue` (lo store delle
+conversazioni è globale per utente, non per progetto: vedi
+`docs/backlog.md`, `IMP-OC-00`), lasciando la ripresa della conversazione
+giusta al selettore nativo `/sessions`. La risposta riporta per ogni sessione
+`restored`, `skipped`, `manual` o `error`.
 
 `DELETE /api/v1/snapshots/{snapshot_id}` con `{"confirmed":true}` elimina lo
 snapshot. Tutte le mutazioni richiedono CSRF.

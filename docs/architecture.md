@@ -30,9 +30,48 @@ React PWA ── Nginx same-origin ── FastAPI
 
 Il browser non conosce comandi shell. Gli endpoint ricevono identificatori e
 operazioni tipizzate; directory e profili vengono risolti/validati server-side.
-L’endpoint di creazione espone i profili `shell`, `codex`, `claude` e
-`antigravity`, risolti
+L’endpoint di creazione espone i profili `shell`, `codex`, `claude`,
+`antigravity` e `opencode`, risolti
 in argv costanti server-side.
+
+### OpenCode (profilo TUI)
+
+Il profilo `opencode` avvia il CLI in una login shell (`bash -l -c ...`), come
+gli altri profili agentici: nessun flag lato client entra nell'argv. La
+sessione riceve la policy dei permessi conservativa
+`{"permission":{"bash":"ask","edit":"ask"}}` (letture libere, conferma per
+shell ed edit) come variabile d'ambiente tmux (`OPENCODE_CONFIG_CONTENT`,
+passata via `tmux new-session -e`, mai un file montato sull'host). Questo
+meccanismo non è documentato da OpenCode: un upgrade potrebbe rimuoverlo senza
+preavviso, applicando la policy in silenzio in modo scorretto; è sorvegliato
+da un test automatico dedicato
+(`test_opencode_profile_ships_conservative_permission_policy` in
+`backend/tests/test_tmux_service.py`) che fallisce se la variabile smette di
+essere passata alla sessione. Il profilo di ripresa avvia OpenCode
+normalmente, senza `--continue`: lo store delle conversazioni è globale per
+utente (non per progetto), e `--continue` può agganciare la conversazione di
+un altro progetto (vedi `docs/backlog.md`, `IMP-OC-00`).
+
+**Interruzione.** OpenCode usa il doppio `Escape` per interrompere un turno in
+corso. `C-c` resta nell'allowlist dei tasti come per ogni altro profilo (ADR
+002, terminale generico) e non viene intercettato, ma per questo profilo
+termina l'intero processo OpenCode — e con esso la sessione tmux, perché il
+comando del pane è un `exec` — perdendo la conversazione in corso: un utente
+che vuole solo fermare il turno deve usare il doppio `Escape`, non `C-c`.
+
+**Prerequisito host e binario mancante.** Il binario `opencode` deve essere
+installato e risolvibile nel `PATH` della login shell usata da tmux — non
+necessariamente quello di una shell interattiva, che può differire (vedi
+`docs/backlog.md`, `IMP-OC-00`, per la procedura di installazione verificata
+e pinnata). Senza questa verifica, un binario assente farebbe terminare
+l'unico processo del pane subito dopo l'avvio: la creazione risulterebbe
+comunque riuscita (`201`) e l'unica conseguenza visibile sarebbe la sessione
+che scompare dall'elenco pochi istanti dopo, senza alcun messaggio — il modo
+più probabile in cui questo profilo si rompe su un'installazione diversa da
+quella verificata. L'argv del profilo verifica quindi la risoluzione con
+`command -v` prima di eseguire OpenCode; se il binario manca, stampa un
+messaggio comprensibile nel pane e lascia la sessione viva in una shell di
+login invece di farla sparire.
 
 ## Container e persistenza
 
@@ -47,8 +86,11 @@ scrive metadati JSON atomici in `.agent-snapshots` sotto il workspace
 persistente. Il ripristino ricrea shell con nome e directory salvati. I profili
 Codex e Claude possono soltanto aprire i rispettivi selettori nativi di resume
 tramite comandi costanti server-side. Antigravity viene riavviato con il suo
-launcher costante `agy` e conserva la propria cronologia nel CLI; nessun comando
-client arbitrario viene persistito o eseguito.
+launcher costante `agy` e conserva la propria cronologia nel CLI; OpenCode
+viene riavviato normalmente (senza `--continue`) e la ripresa della
+conversazione giusta resta manuale tramite il suo selettore nativo
+`/sessions` — nessun comando client arbitrario viene persistito o eseguito
+per nessun profilo.
 
 Il database SQLite vive in `.mobile-agent-console/app.db` nella root
 persistente del workspace. L'avvio applica le migrazioni prima di esporre il
@@ -67,8 +109,10 @@ L'archivio conserva soltanto nome, directory, profilo, autore e data. Archiviare
 tmux; il rilancio usa esclusivamente un profilo server-side e rimuove la voce
 dall'archivio dopo la creazione riuscita.
 Per i profili Codex e Claude il rilancio apre il selettore nativo di resume
-tramite comandi costanti server-side; Antigravity rilancia `agy` e la shell
-viene invece ricreata normalmente.
+tramite comandi costanti server-side; Antigravity rilancia `agy` e OpenCode
+riavvia normalmente (senza `--continue`, per lo stesso motivo del profilo di
+ripresa) — in entrambi i casi la shell viene ricreata senza un comando di
+resume dedicato.
 
 Nascondere una sessione è distinto dall'archiviazione: conserva la sessione
 tmux in esecuzione e memorizza solamente il suo identificatore numerico nella

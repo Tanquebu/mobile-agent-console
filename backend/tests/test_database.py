@@ -10,6 +10,34 @@ from app.services.user_service import UserService
 from tests.fakes import FakeTmux
 
 
+def _bootstrapped_client(tmp_path: Path) -> tuple[TestClient, FakeTmux, dict[str, str]]:
+    settings = Settings(
+        login_password="legacy-password-not-used",
+        session_secret="test-session-secret-at-least-16",
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        database_path=str(tmp_path / "app.db"),
+        database_auth_enabled=True,
+        backups_root=str(tmp_path / "backups"),
+        snapshots_root=str(tmp_path / "snapshots"),
+        push_vapid_key_path=str(tmp_path / "vapid.pem"),
+    )
+    fake = FakeTmux()
+    client = TestClient(create_app(settings, fake))
+    database = Database(settings.database_path)
+    database.migrate("/app/alembic.ini")
+    users = UserService(database.engine)
+    users.bootstrap_admin("admin", "a-secure-bootstrap-password")
+    database.dispose()
+    logged_in = client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": "a-secure-bootstrap-password"},
+    )
+    assert logged_in.status_code == 200
+    headers = {"X-CSRF-Token": logged_in.json()["csrf_token"]}
+    return client, fake, headers
+
+
 def test_database_migrates_to_head_and_is_reentrant(tmp_path: Path) -> None:
     database_path = tmp_path / "private" / "app.db"
     database = Database(str(database_path))
@@ -206,3 +234,42 @@ def test_database_auth_bootstrap_and_login(tmp_path: Path) -> None:
         for event in events
     )
     assert all("password" not in str(event).lower() for event in events)
+
+
+def test_archive_and_restore_opencode_session(tmp_path: Path) -> None:
+    # L'unione chiusa dei profili include "opencode" (IMP-OC-01): l'archivio
+    # deve accettarlo, riconoscerlo dal comando osservato e ripristinarlo
+    # senza `--continue` (lo store delle conversazioni e' globale per utente,
+    # vedi IMP-OC-00).
+    client, fake, headers = _bootstrapped_client(tmp_path)
+    created = client.post(
+        "/api/v1/sessions",
+        headers=headers,
+        json={"name": "OpenCode Agent", "directory": "/workspace", "profile": "opencode"},
+    )
+    assert created.status_code == 201
+    session_id = next(
+        item.id for item in fake.sessions.values() if item.name == "OpenCode Agent"
+    )
+
+    archived = client.post(
+        f"/api/v1/sessions/{session_id}/archive",
+        headers=headers,
+        json={"confirmed": True},
+    )
+    assert archived.status_code == 201
+    archive = archived.json()
+    assert archive["profile"] == "opencode"
+    assert session_id not in fake.sessions
+
+    restored = client.post(
+        f"/api/v1/archives/{archive['id']}/restore",
+        headers=headers,
+        json={"confirmed": True},
+    )
+    assert restored.status_code == 201
+    assert fake.created[-1] == ("OpenCode Agent", "/workspace", "opencode", True)
+    assert any(
+        item.name == "OpenCode Agent" and item.current_command == "opencode"
+        for item in fake.sessions.values()
+    )

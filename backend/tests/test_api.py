@@ -676,6 +676,53 @@ def test_snapshot_restore_skips_existing_name(tmp_path) -> None:
     ]
 
 
+def test_snapshot_restore_launches_opencode_without_continue(tmp_path) -> None:
+    # Il ramo "opencode" del restore non deve sparire nel default ("shell"
+    # generico): senza questo ramo la sessione salvata verrebbe ripristinata
+    # come una shell vuota, perdendo il profilo. Nessun testo di ripresa
+    # viene iniettato (niente `--continue`/`--session`): coerente con la
+    # decisione di ROOT in IMP-OC-01.
+    fake = FakeTmux()
+    fake.directory = str(tmp_path)
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+        snapshots_root=str(tmp_path / ".snapshots"),
+    )
+    client = TestClient(create_app(settings, fake))
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+    created = client.post(
+        "/api/v1/snapshots",
+        headers=headers,
+        json={
+            "name": "Before reboot",
+            "sessions": [{"session_id": "1", "mode": "opencode"}],
+        },
+    ).json()
+
+    fake.sessions.clear()
+    restored = client.post(
+        f"/api/v1/snapshots/{created['id']}/restore",
+        headers=headers,
+        json={"confirmed": True},
+    )
+    assert restored.status_code == 200
+    assert restored.json()["results"] == [
+        {
+            "name": "demo",
+            "status": "restored",
+            "detail": "OpenCode launched; resume the conversation from its own /sessions picker",
+        }
+    ]
+    assert fake.created == [("demo", str(tmp_path), "opencode", False)]
+    assert fake.texts == []
+    assert fake.keys == []
+
+
 def test_websocket_auth_and_snapshot() -> None:
     client, _ = client_and_fake()
     with pytest.raises(WebSocketDisconnect) as rejected, client.websocket_connect(
@@ -756,6 +803,14 @@ def test_create_session_requires_allowed_directory() -> None:
     )
     assert antigravity.status_code == 201
     assert any(session.name == "Antigravity Agent" and session.current_command == "agy"
+               for session in fake.sessions.values())
+    opencode = client.post(
+        "/api/v1/sessions",
+        headers=headers,
+        json={"name": "OpenCode Agent", "directory": "/workspace", "profile": "opencode"},
+    )
+    assert opencode.status_code == 201
+    assert any(session.name == "OpenCode Agent" and session.current_command == "opencode"
                for session in fake.sessions.values())
     unsupported = client.post(
         "/api/v1/sessions",

@@ -525,6 +525,10 @@ def create_app(
             return "claude"
         if "agy" in lowered or "antigravity" in lowered:
             return "antigravity"
+        # `pane_current_command` == "opencode", senza wrapper che ne mascheri
+        # il nome — verificato nello spike host TUI (IMP-OC-00).
+        if "opencode" in lowered:
+            return "opencode"
         return "shell"
 
     def audit_actor(request: Request) -> str:
@@ -1373,7 +1377,9 @@ def create_app(
             try:
                 TmuxService.validate_session_id(saved.name)
                 directory, _ = _resolve_within_allowed_roots(saved.directory, roots)
-                profile = "antigravity" if saved.mode == "antigravity" else "shell"
+                profile = (
+                    saved.mode if saved.mode in {"antigravity", "opencode"} else "shell"
+                )
                 await gateway.create_session(saved.name, str(directory), profile)
                 existing_names.add(saved.name)
                 if saved.mode in SNAPSHOT_RESUME_COMMANDS:
@@ -1393,6 +1399,13 @@ def create_app(
                 elif saved.mode == "antigravity":
                     status = "restored"
                     detail = "Antigravity launched; its history is managed by its CLI"
+                elif saved.mode == "opencode":
+                    status = "restored"
+                    # Nessun `--continue`: lo store delle conversazioni e'
+                    # globale per utente e potrebbe agganciare quella
+                    # sbagliata (IMP-OC-00). L'aggancio alla conversazione
+                    # giusta e' materia di OC-02 (selettore nativo).
+                    detail = "OpenCode launched; resume the conversation from its own /sessions picker"
                 else:
                     status = "restored"
                     detail = "Shell restored"

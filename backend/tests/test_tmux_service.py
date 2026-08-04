@@ -1,8 +1,17 @@
 import asyncio
+import subprocess
 
 import pytest
 
-from app.services.tmux_service import SessionNotFound, TmuxError, TmuxPane, TmuxService
+from app.services.tmux_service import (
+    OPENCODE_MISSING_BINARY_MESSAGE,
+    OPENCODE_PERMISSION_POLICY,
+    SessionNotFound,
+    TmuxError,
+    TmuxPane,
+    TmuxService,
+    _missing_binary_shell_command,
+)
 
 
 class Recorder:
@@ -166,6 +175,97 @@ def test_create_session_uses_server_side_resume_profile(
         )
     )
     assert recorder.calls[0][-len(expected) :] == expected
+
+
+def test_opencode_create_and_resume_are_identical_and_do_not_use_continue(
+    monkeypatch,
+) -> None:
+    # Decisione di ROOT (IMP-OC-01): lo store delle conversazioni OpenCode e'
+    # globale per utente, quindi `--continue`/`--session` non vanno usati qui.
+    # Il profilo di ripresa avvia OpenCode esattamente come un avvio nuovo.
+    recorder = Recorder(monkeypatch)
+    asyncio.run(TmuxService("test").create_session("demo", "/workspace", "opencode"))
+    fresh_call = recorder.calls[0]
+
+    recorder.calls.clear()
+    asyncio.run(
+        TmuxService("test").create_session(
+            "demo", "/workspace", "opencode", resume=True
+        )
+    )
+    resume_call = recorder.calls[0]
+
+    assert fresh_call == resume_call
+    assert "--continue" not in fresh_call
+    assert "--session" not in fresh_call
+    assert fresh_call[-2] == "-c"
+    script = fresh_call[-1]
+    assert "opencode" in script
+    assert "--continue" not in script
+
+
+def test_opencode_profile_ships_conservative_permission_policy(monkeypatch) -> None:
+    # Sorveglianza del meccanismo (IMP-OC-01, punto vincolante): se
+    # `OPENCODE_CONFIG_CONTENT` smette di essere passata a `new-session`, la
+    # policy conservativa smette di applicarsi in silenzio. Questo test
+    # fallisce in quel caso, invece di scoprirlo solo su un host reale.
+    recorder = Recorder(monkeypatch)
+    asyncio.run(TmuxService("test").create_session("demo", "/workspace", "opencode"))
+    call = recorder.calls[0]
+    assert "-e" in call
+    env_index = call.index("-e")
+    assert call[env_index + 1] == f"OPENCODE_CONFIG_CONTENT={OPENCODE_PERMISSION_POLICY}"
+    # Letture libere, conferma per shell ed edit: la lettura fedele della
+    # policy "conservativa per le operazioni mutative o esterne" approvata
+    # in GATE-OC-00, scelta dall'utente il 03/08/2026.
+    assert OPENCODE_PERMISSION_POLICY == '{"permission":{"bash":"ask","edit":"ask"}}'
+
+    # Gli altri profili non ricevono questa (o alcuna) variabile: la policy
+    # e' specifica di OpenCode, non un default globale.
+    recorder.calls.clear()
+    asyncio.run(TmuxService("test").create_session("demo", "/workspace", "codex"))
+    assert "-e" not in recorder.calls[0]
+
+
+@pytest.mark.parametrize("binary", ["opencode-does-not-exist-xyz", "definitely-missing"])
+def test_missing_binary_script_reports_and_keeps_pane_alive(binary: str) -> None:
+    # Verifica reale (non mockata) dello script usato da PROFILE_ARGV: senza
+    # questo ramo, un binario assente termina il pane subito e la sessione
+    # tmux sparisce in silenzio (osservato dal vivo il 03/08/2026). Eseguito
+    # direttamente con `bash`, senza tmux: lo script e' puro bash, e questo
+    # binario non esiste su nessun PATH per costruzione, quindi il test non
+    # dipende dall'ambiente in cui gira la suite.
+    message = f"messaggio di test per {binary}"
+    script = _missing_binary_shell_command(binary, message)
+    result = subprocess.run(
+        ["/usr/bin/env", "bash", "--noprofile", "--norc", "-c", script],
+        input=b"",
+        capture_output=True,
+        timeout=5,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert result.stdout.decode() == f"{message}\n"
+
+
+def test_missing_binary_script_runs_the_binary_when_present() -> None:
+    # Ramo positivo dello stesso script: un binario risolvibile (`true`,
+    # sempre presente) viene eseguito, nessun messaggio stampato.
+    script = _missing_binary_shell_command("true", "non dovrebbe mai comparire")
+    result = subprocess.run(
+        ["/usr/bin/env", "bash", "-c", script],
+        capture_output=True,
+        timeout=5,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert result.stdout == b""
+    assert result.stderr == b""
+
+
+def test_opencode_missing_binary_message_is_the_one_shipped() -> None:
+    assert "opencode" in OPENCODE_MISSING_BINARY_MESSAGE.lower()
+    assert "docs/architecture.md" in OPENCODE_MISSING_BINARY_MESSAGE
 
 
 def test_create_session_rejects_unknown_profile(monkeypatch) -> None:

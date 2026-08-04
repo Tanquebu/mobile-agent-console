@@ -128,9 +128,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Antigravity (agy) promosso ad agente",
+  title: "Profilo OpenCode",
   description:
-    "Le sessioni AGY ora hanno la barra stato, la vista Blocchi, i comandi rapidi, il pulsante permessi (Shift-Tab), il resume con agy -c e il match rate limit indipendente.",
+    "Nuovo profilo di sessione OpenCode (TUI in tmux, come Codex/Claude/Antigravity): policy permessi conservativa consegnata via ambiente, ripresa senza --continue, doppio Escape per interrompere. Vista Terminale soltanto, in attesa che lo stato agente venga esteso.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -727,6 +727,7 @@ function suggestedSnapshotMode(session: Session): SnapshotMode {
   if (command.includes("codex")) return "codex";
   if (command.includes("claude")) return "claude";
   if (command.includes("agy") || command.includes("antigravity")) return "antigravity";
+  if (command.includes("opencode")) return "opencode";
   return "shell";
 }
 
@@ -878,6 +879,7 @@ function SnapshotModal({
                     <option value="codex">Codex: selettore resume</option>
                     <option value="claude">Claude: selettore resume</option>
                     <option value="antigravity">Antigravity: avvia agy</option>
+                    <option value="opencode">OpenCode: avvia normalmente</option>
                     <option value="manual">Rilancio manuale</option>
                   </select>
                 </div>
@@ -2611,7 +2613,7 @@ function SessionList({
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [directory, setDirectory] = useState("");
-  const [profile, setProfile] = useState<"shell" | "codex" | "claude" | "antigravity">("shell");
+  const [profile, setProfile] = useState<"shell" | "codex" | "claude" | "antigravity" | "opencode">("shell");
   const [presets, setPresets] = useState<[string, string][]>([]);
   const [customDirectory, setCustomDirectory] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -3038,12 +3040,13 @@ function SessionList({
         <select
           aria-label="Profilo sessione"
           value={profile}
-          onChange={(event) => setProfile(event.target.value as "shell" | "codex" | "claude" | "antigravity")}
+          onChange={(event) => setProfile(event.target.value as "shell" | "codex" | "claude" | "antigravity" | "opencode")}
         >
           <option value="shell">Shell</option>
           <option value="codex">Codex</option>
           <option value="claude">Claude</option>
           <option value="antigravity">Antigravity (agy)</option>
+          <option value="opencode">OpenCode</option>
         </select>
         <button type="submit">Crea sessione</button>
       </form>}

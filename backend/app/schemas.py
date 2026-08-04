@@ -184,7 +184,7 @@ class RenameSessionInput(BaseModel):
 
 class SnapshotSelectionInput(BaseModel):
     session_id: str = Field(pattern=r"^\d{1,10}$")
-    mode: Literal["shell", "codex", "claude", "antigravity", "manual"]
+    mode: Literal["shell", "codex", "claude", "antigravity", "opencode", "manual"]
 
 
 class CreateSnapshotInput(BaseModel):
@@ -202,7 +202,7 @@ class CreateSnapshotInput(BaseModel):
 class SnapshotSessionView(BaseModel):
     name: str
     directory: str
-    mode: Literal["shell", "codex", "claude", "antigravity", "manual"]
+    mode: Literal["shell", "codex", "claude", "antigravity", "opencode", "manual"]
     observed_command: str
 
 
@@ -248,7 +248,7 @@ class ArchivedSessionView(BaseModel):
     id: str
     name: str
     directory: str
-    profile: Literal["shell", "codex", "claude", "antigravity"]
+    profile: Literal["shell", "codex", "claude", "antigravity", "opencode"]
     archived_by: str
     archived_at: datetime
 
@@ -305,7 +305,7 @@ class UserStatusInput(BaseModel):
 class CreateSessionInput(BaseModel):
     name: str = Field(pattern=r"^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$", max_length=64)
     directory: str = Field(min_length=1, max_length=4096)
-    profile: Literal["shell", "codex", "claude", "antigravity"] = "shell"
+    profile: Literal["shell", "codex", "claude", "antigravity", "opencode"] = "shell"
 
     @field_validator("name", mode="before")
     @classmethod
