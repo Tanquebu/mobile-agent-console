@@ -3701,7 +3701,7 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   era ancora locale, e la differenza non è stata la fortuna: è stata la
   verifica indipendente.
 
-- [ ] TEST-OC-01-T2 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Sbloccato da
+- [x] TEST-OC-01-T2 | OWNER: SA-TEST | STATUS: PASSED | Sbloccato da
   `IMP-OC-01-R1`. Rework documentale: verificare che il nome del progetto
   privato non compaia in **nessun** file versionato né nella storia dei commit
   non ancora pubblicati, che la rettifica sia presente in `IMP-OC-01`, e che
@@ -3710,6 +3710,24 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   validi dal tentativo precedente. Verificare inoltre, con un'ispezione del
   diff e non solo con il comando di riferimento, che non siano rimasti altri
   nomi propri riconducibili all'infrastruttura personale dell'utente.
+  **Esito (`SA-TEST`, 04/08/2026).** `PASSED`. Il nome non compare in alcun
+  file versionato né in alcun punto della storia pubblicata, verificato con
+  due metodi indipendenti: il pickaxe di `git log -S` su tutta la storia
+  raggiungibile da `origin/main`, e una scansione esaustiva **a livello di
+  blob** — enumerati 945 blob distinti, cioè ogni versione di ogni file mai
+  committata in questa storia, e ispezionato il contenuto di ciascuno. Il
+  secondo metodo copre il caso che il pickaxe potrebbe non centrare. `ROOT` ha
+  rieseguito entrambi in modo indipendente ottenendo gli stessi numeri.
+  La rettifica in `IMP-OC-01` è una ritrattazione esplicita, non una
+  cancellazione silenziosa. Il paragrafo sull'anomalia resta comprensibile:
+  la generalizzazione ha tolto il nome ma ha lasciato i dettagli concreti che
+  ancorano il ragionamento. Nessun altro nome proprio dell'infrastruttura
+  personale nei due commit pubblicati, verificato incrociando l'elenco dei
+  venti progetti dei preset di workspace contro entrambi i diff. Suite backend
+  296 con Ruff pulito; frontend e collector host assunti validi dal tentativo
+  precedente, dopo aver verificato che il rework tocca **solo**
+  `docs/backlog.md`.
+  **Fase `OC-01` chiusa.** `IMP-OC-02` passa a `READY`.
 
 #### OC-UX-01 — I dialog di autorizzazione non sono navigabili dall'app
 
@@ -3770,7 +3788,10 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
 
 #### OC-02 — Archivio e snapshot
 
-- [ ] IMP-OC-02 | OWNER: SA-IMP | STATUS: BLOCKED | Sbloccato da `OC-01`.
+- [ ] IMP-OC-02 | OWNER: SA-IMP | STATUS: READY | Sbloccato da `OC-01`
+  (`TEST-OC-01-T2` `PASSED`). **Non chiudibile senza `OC-CAP-01`**: questa
+  fase assume che aprire sessioni sia economico, e quel costo non e' ancora
+  stato misurato.
   Estendere archivio, snapshot e restore preservando la semantica già offerta
   agli altri profili. Usare inizialmente il **selettore nativo delle sessioni**
   (strategia B dell'analisi): è la scelta prudente per il primo rilascio e non
