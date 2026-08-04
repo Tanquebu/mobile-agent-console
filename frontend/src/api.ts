@@ -92,6 +92,11 @@ export async function restoreSession(): Promise<Identity> {
   return { username: body.username, role: body.role };
 }
 
+export async function logout(): Promise<void> {
+  await request("/api/v1/auth/logout", { method: "POST" });
+  csrfToken = "";
+}
+
 export type UserAccount = {
   username: string;
   role: Role;

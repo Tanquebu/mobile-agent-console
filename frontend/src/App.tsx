@@ -40,6 +40,7 @@ import {
   FileContent,
   errorMessage,
   login,
+  logout,
   Identity,
   HostComponent,
   HostObservabilitySnapshot,
@@ -90,6 +91,8 @@ import {
   UserAccount,
 } from "./api";
 
+import { Language, readLanguage, writeLanguage, translations } from "./i18n";
+
 function useOnlineStatus(): boolean {
   const [online, setOnline] = useState(() => navigator.onLine);
   useEffect(() => {
@@ -128,9 +131,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Profilo OpenCode",
+  title: "Layer di traduzione (i18n)",
   description:
-    "Nuovo profilo di sessione OpenCode (TUI in tmux, come Codex/Claude/Antigravity): policy permessi conservativa consegnata via ambiente, ripresa senza --continue, doppio Escape per interrompere. Vista Terminale soltanto, in attesa che lo stato agente venga esteso.",
+    "Layer di internazionalizzazione con supporto per lingua Italiana e Inglese (en/it). È ora possibile selezionare la lingua desiderata dal pannello Preferenze.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -195,27 +198,31 @@ const PERMISSION_STATE_ICON: Record<AgentStatus["permission_state"], string> = {
   unknown: "◇",
 };
 
-const AGENT_STATE_LEGEND: Array<[AgentStatus["state"], string]> = [
-  ["active", "In elaborazione"],
-  ["idle", "Completato o inattivo"],
-  ["waiting_input", "Attende feedback"],
-  ["waiting_authorization", "Attende autorizzazione"],
-  ["unknown", "Stato non rilevato"],
-];
+function getAgentStateLegend(): Array<[AgentStatus["state"], string]> {
+  const t = translations[readLanguage()];
+  return [
+    ["active", t.stateActive],
+    ["idle", t.stateIdle],
+    ["waiting_input", t.stateWaitingInput],
+    ["waiting_authorization", t.stateWaitingAuth],
+    ["unknown", t.stateUnknown],
+  ];
+}
 
-const PERMISSION_STATE_LEGEND: Array<
-  [AgentStatus["permission_state"], string]
-> = [
-  ["restricted", "Sola lettura"],
-  ["ask", "Chiede approvazione"],
-  ["auto", "Auto"],
-  ["manual", "Manuale"],
-  ["accept_edits", "Accetta modifiche"],
-  ["dont_ask", "Non chiedere"],
-  ["plan", "Plan mode"],
-  ["bypass", "Accesso completo"],
-  ["unknown", "Non rilevato"],
-];
+function getPermissionStateLegend(): Array<[AgentStatus["permission_state"], string]> {
+  const t = translations[readLanguage()];
+  return [
+    ["restricted", t.permRestricted],
+    ["ask", t.permAsk],
+    ["auto", t.permAuto],
+    ["manual", t.permManual],
+    ["accept_edits", t.permAcceptEdits],
+    ["dont_ask", t.permDontAsk],
+    ["plan", t.permPlan],
+    ["bypass", t.permBypass],
+    ["unknown", t.permUnknown],
+  ];
+}
 
 type ChatBlockKind = "user" | "agent" | "activity";
 
@@ -393,18 +400,26 @@ function isDownloadable(name: string): boolean {
   return DOWNLOADABLE_FILE.test(name);
 }
 
-function FilePreview({ sessionId, path, onBack }: { sessionId: string; path: string; onBack: () => void }) {
+function FileModal({
+  sessionId,
+  path,
+  onBack,
+}: {
+  sessionId: string;
+  path: string;
+  onBack: () => void;
+}) {
   const [file, setFile] = useState<FileContent | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const t = translations[readLanguage()];
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError("");
-    setFile(null);
     fetchFile(sessionId, path)
-      .then((result) => { if (!cancelled) setFile(result); })
+      .then((value) => { if (!cancelled) setFile(value); })
       .catch((value) => { if (!cancelled) setError(errorMessage(value)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -414,17 +429,17 @@ function FilePreview({ sessionId, path, onBack }: { sessionId: string; path: str
     <>
       <header>
         <div>
-          <span className="eyebrow">FILE (SOLA LETTURA)</span>
+          <span className="eyebrow">{t.readOnlyFile}</span>
           <h2 className="directory-path" title={path}>{path}</h2>
         </div>
-        <button className="modal-close" onClick={onBack} aria-label="Torna all'elenco">‹</button>
+        <button className="modal-close" onClick={onBack} aria-label={t.backToList}>‹</button>
       </header>
-      {loading && <p className="empty">Caricamento…</p>}
+      {loading && <p className="empty">{t.loading}</p>}
       {error && <p className="error">{error}</p>}
       {!loading && !error && file && (
         <>
-          <pre className="file-preview">{file.content || "(file vuoto)"}</pre>
-          {file.truncated && <small>Anteprima troncata: il file continua oltre quanto mostrato.</small>}
+          <pre className="file-preview">{file.content || t.emptyFile}</pre>
+          {file.truncated && <small>{t.truncatedPreview}</small>}
         </>
       )}
     </>
@@ -499,15 +514,15 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     >
       <section className="help-modal directory-modal" role="dialog" aria-modal="true" aria-labelledby="directory-title">
         {openFile !== null ? (
-          <FilePreview sessionId={sessionId} path={openFile} onBack={() => setOpenFile(null)} />
+          <FileModal sessionId={sessionId} path={openFile} onBack={() => setOpenFile(null)} />
         ) : (
           <>
             <header>
               <div>
-                <span className="eyebrow">CONTENUTO DIRECTORY</span>
+                <span className="eyebrow">{translations[readLanguage()].directoryContent}</span>
                 <h2 id="directory-title" className="directory-path" title={listing?.path}>{listing?.path ?? "…"}</h2>
               </div>
-              <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+              <button className="modal-close" onClick={onClose} aria-label={translations[readLanguage()].close}>×</button>
             </header>
             {listing && (
               <div className="directory-nav">
@@ -527,7 +542,7 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                 </button>
               </div>
             )}
-            {loading && <p className="empty">Caricamento…</p>}
+            {loading && <p className="empty">{translations[readLanguage()].loading}</p>}
             {error && <p className="error">{error}</p>}
             {!loading && !error && listing && (
               <>
@@ -547,7 +562,7 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                         <span className="directory-meta">{formatSize(entry.size)} · {formatDate(entry.created_at)}</span>
                       </button>
                       <button type="button" className="directory-copy" onClick={() => void copy(entry)}>
-                        {copiedName === entry.name ? "Copiato" : "Copy"}
+                        {copiedName === entry.name ? translations[readLanguage()].copied : "Copy"}
                       </button>
                       {entry.type === "file" && isDownloadable(entry.name) && (
                         <button
@@ -560,7 +575,7 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                       )}
                     </li>
                   ))}
-                  {listing.entries.length === 0 && <li className="empty">Directory vuota.</li>}
+                  {listing.entries.length === 0 && <li className="empty">{translations[readLanguage()].emptyDirectory}</li>}
                 </ul>
                 {listing.truncated && <small>Elenco troncato alle prime 2000 voci.</small>}
               </>
@@ -686,12 +701,12 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
           <>
             <header>
               <div>
-                <span className="eyebrow">ARTEFATTI CONSEGNATI DALL'AGENTE</span>
-                <h2 id="artifacts-title" className="directory-path">Sessione {sessionId}</h2>
+                <span className="eyebrow">{translations[readLanguage()].artifactsTitle}</span>
+                <h2 id="artifacts-title" className="directory-path">{translations[readLanguage()].sessions} {sessionId}</h2>
               </div>
-              <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+              <button className="modal-close" onClick={onClose} aria-label={translations[readLanguage()].close}>×</button>
             </header>
-            {loading && <p className="empty">Caricamento…</p>}
+            {loading && <p className="empty">{translations[readLanguage()].loading}</p>}
             {error && <p className="error">{error}</p>}
             {!loading && !error && (
               <ul className="directory-list">
@@ -712,7 +727,7 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                     </button>
                   </li>
                 ))}
-                {items.length === 0 && <li className="empty">Nessun artefatto consegnato in questa sessione.</li>}
+                {items.length === 0 && <li className="empty">{translations[readLanguage()].noArtifacts}</li>}
               </ul>
             )}
           </>
@@ -836,15 +851,15 @@ function SnapshotModal({
       <section className="help-modal snapshot-modal" role="dialog" aria-modal="true" aria-labelledby="snapshot-title">
         <header>
           <div>
-            <span className="eyebrow">RIAVVIO VPS</span>
-            <h2 id="snapshot-title">Snapshot sessioni</h2>
+            <span className="eyebrow">{translations[readLanguage()].vpsRestart}</span>
+            <h2 id="snapshot-title">{translations[readLanguage()].snapshots}</h2>
           </div>
-          <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+          <button className="modal-close" onClick={onClose} aria-label={translations[readLanguage()].close}>×</button>
         </header>
 
         <form className="snapshot-create" onSubmit={(event) => void saveSnapshot(event)}>
           <label>
-            Nome snapshot
+            Name
             <input required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} />
           </label>
           <div className="snapshot-session-list">
@@ -875,31 +890,31 @@ function SnapshotModal({
                       [session.id]: event.target.value as SnapshotMode,
                     }))}
                   >
-                    <option value="shell">Solo shell</option>
-                    <option value="codex">Codex: selettore resume</option>
-                    <option value="claude">Claude: selettore resume</option>
-                    <option value="antigravity">Antigravity: avvia agy</option>
-                    <option value="opencode">OpenCode: avvia normalmente</option>
-                    <option value="manual">Rilancio manuale</option>
+                    <option value="shell">Shell</option>
+                    <option value="codex">Codex</option>
+                    <option value="claude">Claude</option>
+                    <option value="antigravity">Antigravity</option>
+                    <option value="opencode">OpenCode</option>
+                    <option value="manual">Manual</option>
                   </select>
                 </div>
               );
             })}
-            {sessions.length === 0 && <p className="empty">Nessuna sessione attiva da salvare.</p>}
+            {sessions.length === 0 && <p className="empty">{translations[readLanguage()].noSessionsToSave}</p>}
           </div>
           <button type="submit" disabled={saving || sessions.length === 0}>
-            {saving ? "Salvataggio…" : "Crea snapshot"}
+            {saving ? translations[readLanguage()].loading : translations[readLanguage()].snapshots}
           </button>
         </form>
 
         <div className="snapshot-existing">
-          <h3>Snapshot salvati</h3>
-          {loading && <p className="empty">Caricamento…</p>}
+          <h3>{translations[readLanguage()].snapshots}</h3>
+          {loading && <p className="empty">{translations[readLanguage()].loading}</p>}
           {!loading && snapshots.map((item) => (
             <article className="snapshot-card" key={item.id}>
               <div>
                 <strong>{item.name}</strong>
-                <small>{new Date(item.created_at).toLocaleString()} · {item.sessions.length} sessioni</small>
+                <small>{new Date(item.created_at).toLocaleString()} · {item.sessions.length} {translations[readLanguage()].sessions}</small>
               </div>
               <ul>
                 {item.sessions.map((session) => (
@@ -910,15 +925,15 @@ function SnapshotModal({
               </ul>
               <div className="snapshot-actions">
                 <button disabled={busyId === item.id} onClick={() => void restore(item)}>
-                  Ripristina
+                  {translations[readLanguage()].restore}
                 </button>
                 <button className="danger" disabled={busyId === item.id} onClick={() => void remove(item)}>
-                  Elimina
+                  {translations[readLanguage()].delete}
                 </button>
               </div>
             </article>
           ))}
-          {!loading && snapshots.length === 0 && <p className="empty">Nessuno snapshot salvato.</p>}
+          {!loading && snapshots.length === 0 && <p className="empty">{translations[readLanguage()].noSnapshots}</p>}
         </div>
         {restoreReport.length > 0 && (
           <div className="snapshot-report" role="status">
@@ -988,26 +1003,26 @@ function ArchiveModal({
     }}>
       <section className="help-modal snapshot-modal" role="dialog" aria-modal="true" aria-labelledby="archive-title">
         <header>
-          <div><span className="eyebrow">METADATI SESSIONI</span><h2 id="archive-title">Archivio</h2></div>
-          <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+          <div><span className="eyebrow">{translations[readLanguage()].sessionMetadata}</span><h2 id="archive-title">{translations[readLanguage()].archivedSessions}</h2></div>
+          <button className="modal-close" onClick={onClose} aria-label={translations[readLanguage()].close}>×</button>
         </header>
         <div className="snapshot-existing">
-          {loading && <p className="empty">Caricamento…</p>}
+          {loading && <p className="empty">{translations[readLanguage()].loading}</p>}
           {!loading && archives.map((item) => (
             <article className="snapshot-card" key={item.id}>
               <div>
                 <strong>{item.name}</strong>
                 <small>{item.profile} · {new Date(item.archived_at).toLocaleString()}</small>
                 <small>{item.directory}</small>
-                <small>Archiviata da {item.archived_by}</small>
+                <small>Archived by {item.archived_by}</small>
               </div>
               <div className="snapshot-actions">
-                <button disabled={busyId === item.id} onClick={() => void restore(item)}>Rilancia</button>
-                <button className="danger" disabled={busyId === item.id} onClick={() => void remove(item)}>Elimina</button>
+                <button disabled={busyId === item.id} onClick={() => void restore(item)}>{translations[readLanguage()].restore}</button>
+                <button className="danger" disabled={busyId === item.id} onClick={() => void remove(item)}>{translations[readLanguage()].delete}</button>
               </div>
             </article>
           ))}
-          {!loading && archives.length === 0 && <p className="empty">Nessuna sessione archiviata.</p>}
+          {!loading && archives.length === 0 && <p className="empty">{translations[readLanguage()].noArchivedSessions}</p>}
         </div>
         {error && <p className="error">{error}</p>}
       </section>
@@ -1049,8 +1064,8 @@ function HiddenSessionsModal({
     }}>
       <section className="help-modal snapshot-modal" role="dialog" aria-modal="true" aria-labelledby="hidden-sessions-title">
         <header>
-          <div><span className="eyebrow">DASHBOARD</span><h2 id="hidden-sessions-title">Sessioni nascoste</h2></div>
-          <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+          <div><span className="eyebrow">DASHBOARD</span><h2 id="hidden-sessions-title">{translations[readLanguage()].hiddenSessions}</h2></div>
+          <button className="modal-close" onClick={onClose} aria-label={translations[readLanguage()].close}>×</button>
         </header>
         <div className="snapshot-existing">
           {sessions.map((session) => (
@@ -1060,12 +1075,12 @@ function HiddenSessionsModal({
                 <small>{session.current_command} · {session.windows} window</small>
               </div>
               <div className="snapshot-actions">
-                <button onClick={() => { onOpen(session); onClose(); }}>Apri</button>
-                {canManage && <button disabled={busyId === session.id} onClick={() => void restore(session)}>Mostra</button>}
+                <button onClick={() => { onOpen(session); onClose(); }}>Open</button>
+                {canManage && <button disabled={busyId === session.id} onClick={() => void restore(session)}>Show</button>}
               </div>
             </article>
           ))}
-          {sessions.length === 0 && <p className="empty">Nessuna sessione nascosta.</p>}
+          {sessions.length === 0 && <p className="empty">{translations[readLanguage()].noHiddenSessions}</p>}
         </div>
         {error && <p className="error">{error}</p>}
       </section>
@@ -1077,12 +1092,17 @@ function PreferencesModal({
   onClose,
   dashboardDensity,
   onDashboardDensityChange,
+  language,
+  onLanguageChange,
 }: {
   onClose: () => void;
   dashboardDensity: DashboardDensity;
   onDashboardDensityChange: (density: DashboardDensity) => void;
+  language: Language;
+  onLanguageChange: (lang: Language) => void;
 }) {
   const [defaultView, setDefaultView] = useState<"blocks" | "terminal">(readDefaultAgentView());
+  const t = translations[language];
 
   function choose(view: "blocks" | "terminal") {
     setDefaultView(view);
@@ -1095,11 +1115,32 @@ function PreferencesModal({
     }}>
       <section className="help-modal preferences-modal" role="dialog" aria-modal="true" aria-labelledby="preferences-title">
         <header>
-          <div><span className="eyebrow">CONSOLE</span><h2 id="preferences-title">Preferenze</h2></div>
-          <button className="modal-close" onClick={onClose} aria-label="Chiudi">×</button>
+          <div><span className="eyebrow">CONSOLE</span><h2 id="preferences-title">{t.settings}</h2></div>
+          <button className="modal-close" onClick={onClose} aria-label={t.close}>×</button>
         </header>
         <fieldset className="preference-field">
-          <legend>Vista predefinita per le sessioni Codex/Claude</legend>
+          <legend>{t.language}</legend>
+          <label>
+            <input
+              type="radio"
+              name="app-language"
+              checked={language === "it"}
+              onChange={() => onLanguageChange("it")}
+            />
+            {t.italian}
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="app-language"
+              checked={language === "en"}
+              onChange={() => onLanguageChange("en")}
+            />
+            {t.english}
+          </label>
+        </fieldset>
+        <fieldset className="preference-field">
+          <legend>{t.defaultView}</legend>
           <label>
             <input
               type="radio"
@@ -1107,7 +1148,7 @@ function PreferencesModal({
               checked={defaultView === "blocks"}
               onChange={() => choose("blocks")}
             />
-            Blocchi
+            {t.blocksView}
           </label>
           <label>
             <input
@@ -1116,11 +1157,11 @@ function PreferencesModal({
               checked={defaultView === "terminal"}
               onChange={() => choose("terminal")}
             />
-            Terminale
+            {t.terminalView}
           </label>
         </fieldset>
         <fieldset className="preference-field">
-          <legend>Dashboard</legend>
+          <legend>{t.dashboardDensity}</legend>
           <label>
             <input
               type="radio"
@@ -1128,7 +1169,7 @@ function PreferencesModal({
               checked={dashboardDensity === "extended"}
               onChange={() => onDashboardDensityChange("extended")}
             />
-            Estesa
+            {t.extended}
           </label>
           <label>
             <input
@@ -1137,7 +1178,7 @@ function PreferencesModal({
               checked={dashboardDensity === "compact"}
               onChange={() => onDashboardDensityChange("compact")}
             />
-            Compatta
+            {t.compact}
           </label>
         </fieldset>
         <p className="empty">
@@ -2604,9 +2645,11 @@ function HostView({ onBack }: { onBack: () => void }) {
 function SessionList({
   onOpen,
   identity,
+  onLogout,
 }: {
   onOpen: (session: Session) => void;
   identity: Identity;
+  onLogout: () => void;
 }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [error, setError] = useState("");
@@ -2636,7 +2679,14 @@ function SessionList({
   const [sessionTimelineEnabled, setSessionTimelineEnabled] = useState(false);
   const budgetTriggerRef = useRef<HTMLButtonElement>(null);
   const [dashboardDensity, setDashboardDensity] = useState<DashboardDensity>(readDashboardDensity);
+  const [language, setLanguage] = useState<Language>(readLanguage);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
+
+  function chooseLanguage(lang: Language) {
+    writeLanguage(lang);
+    setLanguage(lang);
+  }
+  const t = translations[language];
   const [providerLimits, setProviderLimits] = useState<ProviderRateLimits | null>(null);
   const [orchestratorState, setOrchestratorState] = useState<OrchestratorState | null>(null);
   const [agentStatusBySession, setAgentStatusBySession] = useState<Record<string, AgentStatus>>({});
@@ -2656,7 +2706,7 @@ function SessionList({
     return dashboardSessions.filter((session) => {
       const status = agentStatusBySession[session.id];
       const stateLabel = status
-        ? AGENT_STATE_LEGEND.find(([state]) => state === status.state)?.[1]
+        ? getAgentStateLegend().find(([state]) => state === status.state)?.[1]
         : undefined;
       const haystack = [
         session.name,
@@ -2928,9 +2978,9 @@ function SessionList({
   return (
     <main className={`shell ${compactDashboard ? "compact-dashboard" : ""}`}>
       <header className="topbar">
-        <div><span className="eyebrow">TMUX / PRIVATE NETWORK</span><h1>Sessions</h1></div>
+        <div><span className="eyebrow">TMUX / PRIVATE NETWORK</span><h1>{t.sessions}</h1></div>
         <div className="topbar-actions">
-          <button className="help-button" onClick={() => setShowHelp(true)} aria-label="Apri guida">
+          <button className="help-button" onClick={() => setShowHelp(true)} aria-label="Help">
             ?
           </button>
           <span className="count">
@@ -2943,10 +2993,10 @@ function SessionList({
           <button
             className="new-session"
             onClick={() => setCreating((value) => !value)}
-            aria-label={compactDashboard ? "Nuova sessione" : undefined}
-            title={compactDashboard ? "Nuova sessione" : undefined}
+            aria-label={compactDashboard ? t.newSession : undefined}
+            title={compactDashboard ? t.newSession : undefined}
           >
-            {compactDashboard ? "＋" : "+ Nuova sessione"}
+            {compactDashboard ? "＋" : `+ ${t.newSession}`}
           </button>
         )}
         {notifySupported && (
@@ -2960,42 +3010,48 @@ function SessionList({
                 : "Avvisa quando una sessione attende feedback o autorizzazione, anche ad app chiusa"
             }
           >
-            {compactDashboard ? (notifyEnabled ? "🔔" : "🔕") : (notifyEnabled ? "Notifiche: on" : "Notifiche: off")}
+            {compactDashboard ? (notifyEnabled ? "🔔" : "🔕") : (notifyEnabled ? t.notificationsOn : t.notificationsOff)}
           </button>
         )}
         <button
           className="snapshot-button dashboard-more-actions"
           aria-expanded={showDashboardActions}
           aria-controls="dashboard-secondary-actions"
-          aria-label={compactDashboard ? (showDashboardActions ? "Nascondi altre azioni" : "Mostra altre azioni") : undefined}
-          title={compactDashboard ? (showDashboardActions ? "Meno azioni" : "Altre azioni") : undefined}
+          aria-label={compactDashboard ? (showDashboardActions ? t.lessActions : t.moreActions) : undefined}
+          title={compactDashboard ? (showDashboardActions ? t.lessActions : t.moreActions) : undefined}
           onClick={() => setShowDashboardActions((value) => !value)}
         >
-          {compactDashboard ? "⋯" : (showDashboardActions ? "Meno azioni" : "Altre azioni")}
+          {compactDashboard ? "⋯" : (showDashboardActions ? t.lessActions : t.moreActions)}
         </button>
       </div>
       {showDashboardActions && (
-        <div className="dashboard-secondary-actions" id="dashboard-secondary-actions" role="group" aria-label="Altre azioni">
-          <button className="snapshot-button" onClick={() => setShowPreferences(true)} aria-label="Preferenze" title="Preferenze">{compactDashboard ? "⚙" : "Preferenze"}</button>
+        <div className="dashboard-secondary-actions" id="dashboard-secondary-actions" role="group" aria-label={t.moreActions}>
+          <button className="snapshot-button" onClick={() => setShowPreferences(true)} aria-label={t.settings} title={t.settings}>{compactDashboard ? "⚙" : t.settings}</button>
+          <button className="snapshot-button" onClick={async () => {
+            try {
+              await logout();
+            } catch { /* session clearance on failure */ }
+            onLogout();
+          }} aria-label={t.logout} title={t.logout}>{compactDashboard ? "⎋" : t.logout}</button>
           {identity.role !== "viewer" && (
-            <button className="snapshot-button" onClick={() => setShowSnapshots(true)} aria-label="Snapshot" title="Snapshot">{compactDashboard ? "◫" : "Snapshot"}</button>
+            <button className="snapshot-button" onClick={() => setShowSnapshots(true)} aria-label={t.snapshots} title={t.snapshots}>{compactDashboard ? "◫" : t.snapshots}</button>
           )}
           {identity.role !== "viewer" && (
-            <button className="snapshot-button" onClick={() => setShowArchives(true)} aria-label="Archivio" title="Archivio">{compactDashboard ? "▣" : "Archivio"}</button>
+            <button className="snapshot-button" onClick={() => setShowArchives(true)} aria-label={t.archivedSessions} title={t.archivedSessions}>{compactDashboard ? "▣" : t.archivedSessions}</button>
           )}
-          <button className="snapshot-button" onClick={() => setShowHiddenSessions(true)} aria-label="Sessioni nascoste" title="Sessioni nascoste">{compactDashboard ? "◌" : "Sessioni nascoste"}</button>
-          <button ref={budgetTriggerRef} className="snapshot-button" onClick={() => setShowBudget(true)} aria-label="Budget" title="Budget">{compactDashboard ? "◔" : "Budget"}</button>
+          <button className="snapshot-button" onClick={() => setShowHiddenSessions(true)} aria-label={t.hiddenSessions} title={t.hiddenSessions}>{compactDashboard ? "◌" : t.hiddenSessions}</button>
+          <button ref={budgetTriggerRef} className="snapshot-button" onClick={() => setShowBudget(true)} aria-label={t.budget} title={t.budget}>{compactDashboard ? "◔" : t.budget}</button>
           {identity.role === "admin" && (
-            <button className="snapshot-button" onClick={() => setShowUsers(true)} aria-label="Utenti" title="Utenti">{compactDashboard ? "♟" : "Utenti"}</button>
-          )}
-          {identity.role === "admin" && (
-            <button className="snapshot-button" onClick={() => setShowAudit(true)} aria-label="Audit" title="Audit">{compactDashboard ? "≡" : "Audit"}</button>
+            <button className="snapshot-button" onClick={() => setShowUsers(true)} aria-label={t.users} title={t.users}>{compactDashboard ? "♟" : t.users}</button>
           )}
           {identity.role === "admin" && (
-            <button className="snapshot-button" onClick={() => setShowBackups(true)} aria-label="Backup" title="Backup">{compactDashboard ? "⇩" : "Backup"}</button>
+            <button className="snapshot-button" onClick={() => setShowAudit(true)} aria-label={t.auditLogs} title={t.auditLogs}>{compactDashboard ? "≡" : t.auditLogs}</button>
+          )}
+          {identity.role === "admin" && (
+            <button className="snapshot-button" onClick={() => setShowBackups(true)} aria-label={t.backups} title={t.backups}>{compactDashboard ? "⇩" : t.backups}</button>
           )}
           {identity.role === "admin" && hostObservabilityEnabled && (
-            <button ref={hostTriggerRef} className="snapshot-button" onClick={() => setShowHost(true)} aria-label="Osservabilità host" title="Osservabilità host">{compactDashboard ? "▥" : "Host"}</button>
+            <button ref={hostTriggerRef} className="snapshot-button" onClick={() => setShowHost(true)} aria-label={t.host} title={t.host}>{compactDashboard ? "▥" : t.host}</button>
           )}
         </div>
       )}
@@ -3209,7 +3265,7 @@ function SessionList({
         <section>
           <strong>Stato agente</strong>
           <div>
-            {AGENT_STATE_LEGEND.map(([state, label]) => (
+            {getAgentStateLegend().map(([state, label]) => (
               <span key={state}>
                 <i className={`agent-state ${state}`} aria-hidden="true">
                   {AGENT_STATE_ICON[state]}
@@ -3222,7 +3278,7 @@ function SessionList({
         <section>
           <strong>Permessi</strong>
           <div>
-            {PERMISSION_STATE_LEGEND.map(([state, label]) => (
+            {getPermissionStateLegend().map(([state, label]) => (
               <span key={state}>
                 <i className={`permission-state ${state}`} aria-hidden="true">
                   {PERMISSION_STATE_ICON[state]}
@@ -3291,6 +3347,8 @@ function SessionList({
           onClose={() => setShowPreferences(false)}
           dashboardDensity={dashboardDensity}
           onDashboardDensityChange={chooseDashboardDensity}
+          language={language}
+          onLanguageChange={chooseLanguage}
         />
       )}
       {showArchives && (
@@ -3954,7 +4012,7 @@ function Console({
           {ownStatus && (
             <span className="agent-info-state" title={`${ownStatus.provider}: ${ownStatus.detail}`}>
               <i className={`agent-state ${ownStatus.state}`}>{AGENT_STATE_ICON[ownStatus.state]}</i>
-              {ownStatus.detail}
+              {getAgentStateLegend().find(([st]) => st === ownStatus.state)?.[1] ?? ownStatus.detail}
             </span>
           )}
           {ownStatus?.context_used_percent != null && (
@@ -3991,10 +4049,10 @@ function Console({
             if (event.target === event.currentTarget) setShowSwitcher(false);
           }}
         >
-          <section className="session-switcher" role="dialog" aria-modal="true" aria-label="Cambia sessione">
+          <section className="session-switcher" role="dialog" aria-modal="true" aria-label={translations[readLanguage()].switchSession}>
             <header>
-              <strong>Sessioni</strong>
-              <button className="modal-close" onClick={() => setShowSwitcher(false)} aria-label="Chiudi">×</button>
+              <strong>{translations[readLanguage()].sessions}</strong>
+              <button className="modal-close" onClick={() => setShowSwitcher(false)} aria-label={translations[readLanguage()].close}>×</button>
             </header>
             <div className="session-switcher-list">
               {switcherSessions.map((item) => (
@@ -4023,7 +4081,7 @@ function Console({
                   </span>
                 </button>
               ))}
-              {switcherSessions.length === 0 && <p className="empty">Nessuna sessione.</p>}
+              {switcherSessions.length === 0 && <p className="empty">{translations[readLanguage()].noSessions}</p>}
             </div>
           </section>
         </div>
@@ -4047,14 +4105,14 @@ function Console({
                   aria-pressed={outputMode === "blocks"}
                   onClick={() => setOutputMode("blocks")}
                 >
-                  Blocchi
+                  {translations[readLanguage()].blocks}
                 </button>
                 <button
                   type="button"
                   aria-pressed={outputMode === "terminal"}
                   onClick={() => setOutputMode("terminal")}
                 >
-                  Terminale
+                  {translations[readLanguage()].terminal}
                 </button>
                 {claude && historyEnabled && (
                   <button
@@ -4062,7 +4120,7 @@ function Console({
                     aria-pressed={outputMode === "history"}
                     onClick={() => setOutputMode("history")}
                   >
-                    Cronologia
+                    {translations[readLanguage()].history}
                   </button>
                 )}
               </span>
@@ -4170,14 +4228,14 @@ function Console({
           <div className="output terminal-xterm" ref={terminalContainerRef} />
         )}
         {outputMode === "terminal" && terminalLoading && (
-          <p className="output-waiting terminal-loading">Carico il terminale…</p>
+          <p className="output-waiting terminal-loading">{translations[readLanguage()].loadingTerminal}</p>
         )}
         {outputMode === "terminal" && loadingMoreHistory && (
-          <div className="history-loading" role="status">Carico righe precedenti…</div>
+          <div className="history-loading" role="status">{translations[readLanguage()].loadingHistory}</div>
         )}
         {!followingOutput && (
           <button className="follow-output" type="button" onClick={resumeFollowingOutput}>
-            ↓ Segui output
+            ↓ {translations[readLanguage()].followOutput}
           </button>
         )}
       </section>
@@ -4211,7 +4269,7 @@ function Console({
         <textarea
           value={draft}
           onChange={(event) => onDraftChange(event.target.value)}
-          placeholder="Scrivi o incolla un prompt…"
+          placeholder={translations[readLanguage()].promptPlaceholder}
           rows={3}
           maxLength={65536}
           disabled={connection === "closed"}
@@ -4225,27 +4283,27 @@ function Console({
           onChange={(event) => void selectFiles(event.target.files)}
         />
         {showSpecialKeys && (
-          <div className="special-actions" aria-label="Funzioni speciali">
+          <div className="special-actions" aria-label={translations[readLanguage()].specialFunctions}>
             <button
               disabled={connection === "closed"}
               type="button"
               onClick={() => setShowDirectory(true)}
             >
-              Contenuto directory
+              {translations[readLanguage()].directoryContentBtn}
             </button>
             <button
               disabled={connection === "closed"}
               type="button"
               onClick={() => setShowArtifacts(true)}
             >
-              Artefatti
+              {translations[readLanguage()].artifactsBtn}
             </button>
             <button
               disabled={connection === "closed" || sendingArtifactPrompt}
               type="button"
               onClick={() => void sendArtifactInstructions()}
             >
-              {sendingArtifactPrompt ? "Invio istruzioni…" : "Consegna artefatto"}
+              {sendingArtifactPrompt ? translations[readLanguage()].sendingInstructions : translations[readLanguage()].deliverArtifactBtn}
             </button>
             {agentic && (
               <>
@@ -4278,7 +4336,7 @@ function Console({
                 type="button"
                 onClick={() => void pressSpecialKey("Shift-Tab")}
               >
-                {/agy|antigravity/i.test(session.current_command) ? "AGY" : "Claude"} · cambia permessi
+                {/agy|antigravity/i.test(session.current_command) ? "AGY" : "Claude"} · {translations[readLanguage()].changePermissions}
               </button>
             )}
             {session.current_command.toLowerCase().includes("codex") && (
@@ -4287,7 +4345,7 @@ function Console({
                 type="button"
                 onClick={() => void openCodexPermissions()}
               >
-                Codex · permessi
+                Codex · {translations[readLanguage()].permissions}
               </button>
             )}
             <button
@@ -4295,14 +4353,14 @@ function Console({
               type="button"
               onClick={() => void createPane("horizontal")}
             >
-              {splittingPane ? "Divisione…" : "Dividi orizzontale"}
+              {splittingPane ? translations[readLanguage()].splitting : translations[readLanguage()].splitHorizontal}
             </button>
             <button
               disabled={connection === "closed" || splittingPane}
               type="button"
               onClick={() => void createPane("vertical")}
             >
-              {splittingPane ? "Divisione…" : "Dividi verticale"}
+              {splittingPane ? translations[readLanguage()].splitting : translations[readLanguage()].splitVertical}
             </button>
             {panes.length > 1 && (
               <button
@@ -4311,7 +4369,7 @@ function Console({
                 className="danger"
                 onClick={() => void closePane()}
               >
-                {closingPane ? "Chiusura…" : "Chiudi pane"}
+                {closingPane ? translations[readLanguage()].closingPane : translations[readLanguage()].closePane}
               </button>
             )}
           </div>
@@ -4328,10 +4386,10 @@ function Console({
             className="secondary special-toggle"
             disabled={connection === "closed"}
             aria-expanded={showSpecialKeys}
-            aria-label="Funzioni speciali"
+            aria-label={translations[readLanguage()].specialFunctions}
             onClick={() => setShowSpecialKeys((value) => !value)}
           >
-            Funzioni
+            {translations[readLanguage()].specialFunctions}
           </button>
           <button
             type="button"
@@ -4339,7 +4397,7 @@ function Console({
             disabled={connection === "closed" || uploading || attachments.length >= 5}
             onClick={() => fileInputRef.current?.click()}
           >
-            {uploading ? "Caricamento…" : "＋ Allega"}
+            {uploading ? translations[readLanguage()].loading : `＋ ${translations[readLanguage()].attach}`}
           </button>
           <button
             type="button"
@@ -4358,12 +4416,12 @@ function Console({
               || uploading
             }
           >
-            Invia testo
+            {translations[readLanguage()].sendText}
           </button>
         </div>
         {controlError && <small className="attachment-error">{controlError}</small>}
         {attachmentError && <small className="attachment-error">{attachmentError}</small>}
-        <small>Il testo non invia Enter automaticamente.</small>
+        <small>{translations[readLanguage()].textNoEnterHint}</small>
       </form>
     </main>
   );
@@ -4459,7 +4517,7 @@ export default function App() {
           onDraftChange={(draft) => setSessionDraft(active.id, draft)}
         />
       )
-      : <SessionList identity={identity} onOpen={openSession} />;
+      : <SessionList identity={identity} onOpen={openSession} onLogout={() => setIdentity(null)} />;
   }
   return (
     <>
