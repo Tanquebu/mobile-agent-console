@@ -131,9 +131,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Layer di traduzione (i18n)",
+  title: "Stato agente più affidabile",
   description:
-    "Layer di internazionalizzazione con supporto per lingua Italiana e Inglese (en/it). È ora possibile selezionare la lingua desiderata dal pannello Preferenze.",
+    "Corretto un falso positivo: il badge \"In elaborazione\" non resta più bloccato quando il turno concluso contiene parole come working o thinking nel testo, e torna a riflettere subito il prompt inattivo.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {

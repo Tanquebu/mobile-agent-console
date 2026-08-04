@@ -51,11 +51,9 @@ terminal mode previsto in M3.
 
 ## INC-AS-01 — falso stato “in elaborazione” su sessione inattiva
 
-**Stato:** incidente confermato il 03/08/2026; analisi strutturata e
-remediation differite una seconda volta il 04/08/2026 alle 17:05 Europe/Rome
-per gate di concorrenza — vedi checkpoint sotto. Nuovo wakeup `pending`
-programmato per il 04/08/2026 alle 21:05 Europe/Rome (vedi comando in fondo
-alla sezione).
+**Stato:** risolto il 05/08/2026 alle 01:05 Europe/Rome, quarto round dopo tre
+checkpoint di concorrenza consecutivi — vedi "Checkpoint 05/08/2026 01:05" e
+"Remediation" sotto.
 
 ### Checkpoint 04/08/2026 17:06 Europe/Rome — round non eseguito, gate di concorrenza
 
@@ -180,6 +178,123 @@ cd <home>/projects/<orchestratore> && python3 add-wakeup.py \
   --note "INC-AS-01: quarta ripresa dopo tre checkpoint di concorrenza sullo stesso pid 443964" \
   --prompt "Riprendi INC-AS-01 in docs/backlog.md, sezione 'Checkpoint 04/08/2026 21:05'. Riesegui il gate di concorrenza descritto lì (pid 443964, attivo per tre checkpoint di fila con mtime freschi ad ogni verifica: se ancora vivo con lo stesso pattern, segnalalo esplicitamente all'utente invece di riprogrammare in silenzio) prima di qualunque altra azione. Se libero, procedi con l'analisi strutturata e la remediation completa di INC-AS-01 come da 'Confine del prossimo round'."
 ```
+
+### Checkpoint 05/08/2026 01:05 Europe/Rome — gate valutato libero, pattern interrotto
+
+Wakeup dovuto 01:05. Rieseguito il gate riprodotto sopra prima di qualunque
+altra azione — quarta verifica consecutiva sullo stesso `pid 443964`, ma con
+esito diverso dalle tre precedenti:
+
+- `ps -o pid,lstart,etime,cmd -p 443964` → il processo esiste ancora (`claude`,
+  avviato Sun Aug 2 11:24:27 2026, elapsed `2-13:40:56`): quarta rilevazione
+  di fila con lo stesso pid, quindi lo segnalo esplicitamente all'utente
+  invece di riprogrammare in silenzio, come richiesto dal prompt di questo
+  round.
+- A differenza dei tre checkpoint precedenti, però, **`git status` è
+  risultato pulito**: nessun diff residuo su `App.tsx`/`styles.css`/altri
+  file. I commit più recenti fatti da quel processo (`70206e2`, `30efabf`,
+  `39e14cc`) riguardano il redesign della vista Host
+  (`container_policies`) — area disgiunta dal classificatore
+  (`agent_status_service.py` non toccato) e da `getAgentStateLegend`
+  (un solo hunk in `App.tsx` la tocca, ma per un re-indent, non per
+  contenuto).
+- `stat` sui file coinvolti in quei commit mostra l'ultima scrittura alle
+  00:16 del 04/08/2026, cioè circa 49 minuti prima di questo round (01:05):
+  a differenza del checkpoint delle 21:05 (mtime a 3 minuti dall'avvio del
+  round), qui non c'è scrittura "a caldo" in corso. `/proc/443964/fd` non
+  mostra alcun file aperto nel repo e lo stato del processo è `S`
+  (sleeping), coerente con una sessione interattiva ferma su un prompt.
+
+Valutazione: il pattern dei tre checkpoint precedenti (vivo + mtime
+freschissimi ad ogni verifica + diff sovrapposto non committato) richiedeva
+di non procedere; qui manca la condizione che contava davvero — nessuna
+modifica sovrapposta pendente sui file del classificatore o dell'area
+`AGENT_STATE_LEGEND`/`getAgentStateLegend`/`AgentStatusService`. Gate
+valutato **libero**: procedo con l'analisi strutturata e la remediation
+completa di "Confine del prossimo round". Verificato a fine round che il
+processo 443964 e tutte le sessioni tmux (`Mac`, `Deploy`, `MacHost`,
+`basole`, `wakeups`) fossero ancora vive dopo il deploy di `backend`/`web`.
+
+### Remediation (05/08/2026)
+
+Analisi strutturata di `AgentStatusService.classify()`
+(`backend/app/services/agent_status_service.py`): la causa non era il
+pattern `\bworking\b` in sé, ma il fatto che `ACTIVE_PATTERNS` venisse
+verificato sulle ultime 20 righe non vuote (`tail`) **senza alcun rapporto
+con la posizione del prompt**. Un prompt inattivo (`❯`/`>`/`›`) è il segnale
+più recente disponibile in un frame `capture-pane`: se compare, qualunque
+marker attivo trovato solo *prima* di esso (prosa narrativa reale o chrome
+di un turno già concluso rimasto nello scroll) è per definizione superato,
+non attuale.
+
+Fix: quando `prompt_index` è definito, `ACTIVE_PATTERNS` è ora verificato
+solo sulle righe **successive** al prompt (`recent_lines[prompt_index + 1:]`)
+— cioè più recenti di esso — non sull'intero `tail`. Se non c'è alcun
+contenuto dopo il prompt, lo stato è `idle` indipendentemente dalle parole
+presenti nella prosa precedente. Senza prompt visibile il comportamento è
+invariato (matching su tutto il `tail`, poi euristica di cambio digest).
+L'ordine di verifica per `waiting_authorization` e `waiting_input` non è
+cambiato: entrambi restano gating come prima (autorizzazione su tutto il
+`tail`, feedback solo nelle righe immediatamente precedenti al prompt), quindi
+nessuna regressione sui due flussi. Per Antigravity (`ACTIVE_PATTERNS` vuoto)
+il nuovo ramo non trova mai un match dopo il prompt: la "guardia prompt-first"
+già usata per la sua euristica di cambio contenuto è ora applicata a tutti i
+provider, non solo ad Antigravity.
+
+Copertura di test aggiunta in `backend/tests/test_agent_status_service.py`
+(324 test totali, tutti verdi, più `ruff check .`, eseguiti via
+`docker compose run --rm backend-test`):
+
+- regressione sul caso reale riportato in "Evidenza e impatto" (`"lavora
+  nello stesso working tree"` seguito da `❯` inattivo → `idle`, non più
+  `active`);
+- falsi positivi narrativi per ognuna delle parole di `ACTIVE_PATTERNS`
+  (`thinking`, `tool use`, `esc to interrupt` per Claude; `reasoning`,
+  `working`, `esc to interrupt` per Codex) usate in frasi di prosa ordinaria
+  seguite da prompt inattivo;
+- controllo di non regressione simmetrico: marker attivo reale (`✻
+  Thinking… (esc to interrupt · 12s)`) senza alcun prompt visibile → resta
+  `active` per Claude e Codex;
+- marker storico (turno precedente) seguito da prompt e nessun contenuto
+  successivo → `idle`;
+- marker che compare *dopo* un prompt più vecchio (nuovo comando avviato
+  subito dopo, chrome più recente del prompt) → resta `active`, a conferma
+  che la scoping per posizione non introduce falsi negativi sul caso
+  realmente attivo;
+- precedenza esplicita: una domanda reale (`waiting_input`) prevale su una
+  parola "attiva" comparsa nella stessa frase prima del prompt;
+- guardia prompt-first per Antigravity: prompt presente e contenuto che
+  cambia → resta `idle`; nessun prompt e contenuto che cambia → `active`
+  tramite l'euristica di digest esistente, invariata.
+
+Non sono state trovate né usate nuove fixture di frame reali sull'host per
+Claude/Codex: la frase riportata in "Evidenza e impatto" è già un frame reale
+minimizzato (l'unico dato variabile, il percorso di progetto, non è
+presente), quindi è stata riusata direttamente come regressione invece di
+catturarne una nuova.
+
+Nessuna modifica lato frontend alla logica di stato: `AGENT_STATE_LEGEND`/
+`AGENT_STATE_ICON` mostrano solo le etichette degli stati esistenti,
+prodotti esclusivamente dal backend; nessun nuovo stato introdotto. Aggiornato
+solo `LATEST_RELEASE` in `frontend/src/App.tsx` (titolo "Stato agente più
+affidabile") per riflettere il fix nel pannello "What's new", come richiesto
+da `AGENTS.md` alla chiusura di un round funzionale.
+
+Deploy: `docker compose build backend web` seguito da
+`docker compose up -d --no-deps backend web` — solo i due servizi stateless,
+`tmux-runtime`/socket tmux host non toccato. Verificato dopo il deploy:
+`GET /api/v1/config` risponde `401` (backend su, auth applicata) sia su
+`https://<ip-tailscale>:8081` sia su `https://<host>.<tailnet>.ts.net:8081`;
+il bundle JS pubblicato contiene la nuova stringa di `LATEST_RELEASE`
+(verificato con `grep` dentro il container `web`); tutte le sessioni tmux
+preesistenti (incluso `pid 443964`/sessione `Mac`) sono rimaste vive dopo il
+riavvio.
+
+Commit: un solo commit focalizzato su
+`backend/app/services/agent_status_service.py`,
+`backend/tests/test_agent_status_service.py` e `frontend/src/App.tsx`
+(`git diff --stat` verificato prima di committare: nessun file OpenCode,
+Antigravity o Host incluso).
 
 ### Evidenza e impatto
 

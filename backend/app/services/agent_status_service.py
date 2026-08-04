@@ -194,17 +194,47 @@ class AgentStatusService:
                 permission_detail,
                 summary,
             )
-        if (
-            prompt_index is not None
-            and self._matches(
-                FEEDBACK_REQUEST_PATTERNS,
-                "\n".join(recent_lines[max(0, prompt_index - 4) : prompt_index]),
+        if prompt_index is not None:
+            before_prompt = "\n".join(
+                recent_lines[max(0, prompt_index - 4) : prompt_index]
             )
-        ):
+            if self._matches(FEEDBACK_REQUEST_PATTERNS, before_prompt):
+                return AgentStatus(
+                    provider,
+                    "waiting_input",
+                    "Attende feedback",
+                    changed_at,
+                    permission_state,
+                    permission_detail,
+                    summary,
+                )
+            # Il prompt inattivo è il segnale più recente disponibile: un
+            # marker attivo (parola generica come "working"/"thinking" o
+            # "esc to interrupt") conta solo se compare *dopo* il prompt,
+            # cioè più di recente di esso. Se compare solo nella prosa prima
+            # del prompt — narrativa reale ("lavora nello stesso working
+            # tree") o chrome storico di un turno già concluso — non è più
+            # attuale e non deve sovrascrivere l'inattività: è esattamente
+            # la causa di INC-AS-01 (docs/backlog.md). Per gli agenti senza
+            # `ACTIVE_PATTERNS` (Antigravity) questo ramo non trova mai un
+            # match ed è quindi sempre "idle" in presenza di prompt: è la
+            # guardia prompt-first già usata per la loro euristica di
+            # cambio contenuto, qui estesa a tutti i provider.
+            after_prompt = "\n".join(recent_lines[prompt_index + 1 :])
+            if after_prompt and self._matches(ACTIVE_PATTERNS[provider], after_prompt):
+                return AgentStatus(
+                    provider,
+                    "active",
+                    "Elaborazione in corso",
+                    changed_at,
+                    permission_state,
+                    permission_detail,
+                    summary,
+                )
             return AgentStatus(
                 provider,
-                "waiting_input",
-                "Attende feedback",
+                "idle",
+                "Inattivo o completato",
                 changed_at,
                 permission_state,
                 permission_detail,
@@ -215,16 +245,6 @@ class AgentStatusService:
                 provider,
                 "active",
                 "Elaborazione in corso",
-                changed_at,
-                permission_state,
-                permission_detail,
-                summary,
-            )
-        if prompt_index is not None:
-            return AgentStatus(
-                provider,
-                "idle",
-                "Inattivo o completato",
                 changed_at,
                 permission_state,
                 permission_detail,

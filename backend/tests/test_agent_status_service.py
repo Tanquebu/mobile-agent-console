@@ -79,6 +79,131 @@ def test_agent_status_classifies_provider_and_terminal_states() -> None:
     assert claude_auto.permission_state == "auto"
 
 
+def test_agent_status_narrative_word_before_prompt_does_not_force_active() -> None:
+    # docs/backlog.md INC-AS-01: frase reale osservata in produzione. "working"
+    # è una parola comune nella prosa italiana/inglese di un riepilogo, non un
+    # marker di stato: senza contenuto dopo il prompt il turno è concluso.
+    service = AgentStatusService(active_window_seconds=8)
+    regression = service.classify(
+        "1",
+        "claude",
+        "Una cosa da sapere: lavora nello stesso working tree.\n❯",
+        now=0,
+    )
+    assert regression is not None
+    assert regression.state == "idle"
+
+
+def test_agent_status_narrative_false_positives_for_all_active_words() -> None:
+    # Ognuna delle parole di ACTIVE_PATTERNS può comparire in una frase
+    # narrativa ordinaria dopo che il turno è già concluso e il prompt è
+    # tornato visibile; nessuna deve produrre "active" da sola.
+    service = AgentStatusService(active_window_seconds=8)
+    claude_cases = [
+        "Ho finito di pensare (thinking) alla soluzione migliore.",
+        "Il tool use più adatto qui era il file system, non la rete.",
+        "Il comando è stato interrotto con esc to interrupt in un turno precedente.",
+    ]
+    for index, sentence in enumerate(claude_cases):
+        status = service.classify(f"claude-{index}", "claude", f"{sentence}\n> ", now=0)
+        assert status is not None, sentence
+        assert status.state == "idle", sentence
+
+    codex_cases = [
+        "Il file di reasoning è stato archiviato insieme agli altri log.",
+        "La working directory è rimasta quella di prima, nessuna modifica.",
+        "Ho terminato: esc to interrupt non serve più a questo punto.",
+    ]
+    for index, sentence in enumerate(codex_cases):
+        status = service.classify(f"codex-{index}", "codex", f"{sentence}\n› ", now=0)
+        assert status is not None, sentence
+        assert status.state == "idle", sentence
+
+
+def test_agent_status_real_active_marker_without_prompt_stays_active() -> None:
+    # Controllo di non regressione simmetrico: un marker attivo reale, senza
+    # alcun prompt visibile (il turno è ancora in corso), deve restare "active".
+    service = AgentStatusService(active_window_seconds=8)
+    claude_active = service.classify(
+        "1", "claude", "✻ Thinking… (esc to interrupt · 12s)", now=0
+    )
+    assert claude_active is not None
+    assert claude_active.state == "active"
+
+    codex_active = service.classify(
+        "2", "codex", "• Reasoning (8s • esc to interrupt)", now=0
+    )
+    assert codex_active is not None
+    assert codex_active.state == "active"
+
+
+def test_agent_status_historic_marker_before_prompt_is_idle() -> None:
+    # Il marker di attività del turno precedente resta visibile nello scroll
+    # sopra il prompt: senza contenuto dopo il prompt il turno è concluso.
+    service = AgentStatusService(active_window_seconds=8)
+    status = service.classify(
+        "1",
+        "claude",
+        "✻ Thinking… (esc to interrupt · 12s)\n"
+        "Fatto, ho aggiornato il file richiesto.\n"
+        "> ",
+        now=0,
+    )
+    assert status is not None
+    assert status.state == "idle"
+
+
+def test_agent_status_active_marker_after_prompt_is_still_active() -> None:
+    # Se il pane mostra un vecchio prompt seguito da chrome più recente
+    # (nuovo comando avviato subito dopo), il marker successivo al prompt
+    # è il segnale più recente e deve prevalere: il turno è di nuovo attivo.
+    service = AgentStatusService(active_window_seconds=8)
+    status = service.classify(
+        "1",
+        "claude",
+        "> altro comando\n✻ Thinking… (esc to interrupt · 3s)",
+        now=0,
+    )
+    assert status is not None
+    assert status.state == "active"
+
+
+def test_agent_status_feedback_question_wins_over_active_word_before_prompt() -> None:
+    # Precedenza esplicita: una domanda reale (waiting_input) prevale su una
+    # parola "attiva" comparsa nella stessa frase narrativa prima del prompt.
+    service = AgentStatusService(active_window_seconds=8)
+    status = service.classify(
+        "1",
+        "claude",
+        "Stavo pensando (thinking) a due opzioni. Quale preferisci?\n> ",
+        now=0,
+    )
+    assert status is not None
+    assert status.state == "waiting_input"
+
+
+def test_agent_status_antigravity_prompt_first_guard_ignores_content_change() -> None:
+    # Antigravity non ha ACTIVE_PATTERNS testuali (alt-screen, chrome
+    # permanente): la presenza del prompt resta la guardia autorevole anche
+    # se il contenuto è appena cambiato rispetto all'osservazione precedente.
+    service = AgentStatusService(active_window_seconds=8)
+    first = service.classify("1", "agy", "Passo 1 di 3 completato.\n> ", now=0)
+    assert first is not None
+    assert first.state == "idle"
+    changed = service.classify("1", "agy", "Passo 2 di 3 completato.\n> ", now=1)
+    assert changed is not None
+    assert changed.state == "idle"
+
+    # Senza prompt visibile, lo stesso agente torna a dipendere dall'euristica
+    # di cambio contenuto già esistente.
+    no_prompt_first = service.classify("2", "agy", "Passo 1 di 3", now=0)
+    assert no_prompt_first is not None
+    assert no_prompt_first.state == "unknown"
+    no_prompt_changed = service.classify("2", "agy", "Passo 2 di 3", now=1)
+    assert no_prompt_changed is not None
+    assert no_prompt_changed.state == "active"
+
+
 def test_agent_status_summary_filters_ui_chrome_and_truncates() -> None:
     service = AgentStatusService(active_window_seconds=8)
     status = service.classify(
