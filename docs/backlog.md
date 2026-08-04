@@ -120,6 +120,67 @@ cd <home>/projects/<orchestratore> && python3 add-wakeup.py \
   --prompt "Riprendi INC-AS-01 in docs/backlog.md, sezione 'Checkpoint 04/08/2026 17:06'. Riesegui il gate di concorrenza descritto lì (processo pid 443964 potrebbe essere terminato: verifica se esiste ancora e se il suo cwd risolve su questo repo) prima di qualunque altra azione. Se libero, procedi con l'analisi strutturata e la remediation completa di INC-AS-01 come da 'Confine del prossimo round'."
 ```
 
+### Checkpoint 04/08/2026 21:05 Europe/Rome — round non eseguito, gate ancora bloccato
+
+Wakeup `a4c9d8a7` (dovuto 21:05). Rieseguito il gate riprodotto sopra prima di
+qualunque altra azione — risultato ancora bloccato, terza volta consecutiva
+sullo stesso processo:
+
+- `ps -o pid,lstart,etime,cmd -p 443964` → il processo esiste ancora:
+  `claude`, avviato Sun Aug 2 11:24:27 2026, elapsed `2-09:40:51`.
+- `/proc/443964/cwd` risolve ancora su
+  `<repo>` — sessione interattiva live
+  nello stesso repo, non terminata come ipotizzato dal prompt di ripresa.
+- `git status`: modifiche non committate a `frontend/src/App.tsx` e
+  `frontend/src/styles.css` (niente più `api.ts`/`i18n.ts` non tracciato:
+  quel lavoro i18n è stato committato nel frattempo in `80af35f`/`5728e78`).
+  Il diff residuo riguarda ancora l'area `agent-info-bar`/
+  `getAgentStateLegend()`/`AGENT_STATE_ICON` (redesign del badge CTX e delle
+  card dei rate limit) — stessa zona adiacente al classificatore segnalata
+  nel checkpoint delle 17:06.
+- `stat` sui due file mostra mtime **21:02:53** (`App.tsx`) e **21:02:55**
+  (`styles.css`) del 04/08/2026, cioè circa 3 minuti prima dell'avvio di
+  questo round (21:05): non è uno scarto residuo di ore prima, il processo
+  443964 sta scrivendo attivamente proprio ora.
+
+Decisione: non implementare, non deployare, non committare in questo round.
+La sola modifica è questo checkpoint.
+
+Nota per il prossimo round: il pid non è cambiato per tre checkpoint di
+fila (17:06 e 21:05 di oggi, più il precedente del 03/08 sullo stesso
+pattern con `c7b74d4d`) e resta attivo con mtime freschi ad ogni verifica —
+non sembra uno scarto morto da ripulire, ma una sessione interattiva
+dell'utente tuttora in corso sugli stessi file. Continuare a riprogrammare
+meccanicamente ogni 4h rischia di ripetere lo stesso esito senza avvicinare
+la remediation; se al prossimo giro il pid è ancora vivo con mtime altrettanto
+recenti, vale la pena segnalarlo esplicitamente all'utente invece di limitarsi
+a un quarto checkpoint silenzioso.
+
+Riproduzione del gate (invariata, da rieseguire al prossimo wakeup prima di
+qualunque altra azione):
+
+```bash
+ps -o pid,lstart,etime,cmd -p 443964   # se ancora vivo, richiedere all'utente se il pid è cambiato
+ls -la /proc/<pid>/cwd                  # deve NON risolvere su questo repo
+git -C <repo> status
+git -C <repo> diff -- frontend/src/App.tsx frontend/src/styles.css
+```
+
+Se il processo interattivo non è più attivo e `git status` è pulito (o le
+modifiche residue non toccano `AGENT_STATE_LEGEND`/`getAgentStateLegend`/
+`AgentStatusService`/file del classificatore), procedere con l'analisi
+strutturata e la remediation come da "Confine del prossimo round". Prossimo
+wakeup programmato con:
+
+```bash
+cd <home>/projects/<orchestratore> && python3 add-wakeup.py \
+  --at 2026-08-05T01:05 \
+  --workdir <repo> \
+  --provider claude --permission-mode bypassPermissions \
+  --note "INC-AS-01: quarta ripresa dopo tre checkpoint di concorrenza sullo stesso pid 443964" \
+  --prompt "Riprendi INC-AS-01 in docs/backlog.md, sezione 'Checkpoint 04/08/2026 21:05'. Riesegui il gate di concorrenza descritto lì (pid 443964, attivo per tre checkpoint di fila con mtime freschi ad ogni verifica: se ancora vivo con lo stesso pattern, segnalalo esplicitamente all'utente invece di riprogrammare in silenzio) prima di qualunque altra azione. Se libero, procedi con l'analisi strutturata e la remediation completa di INC-AS-01 come da 'Confine del prossimo round'."
+```
+
 ### Evidenza e impatto
 
 La sessione Claude `Mac` mostrava da oltre venti minuti l'icona animata
