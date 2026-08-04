@@ -197,7 +197,7 @@ def codex_context_percent(path: Path) -> float | None:
     return None
 
 
-def claude_context_cache(path: str | None) -> dict[str, tuple[str, float]]:
+def _pane_context_cache(path: str | None) -> dict[str, tuple[str, float]]:
     if not path:
         return {}
     root = Path(path)
@@ -223,11 +223,20 @@ def claude_context_cache(path: str | None) -> dict[str, tuple[str, float]]:
     return result
 
 
+def claude_context_cache(path: str | None) -> dict[str, tuple[str, float]]:
+    return _pane_context_cache(path)
+
+
+def antigravity_context_cache(path: str | None) -> dict[str, tuple[str, float]]:
+    return _pane_context_cache(path)
+
+
 def collect(args: argparse.Namespace) -> dict[str, object]:
     sessions = []
     codex_root = Path(args.codex_sessions_root)
     claude_root = Path(args.claude_projects_root)
     claude_context = claude_context_cache(args.claude_context_cache)
+    antigravity_context = antigravity_context_cache(args.antigravity_context_cache)
     for pane in run_tmux(args.tmux_socket_file):
         provider = None
         transcript = None
@@ -252,6 +261,11 @@ def collect(args: argparse.Namespace) -> dict[str, object]:
                 transcript = claude_transcript(pane["pid"], pane["cwd"], claude_root)
             if transcript is not None:
                 normalized = normalize_claude(transcript)
+        elif "agy" in pane["command"] or "antigravity" in pane["command"]:
+            provider = "antigravity"
+            cached_context = antigravity_context.get(pane["pane_id"])
+            if cached_context is not None:
+                _antigravity_session_id, context_used_percent = cached_context
         if provider is None:
             continue
         state, detail = normalized or ("unknown", "Livello permessi non rilevato")
@@ -277,6 +291,7 @@ def main() -> None:
     parser.add_argument("--codex-sessions-root", required=True)
     parser.add_argument("--claude-projects-root", required=True)
     parser.add_argument("--claude-context-cache")
+    parser.add_argument("--antigravity-context-cache")
     args = parser.parse_args()
     output = Path(args.output).resolve()
     output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)

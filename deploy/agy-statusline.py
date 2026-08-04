@@ -2,6 +2,7 @@
 """Statusline custom per AGY che:
 1. Mostra una statusline formattata nel TUI (stdout)
 2. Inietta i dati di quota antigravity nel file provider-rate-limits.json di MAC
+3. Scrive una cache per-pane del contesto usato, letta dal collector MAC
 
 Configurare in ~/.gemini/antigravity-cli/settings.json:
   "statusLine": {"type": "command", "command": "/.../statusline.py", "enabled": true}
@@ -12,6 +13,7 @@ struttura del payload (model, quota, agent_state, context_window, ecc.).
 
 import json
 import os
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,6 +26,19 @@ RATE_LIMITS_PATH = Path(
         os.path.expanduser("~/.mobile-agent-console/provider-rate-limits.json"),
     )
 )
+
+# Directory di cache del contesto usato, una entry per session_id, letta dal
+# collector MAC per correlarla al pane tmux — analoga a
+# ~/.claude/context-window-cache/, non il file autorevole di MAC (quello
+# vive sotto ~/.mobile-agent-console/, non qui).
+ANTIGRAVITY_CONTEXT_CACHE_PATH = Path(
+    os.environ.get(
+        "MAC_ANTIGRAVITY_CONTEXT_CACHE_PATH",
+        os.path.expanduser("~/.gemini/antigravity-cli/context-window-cache"),
+    )
+)
+
+SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 # Label leggibili per le finestre di quota AGY
 WINDOW_LABELS = {
@@ -117,6 +132,47 @@ def inject_into_rate_limits(windows: list[dict], observed_at: str) -> None:
     tmp.replace(path)
 
 
+def context_used_percent(data: dict) -> float | None:
+    """Estrae la percentuale di contesto usata, clampata in [0, 100]."""
+    context_window = data.get("context_window")
+    if not isinstance(context_window, dict):
+        return None
+    percent = context_window.get("used_percentage")
+    if not isinstance(percent, (int, float)) or isinstance(percent, bool):
+        return None
+    return min(max(float(percent), 0.0), 100.0)
+
+
+def write_context_cache(session_id: str, percent: float) -> None:
+    """Scrive la cache per-pane del contesto usato, correlata dal collector."""
+    tmux_pane = os.environ.get("TMUX_PANE")
+    if not tmux_pane:
+        # Senza pane non è possibile correlare la sessione al collector.
+        return
+    if not SESSION_ID_PATTERN.match(session_id):
+        return
+
+    directory = ANTIGRAVITY_CONTEXT_CACHE_PATH
+    try:
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError:
+        return
+
+    payload = {
+        "updated_at": datetime.now(UTC).isoformat(),
+        "used_percent": percent,
+        "tmux_pane": tmux_pane,
+    }
+    target = directory / f"{session_id}.json"
+    tmp = target.with_suffix(".part")
+    try:
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        tmp.replace(target)
+    except OSError:
+        pass
+
+
 def format_statusline(data: dict) -> str:
     """Genera la riga di statusline per il TUI di AGY."""
     parts = []
@@ -174,6 +230,15 @@ def main() -> None:
             windows = build_mac_windows(quota)
             observed_at = datetime.now(UTC).isoformat()
             inject_into_rate_limits(windows, observed_at)
+    except Exception:
+        pass  # Non rompere la statusline per un errore di scrittura
+
+    # Inietta il contesto usato nella cache per-pane (best-effort, no crash)
+    try:
+        session_id = data.get("session_id")
+        percent = context_used_percent(data)
+        if isinstance(session_id, str) and percent is not None:
+            write_context_cache(session_id, percent)
     except Exception:
         pass  # Non rompere la statusline per un errore di scrittura
 
