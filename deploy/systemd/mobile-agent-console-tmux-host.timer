@@ -1,0 +1,15 @@
+[Unit]
+Description=Ensure the Mobile Agent Console host tmux keepalive session exists
+Documentation=https://github.com/Tanquebu/mobile-agent-console
+
+[Timer]
+# In modalita' host il backend non avvia mai il server tmux (ADR 005): se la
+# sessione keepalive sparisce a host acceso, la creazione di sessioni resta
+# rotta fino al riavvio. Rieseguire l'unit oneshot idempotente e' lo stesso
+# rimedio gia' adottato per lo stato Docker (ADR 011).
+OnBootSec=1min
+OnUnitActiveSec=2min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

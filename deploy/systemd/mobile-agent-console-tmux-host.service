@@ -1,11 +1,24 @@
 [Unit]
 Description=Mobile Agent Console host tmux keepalive
 Documentation=https://github.com/Tanquebu/mobile-agent-console
-After=default.target
+# Nessun After=default.target: il WantedBy sotto aggiunge gia' un
+# Before=default.target implicito, e la coppia chiudeva un ciclo di
+# ordinamento con mobile-agent-console-host.service (che ordina se stesso
+# dopo questa unit). systemd rompeva il ciclo cancellando proprio il job di
+# questa unit, lasciando l'host senza server tmux dopo il boot (INC-HOST-01).
 
 [Service]
 Type=oneshot
-RemainAfterExit=yes
+# Volutamente senza RemainAfterExit: il timer omonimo riesegue questa unit
+# per ricreare la sessione se sparisce a host acceso, e un'unit "active
+# (exited)" non verrebbe riavviata dal trigger.
+#
+# KillMode=process e' obbligatorio, non un'ottimizzazione: `tmux new-session`
+# lascia il SERVER tmux come processo figlio dentro il cgroup di questa unit.
+# Con il default (control-group) ogni disattivazione della unit uccide il
+# server e con esso TUTTE le sessioni dell'utente, non solo la keepalive.
+# Riprodotto il 05/08/2026 fermando la unit: server morto, sessioni perse.
+KillMode=process
 UMask=0077
 ExecStartPre=/usr/bin/install -d -m 0700 /tmp/tmux-%U
 # Il prefisso "-" rende idempotente l'avvio se la sessione esiste già.

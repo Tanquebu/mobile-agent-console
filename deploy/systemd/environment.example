@@ -3,6 +3,12 @@
 MAC_INSTALL_DIR=/home/example/.local/share/mobile-agent-console
 # Root persistente condivisa con il backend.
 MAC_WORKSPACE_ROOT=/home/example/projects
+# Overlay compose opzionali, come coppie "-f PATH" separate da spazio. Le unit
+# passano i file base esplicitamente e docker compose NON legge COMPOSE_FILE
+# dal file indicato con --env-file: senza questa variabile un riavvio dell'host
+# ricrea i container privi degli overlay, spegnendo le feature opzionali
+# (INC-HOST-01). I path sono assoluti perche' le unit non hanno WorkingDirectory.
+MAC_COMPOSE_OVERLAYS=-f /home/example/.local/share/mobile-agent-console/compose.host-observability.yaml
 # Opzionale, solo con compose.host-observability.yaml. Il path è la directory
 # della user socket unit, mai il file socket.
 MAC_HOST_OBSERVABILITY_SOCKET_DIR=/run/user/UID_DA_SOSTITUIRE/mobile-agent-console

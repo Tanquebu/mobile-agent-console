@@ -9,11 +9,11 @@ Type=oneshot
 RemainAfterExit=yes
 Environment=MAC_INSTALL_DIR=%h/.local/share/mobile-agent-console
 EnvironmentFile=-%h/.config/mobile-agent-console/environment
-ExecStartPre=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml -f ${MAC_INSTALL_DIR}/compose.host.yaml config --quiet
+ExecStartPre=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml -f ${MAC_INSTALL_DIR}/compose.host.yaml $MAC_COMPOSE_OVERLAYS config --quiet
 # Specificare i servizi impedisce di creare accidentalmente tmux-runtime.
-ExecStart=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml -f ${MAC_INSTALL_DIR}/compose.host.yaml up -d backend web
-ExecReload=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml -f ${MAC_INSTALL_DIR}/compose.host.yaml up -d --no-deps backend web
-ExecStop=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml -f ${MAC_INSTALL_DIR}/compose.host.yaml stop backend web
+ExecStart=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml -f ${MAC_INSTALL_DIR}/compose.host.yaml $MAC_COMPOSE_OVERLAYS up -d backend web
+ExecReload=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml -f ${MAC_INSTALL_DIR}/compose.host.yaml $MAC_COMPOSE_OVERLAYS up -d --no-deps backend web
+ExecStop=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml -f ${MAC_INSTALL_DIR}/compose.host.yaml $MAC_COMPOSE_OVERLAYS stop backend web
 TimeoutStartSec=0
 TimeoutStopSec=120
 

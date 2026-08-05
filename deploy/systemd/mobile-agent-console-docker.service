@@ -9,11 +9,11 @@ Type=oneshot
 RemainAfterExit=yes
 Environment=MAC_INSTALL_DIR=%h/.local/share/mobile-agent-console
 EnvironmentFile=-%h/.config/mobile-agent-console/environment
-ExecStartPre=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml config --quiet
-ExecStart=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml up -d
-ExecReload=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml up -d --no-deps backend web
+ExecStartPre=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml $MAC_COMPOSE_OVERLAYS config --quiet
+ExecStart=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml $MAC_COMPOSE_OVERLAYS up -d
+ExecReload=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml $MAC_COMPOSE_OVERLAYS up -d --no-deps backend web
 # Preserva intenzionalmente tmux-runtime e le sessioni quando l'unità si ferma.
-ExecStop=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml stop backend web
+ExecStop=/usr/bin/docker compose --project-directory ${MAC_INSTALL_DIR} --env-file ${MAC_INSTALL_DIR}/.env -f ${MAC_INSTALL_DIR}/compose.yaml $MAC_COMPOSE_OVERLAYS stop backend web
 TimeoutStartSec=0
 TimeoutStopSec=120
 

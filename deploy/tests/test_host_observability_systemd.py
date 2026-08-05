@@ -164,5 +164,76 @@ class HostObservabilitySystemdTest(unittest.TestCase):
         self.assertNotIn("PrivateTmp=", prepare)
 
 
+class HostTmuxKeepaliveUnitTest(unittest.TestCase):
+    """Regressioni di INC-HOST-01, tutte osservate su host reale il 05/08/2026."""
+
+    def keepalive_service(self) -> str:
+        # Solo le direttive: i commenti di questa unit citano per esteso le
+        # direttive assenti, e cercarle nel testo grezzo darebbe falsi positivi.
+        unit = (UNIT_DIRECTORY / "mobile-agent-console-tmux-host.service").read_text(
+            encoding="utf-8"
+        )
+        return "\n".join(
+            line for line in unit.splitlines() if not line.lstrip().startswith("#")
+        )
+
+    def test_keepalive_does_not_close_an_ordering_cycle(self) -> None:
+        # Il WantedBy=default.target aggiunge gia' un Before=default.target
+        # implicito: aggiungere anche After=default.target chiude un ciclo con
+        # la unit compose, e systemd lo rompe cancellando proprio il job della
+        # keepalive. Esito osservato: host acceso senza server tmux.
+        unit = self.keepalive_service()
+        self.assertIn("WantedBy=default.target", unit)
+        self.assertNotIn("After=default.target", unit)
+
+    def test_keepalive_never_kills_the_tmux_server_it_started(self) -> None:
+        # `tmux new-session` lascia il SERVER nel cgroup della unit. Con il
+        # KillMode di default ogni disattivazione (incluso ogni scatto del
+        # timer) uccide il server e tutte le sessioni dell'utente, non solo la
+        # keepalive. Senza RemainAfterExit questo diventa distruttivo a ogni
+        # ciclo, quindi le due direttive vanno verificate insieme.
+        unit = self.keepalive_service()
+        self.assertIn("KillMode=process", unit)
+        self.assertNotIn("RemainAfterExit=yes", unit)
+
+    def test_keepalive_is_retried_while_the_host_stays_up(self) -> None:
+        # In modalita' host il backend non avvia mai il server tmux (ADR 005):
+        # se la keepalive sparisce a host acceso, creare sessioni resta rotto
+        # fino al riavvio. Stesso rimedio di ADR 011: rieseguire l'oneshot.
+        timer = (UNIT_DIRECTORY / "mobile-agent-console-tmux-host.timer").read_text(
+            encoding="utf-8"
+        )
+        period = next(
+            int(line.split("=", 1)[1].removesuffix("min")) * 60
+            for line in timer.splitlines()
+            if line.startswith("OnUnitActiveSec=")
+        )
+        self.assertLessEqual(period, 300)
+        self.assertIn("WantedBy=timers.target", timer)
+
+
+class ComposeOverlayUnitTest(unittest.TestCase):
+    def test_compose_units_carry_the_optional_overlays(self) -> None:
+        # docker compose NON legge COMPOSE_FILE dal file passato a --env-file:
+        # senza questa variabile un riavvio dell'host ricrea i container privi
+        # degli overlay opzionali, spegnendo le feature (Host sparito dalla UI
+        # dopo il riavvio del 05/08/2026). Il "$" non graffato e' voluto:
+        # systemd fa word splitting solo su quella forma.
+        for name in ("mobile-agent-console-host", "mobile-agent-console-docker"):
+            with self.subTest(unit=name):
+                unit = (UNIT_DIRECTORY / f"{name}.service").read_text(encoding="utf-8")
+                directives = [
+                    line
+                    for line in unit.splitlines()
+                    if line.startswith(("ExecStart", "ExecReload", "ExecStop"))
+                ]
+                self.assertTrue(directives)
+                for directive in directives:
+                    self.assertIn("$MAC_COMPOSE_OVERLAYS ", directive)
+                    self.assertNotIn("${MAC_COMPOSE_OVERLAYS}", directive)
+        example = (UNIT_DIRECTORY / "environment.example").read_text(encoding="utf-8")
+        self.assertIn("MAC_COMPOSE_OVERLAYS=", example)
+
+
 if __name__ == "__main__":
     unittest.main()

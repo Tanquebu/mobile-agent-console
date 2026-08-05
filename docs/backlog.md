@@ -4213,3 +4213,85 @@ Da discutere: se e come colmarlo senza allentare l'hardening del collector
 tipo di problema è un helper fuori banda (ADR 011, ADR 012), non un aumento di
 privilegi. Va valutato anche il costo in privacy: l'attribuzione porta con sé
 nomi di processi di terzi.
+
+## INC-HOST-01 — creazione sessione impossibile quando il server tmux host è giù
+
+**Stato:** cause 1, 2 e 3 corrette e verificate su host reale il 05/08/2026.
+Resta aperta la sola remediation aggiuntiva (protezione della sessione di
+servizio dentro MAC), in fondo alla scheda.
+
+**Sintomo:** `create_session` fallisce ("unable to create session") ogni volta
+che il server tmux host non ha nessuna sessione attiva. È by design (ADR 005,
+guardia anti auto-start in `TmuxService._require_server`) che il backend non
+avvii mai da sé il server in modalità host — ma la conseguenza è che **la
+disponibilità di MAC dipende dall'esistenza di almeno una sessione tmux sul
+socket di default dell'utente host**, oggi garantita solo dalla unit
+`mobile-agent-console-tmux-host.service` (sessione keepalive).
+
+Due cause distinte individuate, entrambe da correggere:
+
+1. **Nessuna auto-guarigione se la keepalive sparisce a host acceso.** La unit
+   è `Type=oneshot`, eseguita una sola volta all'avvio (`After=default.target`)
+   e resa idempotente da un `ExecStart=-...` che tollera "duplicate session".
+   Se la sessione `keepalive` viene chiusa mentre l'host resta acceso (es.
+   archiviata per errore dall'utente da dentro MAC, che può terminare
+   qualunque sessione visibile compresa questa), nessun meccanismo la
+   ricrea finché non c'è un nuovo riavvio. Precedente diretto nel repo per lo
+   stesso tipo di problema: le unit a timer che ririeseguono periodicamente
+   un'azione idempotente (`mobile-agent-console-docker-state.{service,timer}`,
+   ADR 011) — stesso pattern applicabile qui.
+2. **Ciclo di ordinamento systemd, riprodotto con un riavvio host reale il
+   05/08/2026.** La unit keepalive dichiara `After=default.target` pur essendo
+   anche `WantedBy=default.target` (che le aggiunge implicitamente
+   `Before=default.target`): un'altra unit che fa partire i container con
+   `After=mobile-agent-console-tmux-host.service` chiude il ciclo. Al boot
+   `systemd` lo rompe **cancellando il job di avvio della unit keepalive**, che
+   quindi resta inattiva finché non la si avvia a mano — esattamente il
+   sintomo osservato dopo il riavvio. Fix minimo: rimuovere il
+   `After=default.target` ridondante dalla unit keepalive (il `WantedBy`
+   basta già a ordinarla correttamente rispetto al target).
+
+3. **Gli overlay compose opzionali si perdono a ogni riavvio dell'host.** Le
+   unit `mobile-agent-console-{host,docker}.service` passavano solo i file
+   compose base con `-f` espliciti. `docker compose` **non** legge
+   `COMPOSE_FILE` dal file indicato con `--env-file` (verificato con un caso
+   minimo: l'overlay non viene unito), quindi il `COMPOSE_FILE` del `.env` non
+   aveva alcun effetto e il riavvio ricreava i container senza gli overlay.
+   Effetto osservato: la sezione Host sparita dalla UI, perché il backend
+   ripartiva senza `MAC_HOST_OBSERVABILITY_ENABLED` e `GET /api/v1/config`
+   riportava la feature spenta. Corretto con `$MAC_COMPOSE_OVERLAYS` (forma
+   non graffata, l'unica su cui systemd fa word splitting) nelle quattro
+   direttive Exec\* di entrambe le unit, valorizzata nel file `environment`
+   privato.
+
+**Correzioni applicate il 05/08/2026** (`deploy/systemd/`, regressioni coperte
+da `deploy/tests/test_host_observability_systemd.py`):
+
+- rimosso `After=default.target` dalla keepalive;
+- aggiunta `mobile-agent-console-tmux-host.timer`
+  (`OnBootSec=1min`, `OnUnitActiveSec=2min`) e tolto `RemainAfterExit` dal
+  servizio, altrimenti un'unit `active (exited)` ignorerebbe il trigger;
+- aggiunto `$MAC_COMPOSE_OVERLAYS` alle unit compose e a `environment.example`.
+
+**Trappola trovata applicando il fix, costata la perdita di tutte le sessioni
+vive.** `tmux new-session` lascia il **server** tmux come figlio nel cgroup
+della unit. Finché la keepalive aveva `RemainAfterExit=yes` la unit restava
+attiva per sempre e nessuno fermava quel cgroup; togliendolo per far
+funzionare il timer, ogni scatto esegue `Stopping` e con il `KillMode` di
+default systemd uccide il cgroup — **cioè il server tmux e tutte le sessioni
+dell'utente, non solo la keepalive**. Rimedio: `KillMode=process`. Da questo
+segue anche che il commento "fermare l'unità non deve terminare le sessioni
+operative" era falso prima di oggi: `systemctl stop` le avrebbe terminate.
+Verificato dopo il fix creando una seconda sessione e riavviando la unit
+(sopravvissuta), e uccidendo la keepalive (ricreata dal timer in ~100s).
+
+**Idea di remediation aggiuntiva proposta dall'utente:** impedire che la
+sessione keepalive possa essere terminata/archiviata dall'interfaccia di MAC
+stessa — o escludendola dall'elenco (c'è già un precedente di filtro per nome
+riservato lato `TmuxService.list_sessions`, oggi applicato solo in modalità
+Docker) o bloccando esplicitamente l'azione di terminazione su quel
+nome/id riservato. Da decidere se questo confligga con l'obiettivo dichiarato
+in ADR 005 di mostrare in MAC *tutte* le sessioni host senza eccezioni.
+
+**Non contiene** nomi host, IP o path reali per costruzione — vedi
+`docs/adr/005-host-default-socket.md` per i placeholder di riferimento.
