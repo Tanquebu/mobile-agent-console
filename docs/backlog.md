@@ -4168,3 +4168,48 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   non verificato durante l'avvio del container; storage, secret e rete del
   runtime vanno progettati prima, preservando filesystem read-only e container
   non-root.
+
+## Parcheggiati il 2026-08-05 (budget 7d al 91%, ripresa dal 2026-08-09)
+
+Due temi aperti dall'utente, entrambi **da discutere prima di implementare**:
+nessuna decisione di design è stata presa.
+
+### BL-HOST-01 — Comandi sysadmin nella vista Host
+
+Serve una lista di comandi rapidi con pulsante copia accanto, limitata a
+start/stop di container e servizi (il caso concreto: il dev server del sito
+personale). Collocazione proposta dall'utente: una card dedicata nella vista
+Host, chiusa di default, e in più il comando accanto a ogni riga della tabella
+"Chi consuma".
+
+**Vincolo esplicito e non negoziabile:** nessun path e nessun nome reale può
+finire nel repository. L'intera mappatura vive in una configurazione privata
+fuori dal repo, come già fanno `container_policies` e `services.policies`.
+
+Domande aperte prima di scrivere codice:
+
+- se i comandi restano **testo da copiare** (nessuna esecuzione, nessun nuovo
+  verbo nell'API) o se qualcuno li esegue: la prima opzione non tocca il
+  threat model, la seconda apre una superficie di esecuzione remota che
+  `docs/security.md` oggi esclude per costruzione;
+- se il comando è **dichiarato** per servizio nella config privata oppure
+  **derivato** dalla policy esistente (label → `docker start <nome>`), che
+  richiederebbe di far attraversare il boundary il nome reale del container,
+  oggi vietato;
+- quale componente lo espone: il collector (che ha già la config privata) o il
+  backend (che oggi non legge configurazione host).
+
+### BL-HOST-02 — Attribuzione dei listener nel collector
+
+Oggi la fotografia mostra dodici porte con "proprietario ignoto" e il reason
+`listeners_partial`: il collector vede il socket ma non risale al processo,
+perché legge `/proc` senza privilegi e i socket di altri utenti non sono
+risolvibili. Il modulo lo dichiara invece di indovinare — comportamento
+corretto — ma la domanda "chi ascolta sulla porta N?" oggi non ha risposta
+dalla dashboard.
+
+Da discutere: se e come colmarlo senza allentare l'hardening del collector
+(ADR 009), tenendo presente che la soluzione adottata due volte per lo stesso
+tipo di problema è un helper fuori banda (ADR 011, ADR 012), non un aumento di
+privilegi. Va valutato anche il costo in privacy: l'attribuzione porta con sé
+nomi di processi di terzi.
