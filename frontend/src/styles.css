@@ -362,8 +362,11 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 /* Lo stesso stato pesa diversamente secondo la priorità dichiarata: fermo è
    rosso per un servizio strategico, informativo per uno che può attendere. */
 .host-container-state.state-running { color: #86dda2; }
-.host-container-state.priority-optional:not(.state-running) { color: #8ec7e8; }
-.host-container-state.priority-essential:not(.state-running) { color: #ffaaa0; }
+.host-container-state.state-starting { color: #e2cf8f; }
+/* Non accertato non è un allarme: resta neutro qualunque sia la priorità. */
+.host-container-state.state-unknown { color: #a8b6ac; }
+.host-container-state.priority-optional:not(.state-running):not(.state-starting):not(.state-unknown) { color: #8ec7e8; }
+.host-container-state.priority-essential:not(.state-running):not(.state-starting):not(.state-unknown) { color: #ffaaa0; }
 .host-consumers .host-note { display: block; margin: 10px 0 0; }
 .host-detail-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 6px; padding: 0 2px; }
 .host-detail-heading small { color: #7d9186; font-size: .68rem; }

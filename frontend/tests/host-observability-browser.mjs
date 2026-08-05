@@ -79,7 +79,7 @@ try {
     assert.equal(await page.locator("h1").textContent(), "Host")
     assert.equal(await page.evaluate(() => document.activeElement?.tagName), "H1")
     const cards = page.locator("details.host-card")
-    assert.equal(await cards.count(), 6)
+    assert.equal(await cards.count(), 7)
     assert.equal(await cards.evaluateAll((items) => items.every((item) => !item.open)), true)
     const processGroups = cards.filter({ has: page.getByRole("heading", { name: "Policy sui processi" }) })
     assert.equal(await processGroups.getAttribute("open"), null)
@@ -113,9 +113,25 @@ try {
     assert.ok(containerRows.indexOf("Web") < containerRows.indexOf("Backend"))
     // e compare fra le righe da vedere, senza contare come segnalazione
     assert.match(await page.locator(".host-issues").innerText(), /Web: fermo/)
-    assert.match(await page.locator(".host-verdict").innerText(), /1 non critici fermi/)
+    assert.match(await page.locator(".host-verdict").innerText(), /2 non critici fermi/)
     assert.match(await consumers.innerText(), /Stato Docker raccolto 27s fa, non all'apertura di questa pagina/)
     assert.match(await consumers.innerText(), /2 container senza label configurata non sono elencati/)
+
+    await consumers.getByRole("tab", { name: "Servizi" }).click()
+    const serviceRows = await consumers.locator("tbody").innerText()
+    // il non critico fermo va in cima, come per i container
+    assert.ok(serviceRows.indexOf("Example frontend") < serviceRows.indexOf("Example API"))
+    assert.match(serviceRows, /Example API[\s\S]*systemd utente · strategico · 4 riavvii[\s\S]*attivo/)
+    assert.match(serviceRows, /Batch runner[\s\S]*non accertato/)
+    // un supervisore muto non è la prova che i suoi servizi siano caduti: la
+    // riga lo nomina come non accertato, non come fermo
+    const issueText = await page.locator(".host-issues").innerText()
+    assert.match(issueText, /Supervisore non raggiunto/)
+    assert.match(issueText, /Interessati: Batch runner \(non accertato\)/)
+    assert.match(issueText, /Example frontend: fermo/)
+    assert.doesNotMatch(issueText, /Batch runner: /)
+    assert.match(await consumers.innerText(), /1 app pm2 senza policy configurata non sono elencate/)
+    assert.match(await consumers.innerText(), /I riavvii sono mostrati ma non giudicati/)
     await consumers.getByRole("tab", { name: "Memoria" }).click()
     await cards.evaluateAll((items) => items.forEach((item) => { item.open = true }))
     await page.locator("details.host-reading-guide").evaluate((item) => { item.open = true })

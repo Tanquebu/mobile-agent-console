@@ -20,6 +20,7 @@ MAX_FILESYSTEMS = 16
 MAX_EXPECTED_LISTENERS = 128
 MAX_PROCESS_LABELS = 128
 MAX_CONTAINER_LABELS = 50
+MAX_SERVICE_POLICIES = 50
 MAX_PROCESSES_SCANNED = 4096
 MAX_FDS_PER_PROCESS = 1024
 MAX_TOP_PROCESSES = 10
@@ -27,12 +28,17 @@ MAX_PROCESS_GROUPS = 20
 MAX_LISTENERS = 50
 MAX_LISTENERS_SCANNED = 1000
 MAX_DOCKER_OUTPUT_BYTES = 64 * 1024
+MAX_SERVICE_STATE_BYTES = 256 * 1024
 DOCKER_TIMEOUT_SECONDS = 2
 DOCKER_BINARY = "/usr/bin/docker"
 SAFE_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.+-]{0,63}$")
 SAFE_NAME_CHAR = re.compile(r"[^A-Za-z0-9_.+-]")
 SAFE_PROCESS_KEY = re.compile(r"^[A-Za-z0-9_.+?\-]{1,64}$")
 SAFE_CONTAINER_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+# `supervisore:nome`: un identificatore stabile scelto da chi ha creato il
+# servizio, non un `comm` dedotto dal processo (ADR 012).
+SAFE_SERVICE_KEY = re.compile(r"^[a-z0-9_]{1,16}:[A-Za-z0-9][A-Za-z0-9_.@\\-]{0,127}$")
+SUPERVISORS = {"systemd_system", "systemd_user", "pm2"}
 STATUSES = {"ok", "warning", "critical", "unknown"}
 SCOPES = {"loopback", "tailscale", "wildcard", "other"}
 TAILSCALE_IPV6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
@@ -106,6 +112,27 @@ class DockerConfig:
 
 
 @dataclass(frozen=True)
+class ServicePolicy:
+    label: str
+    # Stessa semantica delle policy sui container: `essential` fermo rende
+    # l'host critico, `optional` resta visibile senza concorrere alla severita'.
+    priority: str = "optional"
+
+
+@dataclass(frozen=True)
+class ServicesConfig:
+    """Servizi supervisionati fuori da Docker: systemd e pm2 (ADR 012).
+
+    Senza `state_file` il componente non viene emesso affatto: un host che non
+    lo configura non deve vedere una scheda vuota.
+    """
+
+    state_file: str | None = None
+    max_age_seconds: int = 120
+    policies: dict[str, ServicePolicy] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class CollectorConfig:
     schema_version: int = 1
     thresholds: Thresholds = Thresholds()
@@ -115,6 +142,7 @@ class CollectorConfig:
     process_labels: dict[str, str] = field(default_factory=dict)
     process_policies: dict[str, ProcessPolicy] = field(default_factory=dict)
     docker: DockerConfig = DockerConfig()
+    services: ServicesConfig = ServicesConfig()
 
 
 @dataclass(frozen=True)
@@ -143,6 +171,29 @@ class DockerContainerRow:
 
 
 @dataclass(frozen=True)
+class ServiceRow:
+    supervisor: str
+    name: str
+    # Stringa grezza del supervisore (`active:running`, `online`, ...): la
+    # classificazione avviene qui, non nell'helper che l'ha raccolta.
+    status: str
+    restarts: int | None = None
+    memory_bytes: int | None = None
+
+
+@dataclass(frozen=True)
+class ServiceState:
+    available: bool
+    rows: list[ServiceRow] = field(default_factory=list)
+    # Quali supervisori hanno risposto: da questo dipende se una policy assente
+    # dall'elenco significa "servizio sparito" o "non accertato".
+    supervisors: dict[str, bool] = field(default_factory=dict)
+    reason: str | None = None
+    age_seconds: int | None = None
+    truncated: bool = False
+
+
+@dataclass(frozen=True)
 class DockerState:
     """Evidenza Docker gia' estratta, qualunque sia la fonte.
 
@@ -159,6 +210,7 @@ class DockerState:
 
 DockerRunner = Callable[[], DockerCommandResult]
 DockerStateProvider = Callable[[], DockerState]
+ServiceStateProvider = Callable[[], ServiceState]
 Statvfs = Callable[[str], os.statvfs_result]
 Clock = Callable[[], float]
 Sleeper = Callable[[float], None]
@@ -336,6 +388,46 @@ def parse_process_policies(value: object) -> dict[str, ProcessPolicy]:
     return result
 
 
+def parse_services(value: object) -> ServicesConfig:
+    raw = require_mapping({} if value is None else value, "services")
+    require_keys(raw, {"state_file", "max_age_seconds", "policies"}, "services")
+    state_file = raw.get("state_file")
+    if state_file is not None and (
+        not isinstance(state_file, str)
+        or len(state_file) > 4096
+        or not Path(state_file).is_absolute()
+        or "\x00" in state_file
+    ):
+        raise CollectorConfigError("services state file is invalid")
+    max_age_seconds = raw.get("max_age_seconds", 120)
+    if (
+        isinstance(max_age_seconds, bool)
+        or not isinstance(max_age_seconds, int)
+        or not 1 <= max_age_seconds <= 3600
+    ):
+        raise CollectorConfigError("services max age is invalid")
+    raw_policies = require_mapping(raw.get("policies", {}), "services policies")
+    if len(raw_policies) > MAX_SERVICE_POLICIES:
+        raise CollectorConfigError("service policies exceeds limit")
+    policies: dict[str, ServicePolicy] = {}
+    for key, entry in raw_policies.items():
+        if not isinstance(key, str) or not SAFE_SERVICE_KEY.fullmatch(key):
+            raise CollectorConfigError("service policy key is invalid")
+        if key.split(":", 1)[0] not in SUPERVISORS:
+            raise CollectorConfigError("service policy supervisor is unsupported")
+        policy = require_mapping(entry, f"services.policies[{key}]")
+        require_keys(policy, {"label", "priority"}, "service policy")
+        priority = policy.get("priority", "optional")
+        if priority not in {"essential", "optional"}:
+            raise CollectorConfigError("service priority is invalid")
+        policies[key] = ServicePolicy(safe_label(policy.get("label"), "service label"), priority)
+    if state_file is None and policies:
+        # Policy senza fonte non verrebbero mai valutate, e il silenzio
+        # somiglierebbe troppo a "tutto a posto".
+        raise CollectorConfigError("service policies require a state file")
+    return ServicesConfig(state_file, max_age_seconds, policies)
+
+
 def parse_config(payload: object) -> CollectorConfig:
     raw = require_mapping(payload, "config")
     schema_version = raw.get("schema_version")
@@ -348,7 +440,7 @@ def parse_config(payload: object) -> CollectorConfig:
     version_fields = (
         {"expected_tcp_listeners", "process_labels"}
         if schema_version == 1
-        else {"tcp_listener_policies", "process_policies", "swap_io_sample"}
+        else {"tcp_listener_policies", "process_policies", "swap_io_sample", "services"}
     )
     require_keys(
         raw,
@@ -488,6 +580,9 @@ def parse_config(payload: object) -> CollectorConfig:
         process_labels=process_labels,
         process_policies=process_policies,
         docker=DockerConfig(enabled, container_policies, state_file, max_age_seconds),
+        services=(
+            parse_services(raw.get("services")) if schema_version == 2 else ServicesConfig()
+        ),
     )
 
 
@@ -1279,6 +1374,15 @@ def normalize_container_status(raw: str) -> tuple[str, str]:
     return "warning", "container_state_unknown"
 
 
+def bounded_age(seconds: int) -> int:
+    """Eta' entro i limiti del contratto (0..86400).
+
+    Un timer fermo da giorni non deve invalidare l'intera fotografia per un
+    campo fuori range: oltre un giorno la precisione non serve piu' a nessuno.
+    """
+    return min(max(0, seconds), 86400)
+
+
 def container_state(raw: str) -> str:
     """Stato osservabile, separato dal giudizio: la severita' la decide la policy."""
     lowered = raw.lower()
@@ -1371,11 +1475,15 @@ def read_docker_state_file(
         return DockerState(available=False, reason="docker_output_invalid")
     age = int(((now or datetime.now(UTC)) - written).total_seconds())
     if age < 0 or age > max_age_seconds:
-        return DockerState(available=False, reason="docker_state_stale", age_seconds=max(0, age))
+        return DockerState(
+            available=False, reason="docker_state_stale", age_seconds=bounded_age(age)
+        )
     if payload.get("available") is not True:
         # L'helper ha girato ma Docker non ha risposto: e' comunque assenza di
         # evidenza, distinta dal file mancante solo nel journal.
-        return DockerState(available=False, reason="docker_unavailable", age_seconds=age)
+        return DockerState(
+            available=False, reason="docker_unavailable", age_seconds=bounded_age(age)
+        )
     raw_containers = payload.get("containers")
     if not isinstance(raw_containers, list) or len(raw_containers) > 1000:
         return DockerState(available=False, reason="docker_output_invalid")
@@ -1400,7 +1508,7 @@ def read_docker_state_file(
     return DockerState(
         available=True,
         rows=rows,
-        age_seconds=age,
+        age_seconds=bounded_age(age),
         truncated=payload.get("truncated") is True,
     )
 
@@ -1492,6 +1600,186 @@ def read_docker(
     return result
 
 
+def service_state(supervisor: str, raw: str) -> str:
+    """Stato osservabile del servizio, separato dal giudizio di priorita'.
+
+    Ogni supervisore ha il proprio vocabolario: qui viene tradotto una volta
+    sola, e la stringa grezza non arriva mai al contratto.
+    """
+    if supervisor == "pm2":
+        return {
+            "online": "running",
+            "launching": "starting",
+            "stopping": "stopped",
+            "stopped": "stopped",
+            "errored": "failed",
+        }.get(raw, "unknown")
+    active, _, sub = raw.partition(":")
+    if sub == "auto-restart":
+        return "restarting"
+    return {
+        # `active:exited` e' il caso normale di un oneshot con RemainAfterExit:
+        # systemd lo considera su, e questa e' la sua valutazione, non la nostra.
+        "active": "running",
+        "reloading": "running",
+        "activating": "starting",
+        "deactivating": "stopped",
+        "inactive": "stopped",
+        "failed": "failed",
+    }.get(active, "unknown")
+
+
+def read_service_state_file(
+    path: Path, max_age_seconds: int, *, now: datetime | None = None
+) -> ServiceState:
+    """Stato scritto dalla unit service-state, con controllo di eta' (ADR 012)."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return ServiceState(available=False, reason="services_unavailable")
+    if len(raw) > MAX_SERVICE_STATE_BYTES:
+        return ServiceState(available=False, reason="services_output_excessive")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return ServiceState(available=False, reason="services_output_invalid")
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        return ServiceState(available=False, reason="services_output_invalid")
+    collected_at = payload.get("collected_at")
+    if not isinstance(collected_at, str):
+        return ServiceState(available=False, reason="services_output_invalid")
+    try:
+        written = datetime.fromisoformat(collected_at)
+    except ValueError:
+        return ServiceState(available=False, reason="services_output_invalid")
+    if written.tzinfo is None:
+        return ServiceState(available=False, reason="services_output_invalid")
+    age = int(((now or datetime.now(UTC)) - written).total_seconds())
+    if age < 0 or age > max_age_seconds:
+        return ServiceState(
+            available=False, reason="services_state_stale", age_seconds=bounded_age(age)
+        )
+    if payload.get("available") is not True:
+        return ServiceState(
+            available=False, reason="services_unavailable", age_seconds=bounded_age(age)
+        )
+    raw_supervisors = payload.get("supervisors")
+    if not isinstance(raw_supervisors, dict) or any(
+        name not in SUPERVISORS or not isinstance(answered, bool)
+        for name, answered in raw_supervisors.items()
+    ):
+        return ServiceState(available=False, reason="services_output_invalid")
+    raw_services = payload.get("services")
+    if not isinstance(raw_services, list) or len(raw_services) > 1000:
+        return ServiceState(available=False, reason="services_output_invalid")
+    rows: list[ServiceRow] = []
+    for item in raw_services:
+        if not isinstance(item, dict):
+            return ServiceState(available=False, reason="services_output_invalid")
+        supervisor = item.get("supervisor")
+        name = item.get("name")
+        status = item.get("status")
+        restarts = item.get("restarts")
+        memory = item.get("memory_bytes")
+        if (
+            supervisor not in SUPERVISORS
+            or not isinstance(name, str)
+            or not isinstance(status, str)
+            or not status
+            or len(status) > 64
+            or not SAFE_SERVICE_KEY.fullmatch(f"{supervisor}:{name}")
+            # I limiti superiori sono quelli del contratto: un valore fuori
+            # range invaliderebbe l'intera fotografia per un campo accessorio.
+            or any(
+                value is not None
+                and (
+                    isinstance(value, bool)
+                    or not isinstance(value, int)
+                    or not 0 <= value <= maximum
+                )
+                for value, maximum in ((restarts, 2**31 - 1), (memory, 2**63 - 1))
+            )
+        ):
+            return ServiceState(available=False, reason="services_output_invalid")
+        rows.append(ServiceRow(str(supervisor), name, status, restarts, memory))
+    return ServiceState(
+        available=True,
+        rows=rows,
+        supervisors={str(name): value for name, value in raw_supervisors.items()},
+        age_seconds=bounded_age(age),
+        truncated=payload.get("truncated") is True,
+    )
+
+
+def read_services(config: ServicesConfig, provider: ServiceStateProvider) -> dict[str, object]:
+    state = provider()
+    if not state.available:
+        return {
+            "status": "unknown",
+            "reasons": [state.reason or "services_unavailable"],
+            "available": False,
+            "items": [],
+            "unmapped_count": 0,
+            "state_age_seconds": state.age_seconds,
+        }
+    observed = {f"{row.supervisor}:{row.name}": row for row in state.rows}
+    items: list[dict[str, object]] = []
+    statuses: list[str] = []
+    essential_down = False
+    supervisor_missing = False
+    for key, policy in config.policies.items():
+        supervisor = key.split(":", 1)[0]
+        row = observed.get(key)
+        if row is not None:
+            current = service_state(supervisor, row.status)
+        elif state.supervisors.get(supervisor) is True:
+            # Il supervisore ha risposto e non conosce questo servizio: e'
+            # sparito, ed e' esattamente il caso che le soglie non sanno vedere.
+            current = "absent"
+        else:
+            # Un supervisore muto non e' la prova che i suoi servizi siano
+            # caduti: resta non accertato, mai un allarme sintetico.
+            current = "unknown"
+        items.append(
+            {
+                "label": policy.label,
+                "supervisor": supervisor,
+                "state": current,
+                "priority": policy.priority,
+                "restarts": row.restarts if row is not None else None,
+                "memory_bytes": row.memory_bytes if row is not None else None,
+            }
+        )
+        if current == "unknown":
+            supervisor_missing = True
+            statuses.append("unknown")
+        elif current not in {"running", "starting"} and policy.priority == "essential":
+            essential_down = True
+            statuses.append("critical")
+    # Le app pm2 non dichiarate sono contate perche' esistono solo se qualcuno le
+    # ha create; gli unit systemd non dichiarati sono decine per costruzione e
+    # contarli non direbbe nulla (ADR 012).
+    unmapped = sum(
+        1
+        for row in state.rows
+        if row.supervisor == "pm2" and f"{row.supervisor}:{row.name}" not in config.policies
+    )
+    result_status = combine_status(statuses)
+    reasons: list[str] = []
+    if essential_down:
+        reasons.append("essential_service_down")
+    if supervisor_missing:
+        reasons.append("supervisor_unavailable")
+    return {
+        "status": result_status,
+        "reasons": reasons,
+        "available": True,
+        "items": items[:MAX_SERVICE_POLICIES],
+        "unmapped_count": unmapped,
+        "state_age_seconds": state.age_seconds,
+    }
+
+
 def collect_snapshot(
     config: CollectorConfig,
     *,
@@ -1529,6 +1817,19 @@ def collect_snapshot(
     )
     docker = read_docker(config.docker, provider, schema_version=config.schema_version)
     components = [memory, load, filesystems, processes, listeners, docker]
+    services_file = config.services.state_file
+    services = (
+        read_services(
+            config.services,
+            lambda: read_service_state_file(
+                Path(services_file), config.services.max_age_seconds
+            ),
+        )
+        if services_file is not None
+        else None
+    )
+    if services is not None:
+        components.append(services)
     reasons = fixed_reason(
         *(reason for component in components for reason in component.get("reasons", []))
     )
@@ -1544,6 +1845,9 @@ def collect_snapshot(
         "processes": processes,
         "listeners": listeners,
         "docker": docker,
+        # Emesso solo se configurato: un host senza `services.state_file` non
+        # deve vedere una scheda vuota che somiglia a "nessun servizio giu'".
+        **({"services": services} if services is not None else {}),
     }
 
 

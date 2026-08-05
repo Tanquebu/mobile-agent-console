@@ -40,7 +40,12 @@ ammessi restano quelli del v1. Le differenze sono limitate a queste evidenze:
   accertato". `memory_bytes` è `null` per un container fermo, mai zero;
 - il container rinomina `container_labels` in `container_policies`, che portano
   label e priorità come già fanno le `process_policies`. `priority` è
-  `essential` oppure `optional`, e in assenza vale `optional`.
+  `essential` oppure `optional`, e in assenza vale `optional`;
+- compare il componente `services`, con `available`, `items` (label,
+  `supervisor`, `state`, `priority`, `restarts`, `memory_bytes`),
+  `unmapped_count` e `state_age_seconds`. È l'unico componente che può essere
+  assente o `null`: significa che la raccolta dei servizi supervisionati non è
+  configurata, non che nessun servizio sia giù.
 
 I reason v2 sono enumerati separatamente. Lo scoring contestuale può usare
 `swap_sample_unavailable`, `swap_activity_high`, `swap_pressure_critical`,
@@ -84,6 +89,46 @@ gruppo somma i soli membri letti e resta `null` se nessun membro era leggibile.
 `memory.swap_used_bytes`: la differenza appartiene a processi terminati o non
 leggibili e non è attribuibile. Il collector non la ripartisce e la vista non la
 presenta come se lo fosse.
+
+## Servizi supervisionati
+
+Non tutto ciò che deve restare in piedi gira in un container: `services`
+raccoglie i servizi sotto systemd, di sistema e utente, e sotto pm2. L'evidenza
+arriva dalla unit `mobile-agent-console-service-state` attraverso un file di
+stato, per la stessa ragione dell'evidenza Docker: il perché è in ADR 012, e la
+sua età viaggia in `state_age_seconds`. Il componente esiste soltanto se
+`services.state_file` è configurato; assente o `null` significa che la fonte non
+esiste, mai che tutto è a posto.
+
+Le policy hanno chiave `supervisore:nome` — `systemd_user`, `systemd_system` o
+`pm2` seguiti dall'identificatore del servizio — cioè un nome stabile scelto da
+chi ha creato il servizio, non un `comm` dedotto dal processo. Portano label e
+`priority` nella stessa forma delle `container_policies`, e la severità dipende
+dalla priorità: un `essential` che non è né `running` né `starting` è critico
+con `essential_service_down`; uno `optional` resta visibile con il suo stato
+senza concorrere alla severità.
+
+`state` distingue tre cose che non vanno confuse. `stopped`, `failed` e
+`restarting` sono stati osservati. `absent` significa che il supervisore ha
+risposto e non conosce più quel servizio, ed è giudicato come "giù": è la
+presenza, non una soglia, ciò che le policy sui processi non sanno esprimere.
+`unknown` significa che il supervisore non ha risposto, e non è mai un allarme —
+un supervisore muto non è la prova che i suoi servizi siano caduti. Le sue
+policy producono `supervisor_unavailable` e uno stato non accertato.
+
+`restarts` è un contatore cumulativo dichiarato dal supervisore: viaggia nello
+snapshot e viene mostrato, ma non produce severità, perché senza una linea di
+base qualunque soglia sarebbe arbitraria. Vale la pena mostrarlo perché un
+servizio che rimbalza è in esecuzione a ogni istante in cui lo si guarda.
+
+`unmapped_count` conta soltanto le app pm2 senza policy: esistono solo se
+qualcuno le ha create, quindi averle dimenticate è un fatto utile. Gli unit
+systemd non dichiarati non sono contati affatto, perché un host ne ha decine che
+non appartengono all'operatore e il numero non direbbe nulla. File assente,
+scaduto oltre `services.max_age_seconds`, malformato o scritto da un helper che
+non ha raggiunto alcun supervisore producono `services_unavailable`,
+`services_state_stale`, `services_output_excessive` o `services_output_invalid`,
+e mai un elenco vuoto presentato come "nessun servizio giù".
 
 ## Evidenza Docker fuori banda
 
@@ -146,7 +191,12 @@ gruppi e soglie swap storiche. La v2 usa:
   è un errore di configurazione;
 - `process_policies`: massimo 128 chiavi `comm` sanificate. Ogni policy può
   avere una label e soglie warning/critical per `count` e/o `rss_bytes`, ma deve
-  definire almeno un limite. Una soglia warning non può superare la critical.
+  definire almeno un limite. Una soglia warning non può superare la critical;
+- `services`: `state_file`, `max_age_seconds` fra 1 e 3600 (default 120) e
+  `policies`, massimo 50 chiavi `supervisore:nome` con `label` e `priority`
+  opzionale. Dichiarare policy senza `state_file` è un errore di
+  configurazione: non verrebbero mai valutate, e il silenzio somiglierebbe
+  troppo a "tutto a posto".
 
 I count sono limitati a `1..4096`, gli RSS a `1..2^63-1`; durata, delta, porte,
 scope, label, path, cardinalità, dimensione e proprietà `0600` restano validati

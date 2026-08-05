@@ -44,6 +44,7 @@ import {
   Identity,
   HostComponent,
   HostObservabilitySnapshot,
+  HostServiceItem,
   killPane,
   listSessions,
   listArchives,
@@ -1457,6 +1458,12 @@ const HOST_REASON_LABEL: Record<string, string> = {
   docker_output_excessive: "Risposta Docker troppo grande",
   docker_output_invalid: "Risposta Docker non valida",
   containers_problematic: "Container con problemi",
+  services_unavailable: "Stato dei servizi non disponibile",
+  services_state_stale: "Stato dei servizi non aggiornato",
+  services_output_excessive: "Stato dei servizi troppo grande",
+  services_output_invalid: "Stato dei servizi non valido",
+  essential_service_down: "Servizio strategico non attivo",
+  supervisor_unavailable: "Supervisore non raggiunto",
 };
 
 const HOST_PROCESS_POLICY_LABEL = {
@@ -1515,6 +1522,12 @@ const HOST_REASON_HINT: Record<string, string> = {
   docker_output_excessive: "Risposta di Docker troppo grande: scartata senza interpretarla.",
   docker_output_invalid: "Risposta di Docker non interpretabile: stato dei container non accertato.",
   containers_problematic: "Uno o più container non sono in stato sano.",
+  services_unavailable: "Stato dei servizi supervisionati non raccolto: systemd e pm2 non sono osservati in questa fotografia.",
+  services_state_stale: "Il timer che raccoglie lo stato dei servizi si è fermato: quello mostrato sarebbe vecchio, quindi non viene mostrato affatto.",
+  services_output_excessive: "Stato dei servizi troppo grande: scartato senza interpretarlo.",
+  services_output_invalid: "Stato dei servizi non interpretabile: nessun servizio è accertato.",
+  essential_service_down: "Un servizio dichiarato strategico non è in esecuzione: va rimesso in piedi, non rimandato.",
+  supervisor_unavailable: "Un supervisore non ha risposto: i suoi servizi non sono accertati, il che non vuol dire che siano caduti.",
 };
 
 // `info` non è uno stato del collector: è una riga che esiste perché l'utente
@@ -1538,6 +1551,23 @@ const HOST_CONTAINER_STATE_LABEL: Record<string, string> = {
   starting: "in avvio",
   paused: "in pausa",
   unknown: "stato ignoto",
+};
+
+const HOST_SERVICE_STATE_LABEL: Record<string, string> = {
+  running: "attivo",
+  starting: "in avvio",
+  stopped: "fermo",
+  failed: "in errore",
+  restarting: "in riavvio",
+  // Il supervisore risponde e non lo conosce più: è sparito, non è fermo.
+  absent: "non esiste più",
+  unknown: "non accertato",
+};
+
+const HOST_SUPERVISOR_LABEL: Record<string, string> = {
+  systemd_system: "systemd",
+  systemd_user: "systemd utente",
+  pm2: "pm2",
 };
 
 // Il suffisso del reason porta già la gravità; `fallback` è lo stato del
@@ -1568,6 +1598,9 @@ function buildHostIssues(snapshot: HostObservabilitySnapshot): HostIssue[] {
     ["processi", snapshot.processes],
     ["porte", snapshot.listeners],
     ["docker", snapshot.docker],
+    ...(snapshot.schema_version === 2 && snapshot.services
+      ? ([["servizi", snapshot.services]] as Array<[string, HostComponent]>)
+      : []),
   ];
   const issues: HostIssue[] = [];
   const seen = new Set<string>();
@@ -1592,6 +1625,22 @@ function buildHostIssues(snapshot: HostObservabilitySnapshot): HostIssue[] {
         key: `container-${container.label}`,
         severity: "info",
         title: `${container.label}: ${HOST_CONTAINER_STATE_LABEL[container.state] ?? container.state}`,
+        hint: "Servizio non critico: puoi riavviarlo quando non ci sono sessioni pesanti in corso.",
+      });
+    }
+    for (const service of snapshot.services?.items ?? []) {
+      // `unknown` non è "fermo": è già dichiarato da `supervisor_unavailable`,
+      // e contarlo fra i non critici fermi direbbe una cosa falsa.
+      if (
+        service.priority !== "optional"
+        || service.state === "running"
+        || service.state === "starting"
+        || service.state === "unknown"
+      ) continue;
+      issues.push({
+        key: `service-${service.supervisor}-${service.label}`,
+        severity: "info",
+        title: `${service.label}: ${HOST_SERVICE_STATE_LABEL[service.state] ?? service.state}`,
         hint: "Servizio non critico: puoi riavviarlo quando non ci sono sessioni pesanti in corso.",
       });
     }
@@ -1623,6 +1672,17 @@ function hostIssueHint(reason: string, snapshot: HostObservabilitySnapshot): str
       .filter((item) => item.status !== "ok")
       .map((item) => `${item.label} ${formatPercent(item.used_percent)}`);
     return volumes.length > 0 ? `${base} Interessati: ${volumes.join(", ")}.` : base;
+  }
+  if (reason === "essential_service_down" || reason === "supervisor_unavailable") {
+    const wanted = reason === "supervisor_unavailable" ? "unknown" : null;
+    const services = (snapshot.schema_version === 2 ? snapshot.services?.items ?? [] : [])
+      .filter((service) => (
+        wanted === null
+          ? service.priority === "essential" && service.state !== "running" && service.state !== "starting" && service.state !== "unknown"
+          : service.state === "unknown"
+      ))
+      .map((service) => `${service.label} (${HOST_SERVICE_STATE_LABEL[service.state] ?? service.state})`);
+    return services.length > 0 ? `${base} Interessati: ${services.join(", ")}.` : base;
   }
   if (reason.startsWith("process_policy") || reason.startsWith("process_group_count")) {
     const groups = snapshot.processes.groups
@@ -1866,7 +1926,30 @@ function HostContainersNote({ snapshot }: { snapshot: HostObservabilitySnapshot 
   );
 }
 
-type HostConsumerTab = "rss" | "swap" | "groups" | "containers";
+// Riflette la regola del collector: la severità dipende dalla priorità, non
+// dal solo stato osservato. `unknown` non è un allarme, è assenza di evidenza.
+function hostServiceStatus(service: HostServiceItem): HostComponent["status"] {
+  if (service.state === "unknown") return "unknown";
+  if (service.state === "running" || service.state === "starting") return "ok";
+  return service.priority === "essential" ? "critical" : "warning";
+}
+
+function HostServicesNote({ snapshot }: { snapshot: HostObservabilitySnapshot }) {
+  const services = snapshot.schema_version === 2 ? snapshot.services : null;
+  if (!services) return <>Raccolta dei servizi supervisionati non configurata.</>;
+  const unmapped = services.unmapped_count;
+  return (
+    <>
+      {services.state_age_seconds === null || services.state_age_seconds === undefined
+        ? "Età dello stato dei servizi non accertata."
+        : `Stato dei servizi raccolto ${formatAge(services.state_age_seconds)} fa, non all'apertura di questa pagina.`}
+      {unmapped > 0 && ` ${unmapped} app pm2 senza policy configurata non sono elencate.`}
+      {" I riavvii sono mostrati ma non giudicati: il contatore è cumulativo e non ha una soglia sensata."}
+    </>
+  );
+}
+
+type HostConsumerTab = "rss" | "swap" | "groups" | "containers" | "services";
 
 function HostConsumers({ snapshot }: { snapshot: HostObservabilitySnapshot }) {
   const [tab, setTab] = useState<HostConsumerTab>("rss");
@@ -1875,11 +1958,13 @@ function HostConsumers({ snapshot }: { snapshot: HostObservabilitySnapshot }) {
   const attributed = snapshot.schema_version === 2 ? snapshot.processes.swap_attributed_bytes ?? null : null;
   const containers = snapshot.schema_version === 2 ? snapshot.docker.containers ?? [] : [];
   const containersAvailable = snapshot.schema_version === 2 && snapshot.docker.containers !== undefined;
+  const services = snapshot.schema_version === 2 ? snapshot.services : null;
   const tabs: Array<[HostConsumerTab, string]> = [
     ["rss", "Memoria"],
     ...(swapAvailable ? ([["swap", "Swap"]] as Array<[HostConsumerTab, string]>) : []),
     ["groups", "Gruppi"],
     ...(containersAvailable ? ([["containers", "Container"]] as Array<[HostConsumerTab, string]>) : []),
+    ...(services ? ([["services", "Servizi"]] as Array<[HostConsumerTab, string]>) : []),
   ];
   const rows = tab === "rss" ? snapshot.processes.top : tab === "swap" ? swapRanking : [];
 
@@ -1904,7 +1989,48 @@ function HostConsumers({ snapshot }: { snapshot: HostObservabilitySnapshot }) {
         ))}
       </div>
 
-      {tab === "containers" ? (
+      {tab === "services" ? (
+        !services || !services.available ? (
+          <p className="host-empty">
+            Stato dei servizi non accertato: {HOST_REASON_LABEL[services?.reasons[0] ?? ""] ?? "raccolta non configurata"}.
+          </p>
+        ) : services.items.length === 0 ? (
+          <p className="host-empty">Nessun servizio con una policy configurata nel collector.</p>
+        ) : (
+          <table className="host-table">
+            <thead>
+              <tr><th scope="col">Servizio</th><th scope="col">Stato</th><th scope="col">Memoria</th></tr>
+            </thead>
+            <tbody>
+              {/* Come per i container: prima ciò su cui c'è una decisione da
+                  prendere, con i servizi strategici in testa. */}
+              {[...services.items].sort((a, b) => (
+                Number(a.state === "running") - Number(b.state === "running")
+                || Number(a.priority === "optional") - Number(b.priority === "optional")
+                || (b.memory_bytes ?? 0) - (a.memory_bytes ?? 0)
+              )).map((service) => (
+                <tr key={`${service.supervisor}-${service.label}`}>
+                  <th scope="row">
+                    <span className="host-table-name">{service.label}</span>
+                    <span className="host-table-sub">
+                      {HOST_SUPERVISOR_LABEL[service.supervisor] ?? service.supervisor}
+                      {" · "}
+                      {service.priority === "essential" ? "strategico" : "non critico"}
+                      {service.restarts ? ` · ${service.restarts} riavvii` : ""}
+                    </span>
+                  </th>
+                  <td>
+                    <span className={`host-container-state state-${service.state} priority-${service.priority}`}>
+                      {HOST_SERVICE_STATE_LABEL[service.state] ?? service.state}
+                    </span>
+                  </td>
+                  <td>{service.memory_bytes === null ? "—" : formatSize(service.memory_bytes)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      ) : tab === "containers" ? (
         !snapshot.docker.available ? (
           <p className="host-empty">
             Stato dei container non accertato: {HOST_REASON_LABEL[snapshot.docker.reasons[0]] ?? "Docker non disponibile"}.
@@ -1997,7 +2123,9 @@ function HostConsumers({ snapshot }: { snapshot: HostObservabilitySnapshot }) {
       )}
 
       <p className="host-note">
-        {tab === "containers" ? (
+        {tab === "services" ? (
+          <HostServicesNote snapshot={snapshot} />
+        ) : tab === "containers" ? (
           <HostContainersNote snapshot={snapshot} />
         ) : snapshot.schema_version !== 2 ? (
           "Snapshot legacy v1: la swap per processo non è raccolta, la colonna resta non accertata."
@@ -3143,6 +3271,42 @@ function HostView({ onBack }: { onBack: () => void }) {
               <p className="host-note"><HostContainersNote snapshot={snapshot} /></p>
             )}
           </HostCard>
+
+          {snapshot.schema_version === 2 && snapshot.services && (
+            <HostCard title="Servizi supervisionati" component={snapshot.services}>
+              {!snapshot.services.available && <p className="host-empty">Stato dei servizi non disponibile.</p>}
+              {snapshot.services.available && snapshot.services.items.length === 0 && (
+                <p className="host-empty">Nessun servizio con una policy configurata.</p>
+              )}
+              {snapshot.services.items.length > 0 && (
+                <div className="host-item-grid">
+                  {snapshot.services.items.map((service) => (
+                    <article
+                      key={`${service.supervisor}-${service.label}`}
+                      className={`host-item status-${hostServiceStatus(service)}`}
+                    >
+                      <header>
+                        <strong>{service.label}</strong>
+                        <HostStatusBadge status={hostServiceStatus(service)} />
+                      </header>
+                      <span>{HOST_SERVICE_STATE_LABEL[service.state] ?? service.state}</span>
+                      <small>
+                        {HOST_SUPERVISOR_LABEL[service.supervisor] ?? service.supervisor}
+                        {" · "}
+                        {service.priority === "essential" ? "strategico" : "non critico"}
+                      </small>
+                      <small>
+                        {service.restarts === null ? "Riavvii non accertati" : `${service.restarts} riavvii`}
+                        {" · "}
+                        {service.memory_bytes === null ? "memoria non accertata" : formatSize(service.memory_bytes)}
+                      </small>
+                    </article>
+                  ))}
+                </div>
+              )}
+              <p className="host-note"><HostServicesNote snapshot={snapshot} /></p>
+            </HostCard>
+          )}
 
           <details className="host-reading-guide">
             <summary id="host-reading-guide-title">Come leggere la fotografia</summary>

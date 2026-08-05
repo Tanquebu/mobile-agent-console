@@ -55,5 +55,14 @@
       "example-web": { "label": "Web", "priority": "essential" },
       "example-batch": { "label": "Batch jobs", "priority": "optional" }
     }
+  },
+  "services": {
+    "state_file": "/srv/example-workspace/.mobile-agent-console/service-state.json",
+    "max_age_seconds": 120,
+    "policies": {
+      "systemd_user:example-api.service": { "label": "Example API", "priority": "essential" },
+      "systemd_system:example-proxy.service": { "label": "Example proxy", "priority": "essential" },
+      "pm2:example-frontend": { "label": "Example frontend", "priority": "optional" }
+    }
   }
 }

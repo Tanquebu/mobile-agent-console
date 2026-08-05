@@ -162,8 +162,32 @@ test("la priorità decide se un container fermo è un allarme o una decisione", 
   assert.match(verdict, /info: issues\.filter\(\(issue\) => issue\.severity === "info"\)\.length/);
   assert.match(verdict, /\{counts\.info\} non critici fermi/);
   // lo stesso stato è rosso per uno strategico e informativo per uno opzionale
-  assert.match(styles, /\.host-container-state\.priority-optional:not\(\.state-running\) \{ color: #8ec7e8/);
-  assert.match(styles, /\.host-container-state\.priority-essential:not\(\.state-running\) \{ color: #ffaaa0/);
+  assert.match(styles, /\.host-container-state\.priority-optional:not\(\.state-running\)[^{]*\{ color: #8ec7e8/);
+  assert.match(styles, /\.host-container-state\.priority-essential:not\(\.state-running\)[^{]*\{ color: #ffaaa0/);
+  // non accertato non è un allarme: resta neutro qualunque sia la priorità
+  assert.match(styles, /\.host-container-state\.state-unknown \{ color: #a8b6ac/);
+  assert.match(styles, /priority-essential:not\(\.state-running\):not\(\.state-starting\):not\(\.state-unknown\)/);
+});
+
+test("i servizi supervisionati distinguono fermo, sparito e non accertato", () => {
+  assert.match(api, /supervisor: "systemd_system" \| "systemd_user" \| "pm2"/);
+  assert.match(api, /state: "running" \| "starting" \| "stopped" \| "failed" \| "restarting" \| "absent" \| "unknown"/);
+  // assente o null = raccolta non configurata, non "nessun servizio giù"
+  assert.match(api, /services\?: \(HostComponent & \{/);
+  const status = app.slice(app.indexOf("function hostServiceStatus("), app.indexOf("function HostServicesNote("));
+  assert.match(status, /if \(service\.state === "unknown"\) return "unknown"/);
+  assert.match(status, /service\.priority === "essential" \? "critical" : "warning"/);
+  assert.match(app, /absent: "non esiste più"/);
+  assert.match(app, /essential_service_down: "Servizio strategico non attivo"/);
+  assert.match(app, /supervisor_unavailable: "Supervisore non raggiunto"/);
+  assert.match(app, /non ha risposto: i suoi servizi non sono accertati, il che non vuol dire che siano caduti/);
+  const issues = app.slice(app.indexOf("function buildHostIssues("), app.indexOf("function hostIssueHint("));
+  // `unknown` non è "fermo" e non deve finire fra i non critici fermi
+  assert.match(issues, /\|\| service\.state === "unknown"\s*\) continue/);
+  const note = app.slice(app.indexOf("function HostServicesNote("), app.indexOf("type HostConsumerTab"));
+  assert.match(note, /app pm2 senza policy configurata non sono elencate/);
+  assert.match(note, /I riavvii sono mostrati ma non giudicati/);
+  assert.match(note, /Raccolta dei servizi supervisionati non configurata/);
 });
 
 test("le tessere mostrano la misura leggibile, non tutti i valori grezzi", () => {

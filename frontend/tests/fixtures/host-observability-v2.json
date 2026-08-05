@@ -45,5 +45,15 @@
     ],
     "unmapped_count": 2,
     "state_age_seconds": 27
+  },
+  "services": {
+    "status": "unknown", "reasons": ["supervisor_unavailable"], "available": true,
+    "items": [
+      { "label": "Example API", "supervisor": "systemd_user", "state": "running", "priority": "essential", "restarts": 4, "memory_bytes": 22164000 },
+      { "label": "Example frontend", "supervisor": "pm2", "state": "stopped", "priority": "optional", "restarts": 0, "memory_bytes": null },
+      { "label": "Batch runner", "supervisor": "systemd_system", "state": "unknown", "priority": "optional", "restarts": null, "memory_bytes": null }
+    ],
+    "unmapped_count": 1,
+    "state_age_seconds": 18
   }
 }

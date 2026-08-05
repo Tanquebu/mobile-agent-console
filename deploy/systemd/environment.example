@@ -12,6 +12,10 @@ MAC_HOST_OBSERVABILITY_CONFIG_FILE=/home/example/.config/mobile-agent-console/ho
 # Solo Docker rootless/userns-remap: UID host a cui è mappato l'UID 10001 del
 # backend. Ricavarlo con il probe documentato nel gate, non indovinarlo.
 MAC_HOST_OBSERVABILITY_ROOTLESS_UID=
+# Opzionale, solo per mobile-agent-console-service-state: path assoluto del
+# binario pm2, che è locale all'utente. Lasciare vuoto se pm2 non è installato:
+# in quel caso pm2 non è un supervisore muto, semplicemente non esiste.
+MAC_PM2_BINARY=
 # Nome MagicDNS del nodo Tailscale (tailscale status --self), usato da
 # mobile-agent-console-tls-renew per rinnovare il certificato nginx.
 MAC_TAILNET_HOSTNAME=example-host.example-tailnet.ts.net

@@ -145,6 +145,7 @@ def test_admin_receives_v2_snapshot_without_wrapper_or_export_changes() -> None:
     expected["docker"]["containers"] = []
     expected["docker"]["unmapped_count"] = 0
     expected["docker"]["state_age_seconds"] = None
+    expected["services"] = None
     for item in expected["processes"]["top"]:
         item["swap_bytes"] = None
     for group in expected["processes"]["groups"]:

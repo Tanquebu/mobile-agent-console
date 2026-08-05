@@ -444,6 +444,118 @@ def test_host_observability_contract_keeps_container_memory_out_of_v1() -> None:
         validate_host_observability_snapshot(payload)
 
 
+def services_component(**overrides: object) -> dict[str, object]:
+    component: dict[str, object] = {
+        "status": "ok",
+        "reasons": [],
+        "available": True,
+        "items": [
+            {
+                "label": "Example API",
+                "supervisor": "systemd_user",
+                "state": "running",
+                "priority": "essential",
+                "restarts": 2,
+                "memory_bytes": 22_164_000,
+            }
+        ],
+        "unmapped_count": 1,
+        "state_age_seconds": 18,
+    }
+    component.update(overrides)
+    return component
+
+
+def test_host_observability_contract_accepts_v2_supervised_services() -> None:
+    payload = valid_snapshot_v2()
+    payload["services"] = services_component()
+
+    snapshot = validate_host_observability_snapshot(payload)
+
+    assert snapshot.services is not None
+    assert snapshot.services.items[0].supervisor == "systemd_user"
+    assert snapshot.services.items[0].restarts == 2
+    assert snapshot.services.unmapped_count == 1
+    assert snapshot.services.state_age_seconds == 18
+
+
+def test_host_observability_contract_reads_missing_services_as_not_configured() -> None:
+    # Assente non e' "nessun servizio giu'": e' una fonte che non esiste, e il
+    # frontend deve poterlo distinguere.
+    snapshot = validate_host_observability_snapshot(valid_snapshot_v2())
+
+    assert snapshot.services is None
+
+
+def test_host_observability_contract_defaults_service_priority_to_optional() -> None:
+    payload = valid_snapshot_v2()
+    payload["services"] = services_component(
+        items=[{"label": "Batch", "supervisor": "pm2", "state": "stopped"}]
+    )
+
+    snapshot = validate_host_observability_snapshot(payload)
+
+    assert snapshot.services is not None
+    assert snapshot.services.items[0].priority == "optional"
+    assert snapshot.services.items[0].restarts is None
+    assert snapshot.services.items[0].memory_bytes is None
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"label": "Example API", "supervisor": "runit", "state": "running"},
+        {"label": "Example API", "supervisor": "pm2", "state": "zombie"},
+        {"label": "Example API", "supervisor": "pm2", "state": "running", "priority": "vital"},
+        {"label": "Example API", "supervisor": "pm2", "state": "running", "restarts": -1},
+        {"label": "Example API", "supervisor": "pm2", "state": "running", "memory_bytes": -1},
+        # il nome reale dell'unit non attraversa il boundary: solo la label
+        {"label": "Example API", "supervisor": "pm2", "state": "running", "unit": "example-api.service"},
+        {"supervisor": "pm2", "state": "running"},
+    ],
+)
+def test_host_observability_contract_rejects_invalid_service_items(
+    item: dict[str, object],
+) -> None:
+    payload = valid_snapshot_v2()
+    payload["services"] = services_component(items=[item])
+
+    with pytest.raises(ValidationError):
+        validate_host_observability_snapshot(payload)
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "services_unavailable",
+        "services_state_stale",
+        "services_output_excessive",
+        "services_output_invalid",
+        "essential_service_down",
+        "supervisor_unavailable",
+    ],
+)
+def test_host_observability_contract_scopes_service_reasons_to_v2(reason: str) -> None:
+    v2 = valid_snapshot_v2()
+    v2["services"] = services_component(status="critical", reasons=[reason])
+    snapshot = validate_host_observability_snapshot(v2)
+    assert snapshot.services is not None
+    assert snapshot.services.reasons == [reason]
+
+    v1 = valid_snapshot()
+    v1["docker"]["reasons"] = [reason]
+    with pytest.raises(ValidationError):
+        validate_host_observability_snapshot(v1)
+
+
+def test_host_observability_contract_keeps_services_out_of_v1() -> None:
+    payload = valid_snapshot()
+    payload["services"] = services_component()
+
+    with pytest.raises(ValidationError):
+        validate_host_observability_snapshot(payload)
+
+
 def test_host_observability_contract_forbids_v2_extra_fields() -> None:
     payload = valid_snapshot_v2()
     listener = payload["listeners"]["items"][0]

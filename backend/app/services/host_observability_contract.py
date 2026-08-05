@@ -72,6 +72,12 @@ HostReasonV2 = Literal[
     "docker_output_invalid",
     "containers_problematic",
     "essential_container_down",
+    "services_unavailable",
+    "services_state_stale",
+    "services_output_excessive",
+    "services_output_invalid",
+    "essential_service_down",
+    "supervisor_unavailable",
 ]
 
 
@@ -325,6 +331,34 @@ class DockerComponentV2(ComponentV2):
     state_age_seconds: int | None = Field(default=None, ge=0, le=86400)
 
 
+class ServiceUsage(StrictModel):
+    label: SafeLabel
+    supervisor: Literal["systemd_system", "systemd_user", "pm2"]
+    # `absent`: il supervisore ha risposto e non conosce piu' questo servizio.
+    # `unknown`: il supervisore non ha risposto, quindi non e' accertato nulla.
+    state: Literal[
+        "running", "starting", "stopped", "failed", "restarting", "absent", "unknown"
+    ]
+    # `essential`: non in esecuzione, rende l'host critico. `optional`: resta
+    # visibile con il suo stato senza concorrere alla severita'.
+    priority: Literal["essential", "optional"] = "optional"
+    # Riavvii cumulativi dichiarati dal supervisore: mostrati, mai giudicati,
+    # perche' senza una linea di base una soglia sarebbe arbitraria (ADR 012).
+    restarts: int | None = Field(default=None, ge=0, le=2**31 - 1)
+    memory_bytes: int | None = Field(default=None, ge=0)
+
+
+class ServicesComponentV2(ComponentV2):
+    available: bool
+    items: list[ServiceUsage] = Field(default_factory=list, max_length=50)
+    # Solo app pm2 senza policy: gli unit systemd non dichiarati sono decine per
+    # costruzione e contarli non direbbe nulla.
+    unmapped_count: int = Field(default=0, ge=0, le=1000)
+    # Come per Docker l'evidenza arriva da un file aggiornato a timer, quindi
+    # non e' istantanea (ADR 012).
+    state_age_seconds: int | None = Field(default=None, ge=0, le=86400)
+
+
 class HostObservabilitySnapshotV2(TimestampedSnapshot):
     schema_version: Literal[2]
     status: HostStatus
@@ -335,6 +369,9 @@ class HostObservabilitySnapshotV2(TimestampedSnapshot):
     processes: ProcessesComponentV2
     listeners: ListenersComponentV2
     docker: DockerComponentV2
+    # Assente o `null` quando la raccolta dei servizi supervisionati non e'
+    # configurata: non e' "nessun servizio giu'", e' una fonte che non esiste.
+    services: ServicesComponentV2 | None = None
 
 
 HostObservabilitySnapshot = Annotated[

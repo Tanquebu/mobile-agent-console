@@ -222,11 +222,28 @@ denies the connect — see
 Install it beside the other user units and point `docker.state_file` at its
 output; without it the Docker component stays explicitly unavailable.
 
+Supervised services follow the same pattern for the same reason. Not everything
+that must stay up runs in a container: `mobile-agent-console-service-state.timer`
+collects systemd units (system and user) and pm2 apps into a second `0600` state
+file, read through `services.state_file` — see
+[docs/adr/012-supervised-services-state.md](docs/adr/012-supervised-services-state.md).
+Policies are keyed `supervisor:name` and carry a priority, so an `essential`
+service that is not running makes the host critical while an `optional` one
+stays visible without raising an alarm. A policy key the supervisor no longer
+knows reads as `absent`, which is judged as down; a supervisor that did not
+answer leaves its services `unknown`, which never is. Set `MAC_PM2_BINARY` in
+the private environment file to enable pm2 collection; leave it empty when pm2
+is not installed. Without the timer the services component stays explicitly
+unavailable, and without `services.state_file` it is not emitted at all.
+
 ```bash
 cp deploy/systemd/mobile-agent-console-docker-state.service ~/.config/systemd/user/
 cp deploy/systemd/mobile-agent-console-docker-state.timer ~/.config/systemd/user/
+cp deploy/systemd/mobile-agent-console-service-state.service ~/.config/systemd/user/
+cp deploy/systemd/mobile-agent-console-service-state.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now mobile-agent-console-docker-state.timer
+systemctl --user enable --now mobile-agent-console-service-state.timer
 ```
 
 The expandable JSON export copies the exact already-sanitized API snapshot,

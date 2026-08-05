@@ -348,6 +348,25 @@ export type HostObservabilitySnapshotV2 = HostObservabilitySnapshotBase & {
     }>;
     truncated: boolean;
   };
+  // Assente o `null` quando la raccolta dei servizi supervisionati non è
+  // configurata: non è "nessun servizio giù", è una fonte che non esiste.
+  services?: (HostComponent & {
+    available: boolean;
+    items: HostServiceItem[];
+    unmapped_count: number;
+    state_age_seconds: number | null;
+  }) | null;
+};
+
+export type HostServiceItem = {
+  label: string;
+  supervisor: "systemd_system" | "systemd_user" | "pm2";
+  // `absent`: il supervisore ha risposto e non conosce più questo servizio.
+  // `unknown`: il supervisore non ha risposto, quindi non è accertato nulla.
+  state: "running" | "starting" | "stopped" | "failed" | "restarting" | "absent" | "unknown";
+  priority: "essential" | "optional";
+  restarts: number | null;
+  memory_bytes: number | null;
 };
 
 export type HostObservabilitySnapshot =

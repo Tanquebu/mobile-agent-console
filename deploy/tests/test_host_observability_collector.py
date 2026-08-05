@@ -60,6 +60,19 @@ def base_docker_config(priority="essential"):
     ).docker
 
 
+def services_config(priority="essential", state_file="/run/service-state.json"):
+    return collector.parse_config(
+        base_config_v2(
+            services={
+                "state_file": state_file,
+                "policies": {
+                    "systemd_user:example-api.service": {"label": "Example API", "priority": priority}
+                },
+            }
+        )
+    ).services
+
+
 def base_config_v2(**overrides):
     payload = {
         "schema_version": 2,
@@ -1175,6 +1188,277 @@ class HostObservabilityCollectorTest(unittest.TestCase):
         )
         self.assertEqual(parsed.docker.state_file, "/run/x.json")
         self.assertEqual(parsed.docker.max_age_seconds, 120)
+
+    def test_service_states_separate_observation_from_judgement(self) -> None:
+        cases = [
+            ("systemd_user", "active:running", "running"),
+            # oneshot con RemainAfterExit: e' systemd a considerarlo su
+            ("systemd_system", "active:exited", "running"),
+            ("systemd_system", "activating:start", "starting"),
+            ("systemd_system", "activating:auto-restart", "restarting"),
+            ("systemd_system", "failed:failed", "failed"),
+            ("systemd_system", "inactive:dead", "stopped"),
+            ("systemd_system", "deactivating:stop", "stopped"),
+            ("systemd_system", "parola-nuova:boh", "unknown"),
+            ("pm2", "online", "running"),
+            ("pm2", "launching", "starting"),
+            ("pm2", "errored", "failed"),
+            ("pm2", "stopped", "stopped"),
+            ("pm2", "one-launch-status", "unknown"),
+        ]
+        for supervisor, raw, expected in cases:
+            with self.subTest(supervisor=supervisor, raw=raw):
+                self.assertEqual(collector.service_state(supervisor, raw), expected)
+
+    def test_v2_essential_service_down_is_critical(self) -> None:
+        state = collector.ServiceState(
+            available=True,
+            rows=[collector.ServiceRow("systemd_user", "example-api.service", "failed:failed", 3, None)],
+            supervisors={"systemd_user": True},
+        )
+        result = collector.read_services(services_config("essential"), lambda: state)
+
+        self.assertEqual(result["status"], "critical")
+        self.assertEqual(result["reasons"], ["essential_service_down"])
+        self.assertEqual(
+            result["items"],
+            [
+                {
+                    "label": "Example API",
+                    "supervisor": "systemd_user",
+                    "state": "failed",
+                    "priority": "essential",
+                    "restarts": 3,
+                    "memory_bytes": None,
+                }
+            ],
+        )
+
+    def test_v2_optional_service_down_is_visible_but_not_an_alarm(self) -> None:
+        state = collector.ServiceState(
+            available=True,
+            rows=[collector.ServiceRow("systemd_user", "example-api.service", "inactive:dead")],
+            supervisors={"systemd_user": True},
+        )
+        result = collector.read_services(services_config("optional"), lambda: state)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["reasons"], [])
+        self.assertEqual(result["items"][0]["state"], "stopped")
+
+    def test_a_policy_missing_from_the_state_is_absent_only_if_its_supervisor_answered(
+        self,
+    ) -> None:
+        # E' la presenza, non una soglia, il fatto che le policy sui processi non
+        # sanno esprimere: un servizio sparito non ha piu' un gruppo da misurare.
+        answered = collector.ServiceState(
+            available=True, rows=[], supervisors={"systemd_user": True}
+        )
+        silent = collector.ServiceState(
+            available=True, rows=[], supervisors={"systemd_user": False}
+        )
+
+        gone = collector.read_services(services_config("essential"), lambda: answered)
+        not_assessed = collector.read_services(services_config("essential"), lambda: silent)
+
+        self.assertEqual(gone["items"][0]["state"], "absent")
+        self.assertEqual(gone["status"], "critical")
+        self.assertEqual(gone["reasons"], ["essential_service_down"])
+        # Un supervisore muto non e' la prova che i suoi servizi siano caduti.
+        self.assertEqual(not_assessed["items"][0]["state"], "unknown")
+        self.assertEqual(not_assessed["status"], "unknown")
+        self.assertEqual(not_assessed["reasons"], ["supervisor_unavailable"])
+
+    def test_only_undeclared_pm2_apps_are_counted_as_unmapped(self) -> None:
+        # Gli unit systemd non dichiarati sono decine per costruzione: contarli
+        # produrrebbe un numero che non dice nulla (ADR 012).
+        state = collector.ServiceState(
+            available=True,
+            rows=[
+                collector.ServiceRow("systemd_user", "example-api.service", "active:running"),
+                collector.ServiceRow("systemd_system", "unrelated.service", "active:running"),
+                collector.ServiceRow("systemd_system", "another.service", "failed:failed"),
+                collector.ServiceRow("pm2", "undeclared-app", "online"),
+            ],
+            supervisors={"systemd_user": True, "systemd_system": True, "pm2": True},
+        )
+        result = collector.read_services(services_config("essential"), lambda: state)
+
+        self.assertEqual(result["unmapped_count"], 1)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual([item["label"] for item in result["items"]], ["Example API"])
+
+    def test_service_state_file_distinguishes_missing_stale_and_invalid(self) -> None:
+        with TemporaryDirectory() as temporary:
+            path = Path(temporary) / "service-state.json"
+            now = datetime(2026, 8, 5, 12, 0, tzinfo=UTC)
+
+            missing = collector.read_service_state_file(path, 120, now=now)
+            self.assertEqual(missing.reason, "services_unavailable")
+            self.assertIsNone(missing.age_seconds)
+
+            path.write_text("{ not json", encoding="utf-8")
+            self.assertEqual(
+                collector.read_service_state_file(path, 120, now=now).reason,
+                "services_output_invalid",
+            )
+
+            payload = {
+                "schema_version": 1,
+                "collected_at": "2026-08-05T11:00:00+00:00",
+                "available": True,
+                "supervisors": {"pm2": True},
+                "services": [
+                    {
+                        "supervisor": "pm2",
+                        "name": "app",
+                        "status": "online",
+                        "restarts": 0,
+                        "memory_bytes": 1024,
+                    }
+                ],
+                "truncated": False,
+            }
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            stale = collector.read_service_state_file(path, 120, now=now)
+            self.assertEqual(stale.reason, "services_state_stale")
+            self.assertEqual(stale.age_seconds, 3600)
+
+            fresh = collector.read_service_state_file(path, 7200, now=now)
+            self.assertTrue(fresh.available)
+            self.assertEqual(fresh.supervisors, {"pm2": True})
+            self.assertEqual(fresh.rows[0].memory_bytes, 1024)
+
+            for broken in [
+                {"schema_version": 2},
+                {"collected_at": "2026-08-05T11:00:00"},
+                {"supervisors": {"unknown_supervisor": True}},
+                {"services": [{"supervisor": "pm2", "name": "../escape", "status": "online"}]},
+                {"services": [{"supervisor": "pm2", "name": "app", "status": "online", "restarts": -1}]},
+                {"services": [{"supervisor": "pm2", "name": "app", "status": "online", "restarts": 2**31}]},
+                {"services": [{"supervisor": "nope", "name": "app", "status": "online"}]},
+            ]:
+                with self.subTest(broken=broken):
+                    path.write_text(json.dumps({**payload, **broken}), encoding="utf-8")
+                    self.assertFalse(
+                        collector.read_service_state_file(path, 7200, now=now).available
+                    )
+
+    def test_a_timer_stopped_for_days_does_not_invalidate_the_whole_snapshot(self) -> None:
+        # `state_age_seconds` e' limitato a 86400 dal contratto: un'eta' fuori
+        # range farebbe fallire l'intera fotografia per un campo accessorio.
+        with TemporaryDirectory() as temporary:
+            path = Path(temporary) / "service-state.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "collected_at": "2026-07-01T00:00:00+00:00",
+                        "available": True,
+                        "supervisors": {},
+                        "services": [],
+                        "truncated": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            stale = collector.read_service_state_file(
+                path, 120, now=datetime(2026, 8, 5, tzinfo=UTC)
+            )
+
+        self.assertEqual(stale.reason, "services_state_stale")
+        self.assertEqual(stale.age_seconds, 86400)
+
+    def test_unavailable_service_state_never_reads_as_nothing_is_down(self) -> None:
+        state = collector.ServiceState(
+            available=False, reason="services_state_stale", age_seconds=900
+        )
+        result = collector.read_services(services_config("essential"), lambda: state)
+
+        self.assertEqual(result["status"], "unknown")
+        self.assertEqual(result["reasons"], ["services_state_stale"])
+        self.assertEqual(result["items"], [])
+        self.assertEqual(result["state_age_seconds"], 900)
+
+    def test_services_component_is_emitted_only_when_configured(self) -> None:
+        def snapshot_for(config, proc_root):
+            return collector.collect_snapshot(
+                config,
+                proc_root=proc_root,
+                statvfs=lambda _path: statvfs_with_usage(40),
+                docker_runner=lambda: collector.DockerCommandResult(0, b""),
+                cpu_count=4,
+                page_size=4096,
+                clock_ticks=100,
+            )
+
+        with TemporaryDirectory() as temporary:
+            proc_root = make_proc_root(Path(temporary))
+            add_process(proc_root, 1, "shell", 10)
+
+            # Un host che non configura la raccolta non deve vedere una scheda
+            # vuota, che somiglierebbe a "nessun servizio giu'".
+            without = collector.parse_config(base_config_v2())
+            self.assertIsNone(without.services.state_file)
+            self.assertNotIn("services", snapshot_for(without, proc_root))
+
+            path = Path(temporary) / "service-state.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "collected_at": datetime.now(UTC).isoformat(),
+                        "available": True,
+                        "supervisors": {"systemd_user": True},
+                        "services": [],
+                        "truncated": False,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            configured = collector.parse_config(
+                base_config_v2(
+                    services={
+                        "state_file": str(path),
+                        "policies": {
+                            "systemd_user:example-api.service": {
+                                "label": "Example API",
+                                "priority": "essential",
+                            }
+                        },
+                    }
+                )
+            )
+            snapshot = snapshot_for(configured, proc_root)
+
+        self.assertEqual(snapshot["services"]["items"][0]["state"], "absent")
+        self.assertEqual(snapshot["status"], "critical")
+        self.assertIn("essential_service_down", snapshot["reasons"])
+
+    def test_service_policies_are_validated_and_v2_only(self) -> None:
+        with self.assertRaises(collector.CollectorConfigError):
+            collector.parse_config(base_config(services={"state_file": "/run/x.json"}))
+        invalid = [
+            {"state_file": "relative.json"},
+            {"state_file": "/run/x.json", "max_age_seconds": 0},
+            {"state_file": "/run/x.json", "policies": {"example-api.service": {"label": "PM"}}},
+            {"state_file": "/run/x.json", "policies": {"nope:app": {"label": "PM"}}},
+            {"state_file": "/run/x.json", "policies": {"pm2:app": {"label": "PM", "priority": "vital"}}},
+            {"state_file": "/run/x.json", "policies": {"pm2:app": {"label": "../escape"}}},
+            # policy senza fonte: non verrebbero mai valutate, e il silenzio
+            # somiglierebbe troppo a "tutto a posto"
+            {"policies": {"pm2:app": {"label": "PM"}}},
+        ]
+        for override in invalid:
+            with self.subTest(override=override), self.assertRaises(collector.CollectorConfigError):
+                collector.parse_config(base_config_v2(services=override))
+        parsed = collector.parse_config(
+            base_config_v2(
+                services={"state_file": "/run/x.json", "policies": {"pm2:app": {"label": "PM"}}}
+            )
+        )
+        self.assertEqual(parsed.services.policies["pm2:app"].priority, "optional")
+        self.assertEqual(parsed.services.max_age_seconds, 120)
 
     def test_docker_command_is_fixed_bounded_and_discards_stderr(self) -> None:
         completed = collector.DockerCommandResult(0, b"")

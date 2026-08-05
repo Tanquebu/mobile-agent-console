@@ -1,0 +1,25 @@
+[Unit]
+Description=Collect Mobile Agent Console supervised service state
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/mobile-agent-console/environment
+ExecStart=/usr/bin/python3 ${MAC_INSTALL_DIR}/deploy/service-state-collector.py --output ${MAC_WORKSPACE_ROOT}/.mobile-agent-console/service-state.json --pm2-binary ${MAC_PM2_BINARY}
+# Stessa eccezione della unit docker-state, per la stessa causa: qualsiasi
+# direttiva che crea un mount namespace (PrivateTmp, ProtectHome,
+# ProtectSystem) fa ricadere il processo nel profilo AppArmor
+# `unprivileged_userns` di Ubuntu 24.04, che nega la connect() verso il bus
+# utente di systemd e verso il socket del demone pm2. ProtectHome da sola
+# basterebbe a nascondere `~/.pm2`. Riprodotto con:
+#   systemd-run --user --pipe --wait -q -p PrivateTmp=yes /usr/bin/systemctl --user show '*.service'
+# Il compromesso e' confinato qui: questa unit esegue solo `systemctl show` e
+# `pm2 jlist`, scrive un unico file 0600 e non legge /proc di terzi. Il
+# collector di osservabilita' conserva l'hardening completo (ADR 012).
+UMask=0077
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+LockPersonality=yes
+# `pm2 jlist` avvia un processo node: ~0.7s sull'host di riferimento.
+RuntimeMaxSec=45

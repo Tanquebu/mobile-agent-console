@@ -12,6 +12,14 @@ UNITS = [
     UNIT_DIRECTORY / "mobile-agent-console-host-observability@.service",
     UNIT_DIRECTORY / "mobile-agent-console-docker-state.service",
     UNIT_DIRECTORY / "mobile-agent-console-docker-state.timer",
+    UNIT_DIRECTORY / "mobile-agent-console-service-state.service",
+    UNIT_DIRECTORY / "mobile-agent-console-service-state.timer",
+]
+# Le due unit di raccolta fuori banda condividono la stessa eccezione di
+# hardening e la stessa ragione: ADR 011 per Docker, ADR 012 per systemd e pm2.
+OUT_OF_BAND_UNITS = [
+    ("mobile-agent-console-docker-state", "docker"),
+    ("mobile-agent-console-service-state", "services"),
 ]
 # Ognuna di queste crea un mount namespace, e su Ubuntu 24.04 questo fa ricadere
 # il servizio nel profilo AppArmor `unprivileged_userns`, che nega la connect()
@@ -60,23 +68,23 @@ class HostObservabilitySystemdTest(unittest.TestCase):
         self.assertNotIn("transaction order is cyclic", diagnostics.lower())
         self.assertEqual(completed.returncode, 0, diagnostics)
 
-    def test_docker_state_unit_stays_out_of_a_mount_namespace(self) -> None:
+    def test_out_of_band_units_stay_out_of_a_mount_namespace(self) -> None:
         # Aggiungere qui una di queste direttive "per sicurezza" romperebbe la
-        # raccolta Docker in modo silenzioso: il collector tornerebbe a
-        # `docker_unavailable` senza che nulla lo dica.
-        unit = (UNIT_DIRECTORY / "mobile-agent-console-docker-state.service").read_text(
-            encoding="utf-8"
-        )
-        directives = [
-            line.split("=", 1)[0].strip()
-            for line in unit.splitlines()
-            if "=" in line and not line.lstrip().startswith("#")
-        ]
-        for forbidden in MOUNT_NAMESPACE_DIRECTIVES:
-            self.assertNotIn(forbidden, directives)
-        self.assertIn("NoNewPrivileges", directives)
-        self.assertIn("UMask", directives)
-        self.assertIn("RuntimeMaxSec", directives)
+        # raccolta in modo silenzioso: il collector tornerebbe a
+        # `docker_unavailable` o `services_unavailable` senza che nulla lo dica.
+        for name, _component in OUT_OF_BAND_UNITS:
+            with self.subTest(unit=name):
+                unit = (UNIT_DIRECTORY / f"{name}.service").read_text(encoding="utf-8")
+                directives = [
+                    line.split("=", 1)[0].strip()
+                    for line in unit.splitlines()
+                    if "=" in line and not line.lstrip().startswith("#")
+                ]
+                for forbidden in MOUNT_NAMESPACE_DIRECTIVES:
+                    self.assertNotIn(forbidden, directives)
+                self.assertIn("NoNewPrivileges", directives)
+                self.assertIn("UMask", directives)
+                self.assertIn("RuntimeMaxSec", directives)
 
     def test_host_observability_collector_keeps_full_hardening(self) -> None:
         # Il rovescio del test precedente: l'eccezione vale solo per la unit
@@ -87,22 +95,23 @@ class HostObservabilitySystemdTest(unittest.TestCase):
         for required in ["PrivateTmp=yes", "ProtectHome=read-only", "ProtectSystem=strict"]:
             self.assertIn(required, unit)
 
-    def test_docker_state_timer_refreshes_well_inside_the_staleness_limit(self) -> None:
-        timer = (UNIT_DIRECTORY / "mobile-agent-console-docker-state.timer").read_text(
-            encoding="utf-8"
-        )
-        period = next(
-            int(line.split("=", 1)[1].removesuffix("s"))
-            for line in timer.splitlines()
-            if line.startswith("OnUnitActiveSec=")
-        )
+    def test_out_of_band_timers_refresh_well_inside_the_staleness_limit(self) -> None:
         example = json.loads(
             (REPOSITORY_ROOT / "deploy" / "host-observability.example.json").read_text(
                 encoding="utf-8"
             )
         )
-        max_age = example["docker"]["max_age_seconds"]
-        self.assertLessEqual(period * 3, max_age)
+        for name, component in OUT_OF_BAND_UNITS:
+            with self.subTest(unit=name):
+                timer = (UNIT_DIRECTORY / f"{name}.timer").read_text(encoding="utf-8")
+                period = next(
+                    int(line.split("=", 1)[1].removesuffix("s"))
+                    for line in timer.splitlines()
+                    if line.startswith("OnUnitActiveSec=")
+                )
+                # Tre tentativi prima che il dato diventi "non accertato": un
+                # giro perso non deve far lampeggiare la dashboard.
+                self.assertLessEqual(period * 3, example[component]["max_age_seconds"])
 
     def test_socket_service_uses_bounded_real_collector(self) -> None:
         service = (UNIT_DIRECTORY / "mobile-agent-console-host-observability@.service").read_text(
