@@ -4214,6 +4214,26 @@ tipo di problema è un helper fuori banda (ADR 011, ADR 012), non un aumento di
 privilegi. Va valutato anche il costo in privacy: l'attribuzione porta con sé
 nomi di processi di terzi.
 
+### BL-HOST-03 — Restringere il bind dell'orchestratore locale
+
+Il collector segnala `wildcard_listener_unexpected` per l'orchestratore
+esterno, che ascolta su tutte le interfacce. Il 05/08/2026 il bind è stato
+ristretto al solo loopback e la cosa ha rotto il canale di comando via chat:
+la richiesta arriva da fuori tramite il proxy del tunnel, che la inoltra a un
+servizio **containerizzato**, e un container non raggiunge il loopback
+dell'host. Ripristinato lo stato precedente in giornata.
+
+Il bind corretto è quindi l'indirizzo dell'interfaccia del tunnel, non
+`127.0.0.1`: resta raggiungibile dai container e dalla rete privata, non da
+Internet (il tunnel espone solo la 443). Da applicare con il canale di comando
+sotto mano per verificare subito, perché il sintomo non è visibile dal lato
+server.
+
+Lezione di metodo da conservare: la prima analisi cercò i consumatori solo tra
+i sorgenti e si fermò a due, mancando quello che passa per il proxy. Prima di
+restringere un bind vanno enumerati i client **osservati** (connessioni vive,
+configurazione del proxy), non solo quelli citati nel codice.
+
 ## INC-HOST-01 — creazione sessione impossibile quando il server tmux host è giù
 
 **Stato:** cause 1, 2 e 3 corrette e verificate su host reale il 05/08/2026.
@@ -4290,8 +4310,22 @@ sessione keepalive possa essere terminata/archiviata dall'interfaccia di MAC
 stessa — o escludendola dall'elenco (c'è già un precedente di filtro per nome
 riservato lato `TmuxService.list_sessions`, oggi applicato solo in modalità
 Docker) o bloccando esplicitamente l'azione di terminazione su quel
-nome/id riservato. Da decidere se questo confligga con l'obiettivo dichiarato
-in ADR 005 di mostrare in MAC *tutte* le sessioni host senza eccezioni.
+nome/id riservato.
+
+**Decisione dell'utente (05/08/2026): nascondere**, non mostrarla come sessione
+speciale protetta. È l'opzione che riusa il filtro già esistente, oggi però
+applicato solo in modalità Docker e su un nome diverso
+(`RUNTIME_KEEPALIVE = "__runtime__"`, `TmuxService.list_sessions`): serve
+estenderlo alla modalità host e al nome della sessione di servizio host.
+
+Da chiarire in fase di implementazione, perché il filtro da solo non basta:
+nascondere una sessione dall'elenco non impedisce di agire sul suo id se
+questo è noto, quindi il rifiuto va applicato anche sull'endpoint di
+terminazione, non solo in `list_sessions`. Va inoltre deciso se il nome
+riservato resta una costante o diventa configurabile: in modalità host i nomi
+sono arbitrari e una sessione dell'utente chiamata come quella di servizio
+verrebbe nascosta per omonimia. Resta il conflitto dichiarato con ADR 005
+(mostrare *tutte* le sessioni host senza eccezioni), da annotare nell'ADR.
 
 **Non contiene** nomi host, IP o path reali per costruzione — vedi
 `docs/adr/005-host-default-socket.md` per i placeholder di riferimento.
