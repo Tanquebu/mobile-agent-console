@@ -1,0 +1,116 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+import ts from "typescript";
+
+const tsModule = ts.default ?? ts;
+
+const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+const fixturesDir = new URL("fixtures/opencode-tui/", import.meta.url);
+const consoleView = app.slice(app.indexOf("function Console("), app.indexOf("export default function App()"));
+
+// Stessa convenzione di budget-view.test.mjs: il parser opencode è una
+// funzione pura senza JSX/React, quindi la estraiamo dal sorgente e la
+// eseguiamo davvero sulle fixture reali della TUI OpenCode, invece di
+// limitarci a cercare stringhe.
+function extractFunction(source, name) {
+  const marker = `function ${name}(`;
+  const start = source.indexOf(marker);
+  assert.ok(start >= 0, `funzione non trovata nel sorgente: ${name}`);
+  const braceStart = source.indexOf("{", start);
+  let depth = 0;
+  let i = braceStart;
+  for (; i < source.length; i += 1) {
+    if (source[i] === "{") depth += 1;
+    else if (source[i] === "}") {
+      depth -= 1;
+      if (depth === 0) break;
+    }
+  }
+  assert.ok(depth === 0, `parentesi non bilanciate per ${name}`);
+  return source.slice(start, i + 1);
+}
+
+function loadOpenCodeBlocks() {
+  const ansiMarker = "const ANSI_SEQUENCE =";
+  const ansiStart = app.indexOf(ansiMarker);
+  assert.ok(ansiStart >= 0, "costante ANSI_SEQUENCE non trovata nel sorgente");
+  const ansi = app.slice(ansiStart, app.indexOf("\n", ansiStart));
+  const chrome = extractFunction(app, "opencodeChrome");
+  const blocks = extractFunction(app, "opencodeChatBlocks");
+  const snippet = `${ansi}\n\n${chrome}\n\n${blocks}\n\nmodule.exports = { opencodeChrome, opencodeChatBlocks };\n`;
+  const { outputText } = tsModule.transpileModule(snippet, {
+    compilerOptions: { module: tsModule.ModuleKind.CommonJS, target: tsModule.ScriptTarget.ES2022 },
+  });
+  const module = { exports: {} };
+  // eslint-disable-next-line no-new-func
+  new Function("module", "exports", outputText)(module, module.exports);
+  return module.exports;
+}
+
+const opencode = loadOpenCodeBlocks();
+
+function fixture(name) {
+  return readFileSync(new URL(name, fixturesDir), "utf8");
+}
+
+test("la vista Blocchi è abilitata per OpenCode via agenticView, senza estendere agentic", () => {
+  assert.match(consoleView, /const agenticView = agentic \|\| \/opencode\/i\.test\(session\.current_command\);/);
+  assert.match(consoleView, /\{agenticView && \(\s*<span className="output-mode"/);
+  assert.match(consoleView, /outputMode === "blocks" && agenticView/);
+  // Clear/Compact restano riservati ai provider con classificatore backend: no
+  // estensione di agentic per opencode.
+  assert.match(consoleView, /const agentic = \/codex\|claude\|agy\|antigravity\/i\.test\(session\.current_command\);/);
+});
+
+test("chatBlocks indirizza il provider opencode al parser dedicato", () => {
+  assert.match(app, /if \(\/opencode\/i\.test\(provider\)\) return opencodeChatBlocks\(content\);/);
+});
+
+test("turno completato: utente, esecuzione tool, risposta e attività in blocchi distinti", () => {
+  const blocks = opencode.opencodeChatBlocks(fixture("04-completato.txt"));
+  assert.deepEqual(blocks.map((block) => block.kind), ["user", "activity", "agent", "activity"]);
+  assert.equal(blocks[0].content, "Quante righe ha dati.txt? Rispondi in una riga.");
+  assert.ok(blocks[1].content.includes("$ wc -l /workspace/progetto/dati.txt"), "il comando shell resta in attività");
+  assert.ok(blocks[1].content.includes("2 /workspace/progetto/dati.txt"), "l'output del comando resta in attività");
+  assert.equal(blocks[2].content, "2 righe.");
+  assert.ok(blocks[3].content.includes("▣  Build · Big Pickle · 10.1s"));
+});
+
+test("frame idle e prompt non inviato non producono blocchi (chrome ripetuto filtrato)", () => {
+  assert.equal(opencode.opencodeChatBlocks(fixture("01-idle.txt")).length, 0, "idle non deve mostrare messaggi finti");
+  assert.equal(opencode.opencodeChatBlocks(fixture("02-prompt-inserito.txt")).length, 0, "il draft non inviato non è un messaggio utente");
+});
+
+test("turno attivo: solo prompt utente e attività di build", () => {
+  const blocks = opencode.opencodeChatBlocks(fixture("03-attivo.txt"));
+  assert.deepEqual(blocks.map((block) => block.kind), ["user", "activity"]);
+  assert.ok(blocks[1].content.includes("Build · Big Pickle"));
+});
+
+test("richiesta di autorizzazione: il dialog Permission required resta visibile", () => {
+  const blocks = opencode.opencodeChatBlocks(fixture("07-autorizzazione.txt"));
+  assert.deepEqual(blocks.map((block) => block.kind), ["user", "activity"]);
+  assert.ok(blocks[1].content.includes("Permission required"), "il dialog di autorizzazione non deve sparire");
+  assert.ok(blocks[1].content.includes("Allow once"));
+  assert.ok(blocks[1].content.includes("$ wc -l f.txt"));
+});
+
+test("interruzione: l'output compresso del tool e lo stato interrupted restano attività", () => {
+  const confirm = opencode.opencodeChatBlocks(fixture("05-conferma-interrupt.txt"));
+  assert.deepEqual(confirm.map((block) => block.kind), ["activity"]);
+  assert.ok(confirm[0].content.includes("Click to expand"));
+  const interrupted = opencode.opencodeChatBlocks(fixture("06-interrotto.txt"));
+  assert.deepEqual(interrupted.map((block) => block.kind), ["activity"]);
+  assert.ok(interrupted[0].content.includes("interrupted"));
+});
+
+test("il chrome della TUI è riconosciuto esplicitamente", () => {
+  assert.ok(opencode.opencodeChrome("╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"));
+  assert.ok(opencode.opencodeChrome("tab agents  ctrl+p commands"));
+  assert.ok(opencode.opencodeChrome("   ● Tip Run /connect to add an AI provider and start coding"));
+  assert.ok(opencode.opencodeChrome("/workspace/progetto  8.5K (4%)  ctrl+p commands"));
+  assert.ok(opencode.opencodeChrome("   ⬝⬝⬝⬝⬝⬝⬝⬝  esc again to interrupt"));
+  assert.ok(!opencode.opencodeChrome("Quante righe ha dati.txt? Rispondi in una riga."));
+  assert.ok(!opencode.opencodeChrome("2 righe."));
+});

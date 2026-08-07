@@ -1,0 +1,23 @@
+
+  ┃
+  ┃  Quante righe ha dati.txt? Rispondi in una riga.
+  ┃
+
+     + Thought: 413ms
+
+  ┃
+  ┃  $ wc -l /workspace/progetto/dati.txt
+  ┃
+  ┃  2 /workspace/progetto/dati.txt
+  ┃
+
+     2 righe.
+
+     ▣  Build · Big Pickle · 10.1s
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · Big Pickle OpenCode Zen
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   /workspace/progetto                                       8.5K (4%)  ctrl+p commands

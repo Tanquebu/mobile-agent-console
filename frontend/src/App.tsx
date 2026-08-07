@@ -134,9 +134,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Uploader file in Contenuto Directory",
+  title: "Vista Blocchi per OpenCode",
   description:
-    "È ora disponibile un pulsante 'Carica file' nella vista 'Contenuto directory' per caricare immagini, PDF, documenti Markdown e file audio MP3 direttamente nel percorso di lavoro.",
+    "Le sessioni OpenCode mostrano la conversazione in blocchi (utente, agente, attività) oltre al terminale, con le esecuzioni dei tool e i permessi richiesti riconosciuti direttamente dallo snapshot tmux.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -277,7 +277,78 @@ function chatLines(content: string, provider: string): string[] {
   return lines.slice(0, end);
 }
 
+// Righe di chrome della TUI OpenCode da escludere dai blocchi: logo ASCII,
+// separatore della barra di stato, suggerimenti tastiera, barra percorso/versione
+// e barra di contesto. La TUI vive su schermo alternativo e ripete questo chrome
+// in ogni frame (stessa condizione già vista per Antigravity), quindi va filtrato
+// in modo esplicito, non dato per scontato. Verificato sulle fixture reali in
+// backend/tests/fixtures/opencode-tui/.
+function opencodeChrome(text: string): boolean {
+  return /^╹▀+$/.test(text)
+    || /^[█▀▄ ]+$/.test(text)
+    || /ctrl\+p commands/.test(text)
+    || /tab agents/.test(text)
+    || /esc interrupt|esc again to interrupt/.test(text)
+    || /● Tip|Run \/connect/.test(text)
+    || /^\/\S+\s+\d+\.\d+\.\d+\s*$/.test(text)
+    || /^\/\S+\s+.*\(\d+%\)/.test(text);
+}
+
+function opencodeChatBlocks(content: string): ChatBlock[] {
+  const blocks: ChatBlock[] = [];
+  let current: ChatBlock | undefined;
+  let boxTexts: string[] | null = null;
+  const append = (kind: ChatBlockKind, text: string) => {
+    if (!current || kind !== current.kind) {
+      current = { kind, content: text };
+      blocks.push(current);
+    } else {
+      current.content += `\n${text}`;
+    }
+  };
+  // La TUI OpenCode incornicia sia i messaggi utente sia le esecuzioni di tool
+  // con lo stesso bordo "┃": si accumula l'intera cornice e la si classifica a
+  // fine box, perché il marcatore discriminante ("$", "Click to expand",
+  // "Permission required") può comparire su qualunque riga della cornice.
+  const flushBox = () => {
+    if (boxTexts === null) return;
+    const body = boxTexts.map((text) => text.trim()).filter(Boolean);
+    boxTexts = null;
+    if (body.length === 0) return;
+    const joined = body.join("\n");
+    if (
+      /\$ /.test(joined)
+      || /Click to expand/.test(joined)
+      || /Permission required/.test(joined)
+      || /Allow once/.test(joined)
+      || /Allow always/.test(joined)
+      || /Reject\b/.test(joined)
+    ) {
+      append("activity", joined);
+    } else if (/Ask anything|OpenCode Zen|Build · Big Pickle/.test(joined)) {
+      // Placeholder dell'input o status dentro la cornice: chrome, non contenuto.
+    } else {
+      append("user", joined);
+    }
+  };
+  for (const line of content.split("\n")) {
+    const raw = line.replace(ANSI_SEQUENCE, "");
+    const trimmed = raw.trim();
+    if (/^\s*┃/.test(raw)) {
+      boxTexts = boxTexts ?? [];
+      boxTexts.push(raw.replace(/^\s*┃\s*/, ""));
+      continue;
+    }
+    flushBox();
+    if (!trimmed || opencodeChrome(trimmed)) continue;
+    append(/^(?:▣|⠏|\+ Thought:|\$ )/.test(trimmed) ? "activity" : "agent", trimmed);
+  }
+  flushBox();
+  return blocks.filter((block) => block.content.trim());
+}
+
 function chatBlocks(content: string, provider: string): ChatBlock[] {
+  if (/opencode/i.test(provider)) return opencodeChatBlocks(content);
   const blocks: ChatBlock[] = [];
   let current: ChatBlock | undefined;
   let afterUserBreak = false;
@@ -4311,12 +4382,18 @@ function Console({
   const [closingPane, setClosingPane] = useState(false);
   const agentic = /codex|claude|agy|antigravity/i.test(session.current_command);
   const claude = /claude/i.test(session.current_command);
+  // La vista Blocchi di OpenCode è una trasformazione client-side dello
+  // snapshot tmux (vedi opencodeChatBlocks): la abilitiamo senza estendere
+  // `agentic`, così badge di stato, quote provider e pulsanti Compact/Clear
+  // (specifici di Codex/Claude) non compaiono finché il classificatore
+  // backend di OC-03 non sarà disponibile.
+  const agenticView = agentic || /opencode/i.test(session.current_command);
   const [historyEnabled, setHistoryEnabled] = useState(false);
   const [history, setHistory] = useState<ClaudeHistory | null>(null);
   const [historyError, setHistoryError] = useState("");
   const [copiedAgentBlock, setCopiedAgentBlock] = useState("");
   const [outputMode, setOutputMode] = useState<"terminal" | "blocks" | "history">(
-    agentic ? readDefaultAgentView() : "terminal",
+    agenticView ? readDefaultAgentView() : "terminal",
   );
   const outputRef = useRef<HTMLPreElement | HTMLDivElement>(null);
   const outputLinesRef = useRef<string[]>([]);
@@ -5022,7 +5099,7 @@ function Console({
             >
               {fullscreenOutput ? "⤡" : "⤢"}
             </button>
-            {agentic && (
+            {agenticView && (
               <span className="output-mode" role="group" aria-label="Vista output">
                 <button
                   type="button"
@@ -5113,7 +5190,7 @@ function Console({
               <p className="output-waiting">Nessun messaggio testuale disponibile.</p>
             )}
           </div>
-        ) : outputMode === "blocks" && agentic ? (
+        ) : outputMode === "blocks" && agenticView ? (
           <div
             ref={(element) => { outputRef.current = element; }}
             className="output chat-blocks"
