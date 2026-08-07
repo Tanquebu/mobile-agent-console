@@ -214,6 +214,8 @@ export async function listAgentStatuses(): Promise<AgentStatus[]> {
 export type AppConfig = {
   allowed_roots: string[];
   workspace_presets: Record<string, string>;
+  max_upload_bytes?: number;
+  upload_allowed_extensions?: string[];
   claude_history_enabled: boolean;
   host_observability_enabled: boolean;
   rate_limit_fresh_enabled: boolean;
@@ -754,7 +756,7 @@ export async function sendEnter(id: string, paneId?: string) {
 
 export async function sendKey(
   id: string,
-  key: "Enter" | "Up" | "Down" | "Escape" | "C-c" | "Shift-Tab",
+  key: "Enter" | "Up" | "Down" | "Left" | "Right" | "Escape" | "C-c" | "Tab" | "Shift-Tab",
   confirmed = false,
   paneId?: string,
 ) {
@@ -905,6 +907,32 @@ export async function fetchDirectory(id: string, path?: string): Promise<Directo
   return response.json();
 }
 
+export type UploadResult = {
+  session_id: string;
+  path: string;
+  name: string;
+  size: number;
+};
+
+export async function uploadDirectoryFile(
+  id: string,
+  path: string | undefined,
+  file: File,
+): Promise<UploadResult> {
+  const params = new URLSearchParams();
+  params.set("filename", file.name);
+  if (path) params.set("path", path);
+  const response = await request(
+    `/api/v1/sessions/${encodeURIComponent(id)}/directory/upload?${params.toString()}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    },
+  );
+  return response.json();
+}
+
 export type FileContent = {
   session_id: string;
   path: string;
@@ -941,7 +969,8 @@ export async function listArtifacts(sessionId: string): Promise<Artifact[]> {
 }
 
 export function artifactDownloadUrl(sessionId: string, name: string): string {
-  return `/api/v1/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(name)}`;
+  const encodedPath = name.split("/").map(encodeURIComponent).join("/");
+  return `/api/v1/sessions/${encodeURIComponent(sessionId)}/artifacts/${encodedPath}`;
 }
 
 export async function fetchArtifactContent(sessionId: string, name: string): Promise<string> {

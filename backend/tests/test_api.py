@@ -387,7 +387,7 @@ def test_special_keys_interrupt_and_termination_require_confirmation() -> None:
     csrf = login(client)
     headers = {"X-CSRF-Token": csrf}
 
-    for key in ("Up", "Down", "Escape"):
+    for key in ("Up", "Down", "Left", "Right", "Tab", "Escape"):
         response = client.post(
             "/api/v1/sessions/1/keys",
             headers=headers,
@@ -412,7 +412,7 @@ def test_special_keys_interrupt_and_termination_require_confirmation() -> None:
         json={"key": "Shift-Tab"},
     )
     assert shifted.status_code == 202
-    assert fake.keys == ["Up", "Down", "Escape", "C-c", "Shift-Tab"]
+    assert fake.keys == ["Up", "Down", "Left", "Right", "Tab", "Escape", "C-c", "Shift-Tab"]
 
     assert client.request(
         "DELETE",
@@ -913,6 +913,151 @@ def test_session_directory_navigates_via_path_param(tmp_path) -> None:
 
     outside = client.get("/api/v1/sessions/1/directory", params={"path": "/etc"})
     assert outside.status_code == 400
+
+
+def test_upload_directory_file_success(tmp_path) -> None:
+    fake = FakeTmux()
+    fake.directory = str(tmp_path)
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+    )
+    client = TestClient(create_app(settings, fake))
+    login(client)
+
+    csrf_token = get_csrf_token(client)
+    headers = {"X-CSRF-Token": csrf_token, "Content-Type": "image/png"}
+    content = b"\x89PNG\r\n\x1a\nfake-image-bytes"
+
+    res = client.post(
+        "/api/v1/sessions/1/directory/upload",
+        params={"filename": "photo.png"},
+        headers=headers,
+        content=content,
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["session_id"] == "1"
+    assert body["name"] == "photo.png"
+    assert body["size"] == len(content)
+    assert (tmp_path / "photo.png").read_bytes() == content
+
+    # Test uploading .md in subfolder with path param
+    sub = tmp_path / "docs"
+    sub.mkdir()
+    md_content = b"# Header\nDoc content"
+    res_sub = client.post(
+        "/api/v1/sessions/1/directory/upload",
+        params={"path": str(sub), "filename": "readme.md"},
+        headers={"X-CSRF-Token": csrf_token, "Content-Type": "text/markdown"},
+        content=md_content,
+    )
+    assert res_sub.status_code == 201
+    assert (sub / "readme.md").read_bytes() == md_content
+
+
+def test_upload_directory_file_rejects_disallowed_extension(tmp_path) -> None:
+    fake = FakeTmux()
+    fake.directory = str(tmp_path)
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+    )
+    client = TestClient(create_app(settings, fake))
+    login(client)
+    csrf_token = get_csrf_token(client)
+
+    res = client.post(
+        "/api/v1/sessions/1/directory/upload",
+        params={"filename": "script.py"},
+        headers={"X-CSRF-Token": csrf_token},
+        content=b"print('hello')",
+    )
+    assert res.status_code == 400
+    assert "File extension '.py' is not allowed" in res.json()["detail"]
+
+
+def test_upload_directory_file_rejects_exceeding_max_bytes(tmp_path) -> None:
+    fake = FakeTmux()
+    fake.directory = str(tmp_path)
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+        max_upload_bytes=50,
+    )
+    client = TestClient(create_app(settings, fake))
+    login(client)
+    csrf_token = get_csrf_token(client)
+
+    res = client.post(
+        "/api/v1/sessions/1/directory/upload",
+        params={"filename": "notes.md"},
+        headers={"X-CSRF-Token": csrf_token},
+        content=b"A" * 100,
+    )
+    assert res.status_code == 400
+    assert "File exceeds maximum upload size" in res.json()["detail"]
+
+
+def test_upload_directory_file_security_and_traversal(tmp_path) -> None:
+    fake = FakeTmux()
+    fake.directory = str(tmp_path)
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+    )
+    client = TestClient(create_app(settings, fake))
+    login(client)
+    csrf_token = get_csrf_token(client)
+
+    # Path traversal attempt in filename
+    res1 = client.post(
+        "/api/v1/sessions/1/directory/upload",
+        params={"filename": "../evil.md"},
+        headers={"X-CSRF-Token": csrf_token},
+        content=b"evil",
+    )
+    assert res1.status_code == 400
+
+    # Invalid filename pattern (contains hyphen or space)
+    res_hyphen = client.post(
+        "/api/v1/sessions/1/directory/upload",
+        params={"filename": "my-file.md"},
+        headers={"X-CSRF-Token": csrf_token},
+        content=b"test",
+    )
+    assert res_hyphen.status_code == 400
+    assert "Filename must contain only letters, numbers, and underscores" in res_hyphen.json()["detail"]
+
+    res_space = client.post(
+        "/api/v1/sessions/1/directory/upload",
+        params={"filename": "my file.md"},
+        headers={"X-CSRF-Token": csrf_token},
+        content=b"test",
+    )
+    assert res_space.status_code == 400
+    assert "Filename must contain only letters, numbers, and underscores" in res_space.json()["detail"]
+
+    # Path parameter outside allowed roots
+    res2 = client.post(
+        "/api/v1/sessions/1/directory/upload",
+        params={"path": "/etc", "filename": "evil.md"},
+        headers={"X-CSRF-Token": csrf_token},
+        content=b"evil",
+    )
+    assert res2.status_code == 400
 
 
 def test_session_file_reads_text_content(tmp_path) -> None:

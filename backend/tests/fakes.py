@@ -95,7 +95,7 @@ class FakeTmux:
         self.targets.append(pane_id)
 
     async def send_key(self, session_id: str, key: str, pane_id: str | None = None) -> None:
-        if key not in {"Enter", "Up", "Down", "Escape", "C-c", "Shift-Tab"}:
+        if key not in {"Enter", "Up", "Down", "Left", "Right", "Escape", "C-c", "Tab", "Shift-Tab"}:
             raise ValueError("Unsupported key")
         TmuxService.validate_target(session_id)
         if session_id not in self.sessions:

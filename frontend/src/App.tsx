@@ -23,11 +23,13 @@ import {
   deleteSnapshot,
   deleteAttachment,
   deleteBackup,
+  AppConfig,
   DirectoryEntry,
   DirectoryListing,
   fetchConfig,
   fetchClaudeHistory,
   fetchDirectory,
+  uploadDirectoryFile,
   fetchFile,
   fetchHostObservability,
   fetchOrchestratorState,
@@ -132,9 +134,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Stato agente più affidabile",
+  title: "Uploader file in Contenuto Directory",
   description:
-    "Corretto un falso positivo: il badge \"In elaborazione\" non resta più bloccato quando il turno concluso contiene parole come working o thinking nel testo, e torna a riflettere subito il prompt inattivo.",
+    "È ora disponibile un pulsante 'Carica file' nella vista 'Contenuto directory' per caricare immagini, PDF, documenti Markdown e file audio MP3 direttamente nel percorso di lavoro.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -148,6 +150,7 @@ const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
 const DEFAULT_AGENT_VIEW_KEY = "mac-default-agent-view";
 const DASHBOARD_DENSITY_KEY = "mac-dashboard-density";
 const RECENT_SESSIONS_KEY = "mac-recent-sessions";
+const ORCHESTRATOR_EXPANDED_KEY = "mac-orchestrator-expanded";
 
 type DashboardDensity = "extended" | "compact";
 
@@ -157,6 +160,14 @@ function readDefaultAgentView(): "blocks" | "terminal" {
 
 function readDashboardDensity(): DashboardDensity {
   return window.localStorage.getItem(DASHBOARD_DENSITY_KEY) === "compact" ? "compact" : "extended";
+}
+
+function readOrchestratorExpanded(): boolean {
+  try {
+    return window.sessionStorage.getItem(ORCHESTRATOR_EXPANDED_KEY) === "true";
+  } catch {
+    return false;
+  }
 }
 
 function readRecentSessions(): Session[] {
@@ -454,6 +465,14 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   const [loading, setLoading] = useState(true);
   const [copiedName, setCopiedName] = useState("");
   const [openFile, setOpenFile] = useState<string | null>(null);
+  const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadNotice, setUploadNotice] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    fetchConfig().then(setAppConfig).catch(() => {});
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -505,6 +524,69 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     anchor.remove();
   }
 
+  const defaultAllowedExtensions = [
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".svg",
+    ".bmp",
+    ".ico",
+    ".tiff",
+    ".avif",
+    ".heic",
+    ".pdf",
+    ".md",
+    ".mp3",
+  ];
+  const allowedExtensions = appConfig?.upload_allowed_extensions || defaultAllowedExtensions;
+  const maxUploadBytes = appConfig?.max_upload_bytes || 10 * 1024 * 1024;
+  const acceptAttr = allowedExtensions.join(",");
+
+  async function handleFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    event.target.value = "";
+
+    const ext = file.name.includes(".") ? "." + file.name.split(".").pop()!.toLowerCase() : "";
+    const stem = ext ? file.name.slice(0, -ext.length) : file.name;
+    const isAllowed = allowedExtensions.some(
+      (allowed) => allowed.toLowerCase() === ext
+    );
+
+    if (!isAllowed) {
+      setError(translations[readLanguage()].invalidFileExtension);
+      return;
+    }
+
+    if (!stem || !/^[\p{L}\p{N}_]+$/u.test(stem)) {
+      setError(translations[readLanguage()].invalidFilenamePattern);
+      return;
+    }
+
+    if (file.size > maxUploadBytes) {
+      setError(translations[readLanguage()].fileExceedsMaxSize);
+      return;
+    }
+
+    setUploading(true);
+    setError("");
+    setUploadNotice("");
+
+    try {
+      await uploadDirectoryFile(sessionId, listing?.path, file);
+      setUploadNotice(translations[readLanguage()].fileUploaded);
+      window.setTimeout(() => setUploadNotice(""), 3000);
+      const updated = await fetchDirectory(sessionId, listing?.path);
+      setListing(updated);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div
       className="modal-backdrop"
@@ -529,20 +611,38 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
               <div className="directory-nav">
                 <button
                   type="button"
-                  disabled={!listing.parent}
+                  disabled={!listing.parent || uploading}
                   onClick={() => listing.parent && setCurrentPath(listing.parent)}
                 >
                   ↑ Su
                 </button>
                 <button
                   type="button"
-                  disabled={listing.path === listing.root}
+                  disabled={listing.path === listing.root || uploading}
                   onClick={() => setCurrentPath(listing.root)}
                 >
                   ⌂ Root sessione
                 </button>
+                <button
+                  type="button"
+                  className="directory-upload-btn"
+                  disabled={loading || uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {uploading
+                    ? translations[readLanguage()].uploadingFile
+                    : `⬆ ${translations[readLanguage()].uploadFile}`}
+                </button>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  style={{ display: "none" }}
+                  accept={acceptAttr}
+                  onChange={(e) => void handleFileSelected(e)}
+                />
               </div>
             )}
+            {uploadNotice && <p className="directory-upload-notice">{uploadNotice}</p>}
             {loading && <p className="empty">{translations[readLanguage()].loading}</p>}
             {error && <p className="error">{error}</p>}
             {!loading && !error && listing && (
@@ -652,6 +752,8 @@ function ArtifactPreview({ sessionId, item, onBack }: { sessionId: string; item:
 }
 
 function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
+  // State for current path within artifacts (empty string = root)
+  const [currentPath, setCurrentPath] = useState<string>('');
   const [items, setItems] = useState<Artifact[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -687,6 +789,38 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     anchor.remove();
   }
 
+  // Compute visible items based on currentPath
+  const visibleItems = items.filter((item) => {
+    if (!currentPath) return !item.name.includes("/");
+    return item.name.startsWith(currentPath + "/") && !item.name.slice(currentPath.length + 1).includes("/");
+  });
+
+  // Compute subfolders in the current directory
+  const subfolders = Array.from(new Set(items
+    .filter((item) => {
+      const prefix = currentPath ? currentPath + "/" : "";
+      if (!item.name.startsWith(prefix)) return false;
+      const remainder = item.name.slice(prefix.length);
+      return remainder.includes("/");
+    })
+    .map((item) => {
+      const prefix = currentPath ? currentPath + "/" : "";
+      const remainder = item.name.slice(prefix.length);
+      return remainder.split("/")[0];
+    })
+  ));
+
+  const goUp = () => {
+    if (!currentPath) return;
+    const parts = currentPath.split("/");
+    parts.pop();
+    setCurrentPath(parts.join("/"));
+  };
+
+  const openFolder = (folder: string) => {
+    setCurrentPath(currentPath ? `${currentPath}/${folder}` : folder);
+  };
+
   return (
     <div
       className="modal-backdrop"
@@ -703,15 +837,46 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
             <header>
               <div>
                 <span className="eyebrow">{translations[readLanguage()].artifactsTitle}</span>
-                <h2 id="artifacts-title" className="directory-path">{translations[readLanguage()].sessions} {sessionId}</h2>
+                <h2 id="artifacts-title" className="directory-path">
+                  {translations[readLanguage()].sessions} {sessionId}
+                  {currentPath && ` / ${currentPath}`}
+                </h2>
               </div>
               <button className="modal-close" onClick={onClose} aria-label={translations[readLanguage()].close}>×</button>
             </header>
+            <div className="directory-nav">
+              <button
+                type="button"
+                disabled={!currentPath}
+                onClick={goUp}
+              >
+                ↑ Su
+              </button>
+              <button
+                type="button"
+                disabled={!currentPath}
+                onClick={() => setCurrentPath("")}
+              >
+                ⌂ Root artefatti
+              </button>
+            </div>
             {loading && <p className="empty">{translations[readLanguage()].loading}</p>}
             {error && <p className="error">{error}</p>}
             {!loading && !error && (
               <ul className="directory-list">
-                {items.map((item) => (
+                {subfolders.map((folder) => (
+                  <li key={`folder-${folder}`} className="directory-entry">
+                    <button
+                      type="button"
+                      className="directory-open"
+                      onClick={() => openFolder(folder)}
+                    >
+                      <span className="directory-type dir">DIR</span>
+                      <span className="directory-name" title={folder}>{folder}</span>
+                    </button>
+                  </li>
+                ))}
+                {visibleItems.map((item) => (
                   <li key={item.name} className="directory-entry">
                     <button
                       type="button"
@@ -720,7 +885,7 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                       onClick={() => setPreviewItem(item)}
                     >
                       <span className="directory-type file">FILE</span>
-                      <span className="directory-name" title={item.name}>{item.name}</span>
+                      <span className="directory-name" title={item.name}>{item.name.split("/").pop()}</span>
                       <span className="directory-meta">{formatSize(item.size)} · {formatDate(item.modified_at)}</span>
                     </button>
                     <button type="button" className="directory-download" onClick={() => downloadArtifact(item)}>
@@ -728,7 +893,7 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                     </button>
                   </li>
                 ))}
-                {items.length === 0 && <li className="empty">{translations[readLanguage()].noArtifacts}</li>}
+                {visibleItems.length === 0 && subfolders.length === 0 && <li className="empty">{translations[readLanguage()].noArtifacts}</li>}
               </ul>
             )}
           </>
@@ -3390,6 +3555,19 @@ function SessionList({
   const t = translations[language];
   const [providerLimits, setProviderLimits] = useState<ProviderRateLimits | null>(null);
   const [orchestratorState, setOrchestratorState] = useState<OrchestratorState | null>(null);
+  const [orchestratorExpanded, setOrchestratorExpanded] = useState<boolean>(readOrchestratorExpanded());
+
+  function toggleOrchestratorExpanded() {
+    setOrchestratorExpanded((prev) => {
+      const next = !prev;
+      try {
+        window.sessionStorage.setItem(ORCHESTRATOR_EXPANDED_KEY, String(next));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  }
   const [agentStatusBySession, setAgentStatusBySession] = useState<Record<string, AgentStatus>>({});
   const [notifyEnabled, setNotifyEnabled] = useState(false);
   const [notifyError, setNotifyError] = useState("");
@@ -3689,73 +3867,76 @@ function SessionList({
           </span>
         </div>
       </header>
-      <div className="dashboard-actions">
-        {identity.role !== "viewer" && (
-          <button
-            className="new-session"
-            onClick={() => setCreating((value) => !value)}
-            aria-label={compactDashboard ? t.newSession : undefined}
-            title={compactDashboard ? t.newSession : undefined}
-          >
-            {compactDashboard ? "＋" : `+ ${t.newSession}`}
-          </button>
-        )}
-        {notifySupported && (
-          <button
-            className="snapshot-button"
-            onClick={() => void toggleNotifications()}
-            disabled={!notifyEnabled && Notification.permission === "denied"}
-            title={
-              Notification.permission === "denied"
-                ? "Notifiche bloccate dal browser per questo sito"
-                : "Avvisa quando una sessione attende feedback o autorizzazione, anche ad app chiusa"
-            }
-          >
-            {compactDashboard ? (notifyEnabled ? "🔔" : "🔕") : (notifyEnabled ? t.notificationsOn : t.notificationsOff)}
-          </button>
-        )}
-        <button
-          className="snapshot-button dashboard-more-actions"
-          aria-expanded={showDashboardActions}
-          aria-controls="dashboard-secondary-actions"
-          aria-label={compactDashboard ? (showDashboardActions ? t.lessActions : t.moreActions) : undefined}
-          title={compactDashboard ? (showDashboardActions ? t.lessActions : t.moreActions) : undefined}
-          onClick={() => setShowDashboardActions((value) => !value)}
-        >
-          {compactDashboard ? "⋯" : (showDashboardActions ? t.lessActions : t.moreActions)}
-        </button>
-      </div>
-      {showDashboardActions && (
-        <div className="dashboard-secondary-actions" id="dashboard-secondary-actions" role="group" aria-label={t.moreActions}>
-          <button className="snapshot-button" onClick={() => setShowPreferences(true)} aria-label={t.settings} title={t.settings}>{compactDashboard ? "⚙" : t.settings}</button>
-          <button className="snapshot-button" onClick={async () => {
-            try {
-              await logout();
-            } catch { /* session clearance on failure */ }
-            onLogout();
-          }} aria-label={t.logout} title={t.logout}>{compactDashboard ? "⎋" : t.logout}</button>
+      <div className="dashboard-actions-wrap">
+        <div className="dashboard-actions">
           {identity.role !== "viewer" && (
-            <button className="snapshot-button" onClick={() => setShowSnapshots(true)} aria-label={t.snapshots} title={t.snapshots}>{compactDashboard ? "◫" : t.snapshots}</button>
+            <button
+              className="new-session"
+              onClick={() => setCreating((value) => !value)}
+              aria-label={compactDashboard ? t.newSession : undefined}
+              title={compactDashboard ? t.newSession : undefined}
+            >
+              {compactDashboard ? "＋" : `+ ${t.newSession}`}
+            </button>
           )}
-          {identity.role !== "viewer" && (
-            <button className="snapshot-button" onClick={() => setShowArchives(true)} aria-label={t.archivedSessions} title={t.archivedSessions}>{compactDashboard ? "▣" : t.archivedSessions}</button>
+          {notifySupported && (
+            <button
+              className="snapshot-button"
+              onClick={() => void toggleNotifications()}
+              disabled={!notifyEnabled && Notification.permission === "denied"}
+              title={
+                Notification.permission === "denied"
+                  ? "Notifiche bloccate dal browser per questo sito"
+                  : "Avvisa quando una sessione attende feedback o autorizzazione, anche ad app chiusa"
+              }
+            >
+              {compactDashboard ? (notifyEnabled ? "🔔" : "🔕") : (notifyEnabled ? t.notificationsOn : t.notificationsOff)}
+            </button>
           )}
-          <button className="snapshot-button" onClick={() => setShowHiddenSessions(true)} aria-label={t.hiddenSessions} title={t.hiddenSessions}>{compactDashboard ? "◌" : t.hiddenSessions}</button>
-          <button ref={budgetTriggerRef} className="snapshot-button" onClick={() => setShowBudget(true)} aria-label={t.budget} title={t.budget}>{compactDashboard ? "◔" : t.budget}</button>
-          {identity.role === "admin" && (
-            <button className="snapshot-button" onClick={() => setShowUsers(true)} aria-label={t.users} title={t.users}>{compactDashboard ? "♟" : t.users}</button>
-          )}
-          {identity.role === "admin" && (
-            <button className="snapshot-button" onClick={() => setShowAudit(true)} aria-label={t.auditLogs} title={t.auditLogs}>{compactDashboard ? "≡" : t.auditLogs}</button>
-          )}
-          {identity.role === "admin" && (
-            <button className="snapshot-button" onClick={() => setShowBackups(true)} aria-label={t.backups} title={t.backups}>{compactDashboard ? "⇩" : t.backups}</button>
-          )}
-          {identity.role === "admin" && hostObservabilityEnabled && (
-            <button ref={hostTriggerRef} className="snapshot-button" onClick={() => setShowHost(true)} aria-label={t.host} title={t.host}>{compactDashboard ? "▥" : t.host}</button>
-          )}
+          <button
+            className="snapshot-button dashboard-more-actions"
+            aria-expanded={showDashboardActions}
+            aria-controls="dashboard-secondary-actions"
+            aria-label={compactDashboard ? (showDashboardActions ? t.lessActions : t.moreActions) : undefined}
+            title={compactDashboard ? (showDashboardActions ? t.lessActions : t.moreActions) : undefined}
+            onClick={() => setShowDashboardActions((value) => !value)}
+          >
+            {compactDashboard ? "⋯" : (showDashboardActions ? t.lessActions : t.moreActions)}
+          </button>
         </div>
-      )}
+        {showDashboardActions && (
+          <div className="dashboard-secondary-actions" id="dashboard-secondary-actions" role="group" aria-label={t.moreActions}>
+            <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowPreferences(true); }} aria-label={t.settings} title={t.settings}>{compactDashboard ? "⚙" : t.settings}</button>
+            <button className="snapshot-button" onClick={async () => {
+              setShowDashboardActions(false);
+              try {
+                await logout();
+              } catch { /* session clearance on failure */ }
+              onLogout();
+            }} aria-label={t.logout} title={t.logout}>{compactDashboard ? "⎋" : t.logout}</button>
+            {identity.role !== "viewer" && (
+              <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowSnapshots(true); }} aria-label={t.snapshots} title={t.snapshots}>{compactDashboard ? "◫" : t.snapshots}</button>
+            )}
+            {identity.role !== "viewer" && (
+              <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowArchives(true); }} aria-label={t.archivedSessions} title={t.archivedSessions}>{compactDashboard ? "▣" : t.archivedSessions}</button>
+            )}
+            <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowHiddenSessions(true); }} aria-label={t.hiddenSessions} title={t.hiddenSessions}>{compactDashboard ? "◌" : t.hiddenSessions}</button>
+            <button ref={budgetTriggerRef} className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowBudget(true); }} aria-label={t.budget} title={t.budget}>{compactDashboard ? "◔" : t.budget}</button>
+            {identity.role === "admin" && (
+              <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowUsers(true); }} aria-label={t.users} title={t.users}>{compactDashboard ? "♟" : t.users}</button>
+            )}
+            {identity.role === "admin" && (
+              <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowAudit(true); }} aria-label={t.auditLogs} title={t.auditLogs}>{compactDashboard ? "≡" : t.auditLogs}</button>
+            )}
+            {identity.role === "admin" && (
+              <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowBackups(true); }} aria-label={t.backups} title={t.backups}>{compactDashboard ? "⇩" : t.backups}</button>
+            )}
+            {identity.role === "admin" && hostObservabilityEnabled && (
+              <button ref={hostTriggerRef} className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowHost(true); }} aria-label={t.host} title={t.host}>{compactDashboard ? "▥" : t.host}</button>
+            )}
+          </div>
+        )}
+      </div>
       {creating && <form className="create-form" onSubmit={async (event) => {
         event.preventDefault();
         const normalizedName = name.trim().normalize("NFC");
@@ -3840,26 +4021,53 @@ function SessionList({
         </section>
       )}
       {orchestratorState && (
-        <section className={`orchestrator-state ${compactDashboard ? "compact" : ""}`} aria-label="Task orchestratore">
-          <header>
-            <strong>{compactDashboard ? "Task" : "Task schedulati"}</strong>
-            <small>{compactDashboard ? orchestratorState.tasks.length : `${orchestratorState.tasks.length} attivi · aggiornato ${formatDate(orchestratorState.collected_at)}`}</small>
-          </header>
-          {!compactDashboard && (orchestratorState.tasks.length === 0 ? (
-            <small>Nessun task schedulato attivo.</small>
-          ) : (
-            <div className="orchestrator-tasks">
-              {orchestratorState.tasks.map((task) => (
-                <article key={task.task_id}>
-                  <strong>{task.task_kind}</strong>
-                  <small>{task.provider} · {task.status.replace("_", " ")}</small>
-                  {task.phase && <small>Fase {task.phase.index + 1}/{task.phase.total}: {task.phase.name}</small>}
-                  {task.capacity_paused && <em>In pausa per capacità{task.next_attempt_at ? ` · riprova ${formatDate(task.next_attempt_at)}` : ""}</em>}
-                  {!task.capacity_paused && task.fallback_providers.length > 0 && <small>Fallback: {task.fallback_providers.join(" → ")}</small>}
-                </article>
-              ))}
+        <section
+          className={`orchestrator-state ${compactDashboard ? "compact" : ""} ${orchestratorExpanded ? "expanded" : "collapsed"}`}
+          aria-label="Task orchestratore"
+        >
+          <header
+            onClick={toggleOrchestratorExpanded}
+            className="orchestrator-header-toggle"
+            role="button"
+            tabIndex={0}
+            aria-expanded={orchestratorExpanded}
+            aria-label="Espandi o comprimi elenco task schedulati"
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                toggleOrchestratorExpanded();
+              }
+            }}
+          >
+            <div className="orchestrator-header-title">
+              <strong>{compactDashboard ? "Task" : "Task schedulati"}</strong>
+              <small>
+                {compactDashboard
+                  ? orchestratorState.tasks.length
+                  : `${orchestratorState.tasks.length} attivi · aggiornato ${formatDate(orchestratorState.collected_at)}`}
+              </small>
             </div>
-          ))}
+            <span className="orchestrator-toggle-icon" aria-hidden="true">
+              {orchestratorExpanded ? "▲" : "▼"}
+            </span>
+          </header>
+          {orchestratorExpanded && !compactDashboard && (
+            orchestratorState.tasks.length === 0 ? (
+              <small className="orchestrator-empty">Nessun task schedulato attivo.</small>
+            ) : (
+              <div className="orchestrator-tasks">
+                {orchestratorState.tasks.map((task) => (
+                  <article key={task.task_id}>
+                    <strong>{task.task_kind}</strong>
+                    <small>{task.provider} · {task.status.replace("_", " ")}</small>
+                    {task.phase && <small>Fase {task.phase.index + 1}/{task.phase.total}: {task.phase.name}</small>}
+                    {task.capacity_paused && <em>In pausa per capacità{task.next_attempt_at ? ` · riprova ${formatDate(task.next_attempt_at)}` : ""}</em>}
+                    {!task.capacity_paused && task.fallback_providers.length > 0 && <small>Fallback: {task.fallback_providers.join(" → ")}</small>}
+                  </article>
+                ))}
+              </div>
+            )
+          )}
         </section>
       )}
         </div>
@@ -4577,7 +4785,7 @@ function Console({
     }
   }
 
-  async function pressSpecialKey(key: "Up" | "Down" | "Escape" | "C-c" | "Shift-Tab") {
+  async function pressSpecialKey(key: "Up" | "Down" | "Left" | "Right" | "Escape" | "C-c" | "Tab" | "Shift-Tab") {
     const confirmed = key !== "C-c" || window.confirm(
       "Inviare Ctrl-C? Il processo attivo potrebbe essere interrotto.",
     );
@@ -4680,7 +4888,7 @@ function Console({
   }
 
   return (
-    <main className="console">
+    <main className={`console ${fullscreenOutput ? "fullscreen-console" : ""}`}>
       <header className="console-header">
         <button className="icon-button" onClick={onBack} aria-label="Indietro">‹</button>
         <div className="session-header-copy">
@@ -4696,6 +4904,7 @@ function Console({
             </nav>
           )}
         </div>
+        <span className={`status ${connection}`}>{CONNECTION_LABEL[connection]}</span>
         <button
           type="button"
           className="icon-button session-switcher-toggle"
@@ -4706,7 +4915,6 @@ function Console({
         >
           ☰
         </button>
-        <span className={`status ${connection}`}>{CONNECTION_LABEL[connection]}</span>
       </header>
       {agentic && (ownStatus || ownProviderLimit) && (
         <section className="agent-info-bar" aria-label="Stato agente">
@@ -5041,6 +5249,9 @@ function Console({
             )}
             <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Up")}>↑ Up</button>
             <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Down")}>↓ Down</button>
+            <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Left")}>← Left</button>
+            <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Right")}>→ Right</button>
+            <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Tab")}>Tab</button>
             <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Escape")}>Esc</button>
             <button disabled={connection === "closed"} type="button" className="danger" onClick={() => void pressSpecialKey("C-c")}>
               Ctrl-C

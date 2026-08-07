@@ -314,14 +314,17 @@ def test_list_sessions_uses_ids_and_keeps_host_names(monkeypatch) -> None:
 def test_only_allowlisted_keys_are_supported(monkeypatch) -> None:
     recorder = Recorder(monkeypatch)
     service = TmuxService("test")
-    for key in ("Enter", "Up", "Down", "Escape", "C-c", "Shift-Tab"):
+    for key in ("Enter", "Up", "Down", "Left", "Right", "Escape", "C-c", "Tab", "Shift-Tab"):
         asyncio.run(service.send_key("1", key))
     assert [call[-1] for call in recorder.calls] == [
         "Enter",
         "Up",
         "Down",
+        "Left",
+        "Right",
         "Escape",
         "C-c",
+        "Tab",
         "BTab",
     ]
     with pytest.raises(ValueError):

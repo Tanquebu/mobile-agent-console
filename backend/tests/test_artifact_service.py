@@ -9,12 +9,9 @@ def make_service(tmp_path, max_bytes: int = 1024) -> ArtifactService:
 
 
 def test_validate_name_rejects_traversal_and_control_chars() -> None:
-    # ".." bare non è rifiutato da validate_name (Path("..").name == "..",
-    # nessuna discrepanza da rilevare): la protezione da traversal per quel
-    # caso è il secondo livello di difesa in get() (resolve + confronto
-    # parent), coperto da test_get_rejects_path_traversal.
     assert ArtifactService.validate_name("report.pdf") == "report.pdf"
-    for bad in ("../escape", "a/b.txt", "", "x" * 256, "bad\x00name"):
+    assert ArtifactService.validate_name("sub/report.pdf") == "sub/report.pdf"
+    for bad in ("../escape", "", "x" * 2000, "bad\x00name", "/absolute"):
         try:
             ArtifactService.validate_name(bad)
         except ArtifactError:
@@ -42,11 +39,15 @@ def test_list_returns_only_recognized_files_within_size_limit(tmp_path) -> None:
     (session_dir / "unknown.bin").write_bytes(b"\x01\x02\x03\x04")
     (session_dir / "too-big.txt").write_text("x" * 64, encoding="utf-8")
     (session_dir / "empty.txt").write_bytes(b"")
+    sub_dir = session_dir / "screenshot"
+    sub_dir.mkdir()
+    (sub_dir / "shot.png").write_bytes(PNG_HEADER)
 
     artifacts = {item.name: item for item in service.list("1")}
-    assert set(artifacts) == {"photo.png", "note.txt"}
+    assert set(artifacts) == {"photo.png", "note.txt", "screenshot/shot.png"}
     assert artifacts["photo.png"].media_type == "image/png"
     assert artifacts["note.txt"].media_type == "text/plain"
+    assert artifacts["screenshot/shot.png"].media_type == "image/png"
 
 
 def test_list_returns_empty_for_missing_session_dir(tmp_path) -> None:

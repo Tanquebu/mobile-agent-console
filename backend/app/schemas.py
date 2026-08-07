@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 class ConfigView(BaseModel):
     allowed_roots: list[str]
     workspace_presets: dict[str, str]
+    max_upload_bytes: int = 10 * 1024 * 1024
+    upload_allowed_extensions: list[str] = Field(default_factory=list)
     claude_history_enabled: bool = False
     host_observability_enabled: bool = False
     rate_limit_fresh_enabled: bool = False
@@ -156,6 +158,13 @@ class FileView(BaseModel):
     size: int
     content: str
     truncated: bool = False
+
+
+class UploadResultView(BaseModel):
+    session_id: str
+    path: str
+    name: str
+    size: int
 
 
 class KeyInput(BaseModel):

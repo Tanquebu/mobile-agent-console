@@ -16,10 +16,14 @@ ALLOWED_KEYS = {
     "Enter": "Enter",
     "Up": "Up",
     "Down": "Down",
+    "Left": "Left",
+    "Right": "Right",
     "Escape": "Escape",
     "C-c": "C-c",
+    "Tab": "Tab",
     "Shift-Tab": "BTab",
 }
+
 
 
 def _missing_binary_shell_command(binary: str, message: str) -> str:

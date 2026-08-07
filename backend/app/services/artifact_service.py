@@ -31,10 +31,14 @@ class ArtifactService:
 
     @staticmethod
     def validate_name(name: str) -> str:
-        try:
-            return AttachmentService.validate_name(name)
-        except AttachmentError as exc:
-            raise ArtifactError(str(exc)) from exc
+        if not name or len(name) > 1024:
+            raise ArtifactError("Invalid artifact name")
+        if any(ord(character) < 32 or ord(character) == 127 for character in name):
+            raise ArtifactError("Invalid artifact name")
+        parts = name.replace("\\", "/").split("/")
+        if any(part in ("", ".", "..") for part in parts):
+            raise ArtifactError("Invalid artifact name")
+        return "/".join(parts)
 
     def ensure_session_dir(self, session_id: str) -> Path:
         session_dir = self.storage_root / session_id
@@ -70,9 +74,9 @@ class ArtifactService:
             return media_type
         return None
 
-    def _describe(self, entry: Path) -> Artifact | None:
+    def _describe(self, entry: Path, relative_name: str) -> Artifact | None:
         try:
-            name = self.validate_name(entry.name)
+            name = self.validate_name(relative_name)
         except ArtifactError:
             return None
         try:
@@ -92,14 +96,18 @@ class ArtifactService:
         )
 
     def list(self, session_id: str) -> list[Artifact]:
-        session_dir = self.storage_root / session_id
+        session_dir = (self.storage_root / session_id).resolve()
         if not session_dir.is_dir():
             return []
         artifacts = []
-        for entry in sorted(session_dir.iterdir()):
+        for entry in sorted(session_dir.rglob("*")):
             if not entry.is_file():
                 continue
-            artifact = self._describe(entry)
+            try:
+                rel_path = entry.relative_to(session_dir).as_posix()
+            except ValueError:
+                continue
+            artifact = self._describe(entry, rel_path)
             if artifact is not None:
                 artifacts.append(artifact)
         return artifacts
@@ -108,9 +116,13 @@ class ArtifactService:
         name = self.validate_name(name)
         session_dir = (self.storage_root / session_id).resolve()
         candidate = (session_dir / name).resolve()
-        if candidate.parent != session_dir or not candidate.is_file():
+        try:
+            candidate.relative_to(session_dir)
+        except ValueError:
             raise ArtifactError("Artifact not found")
-        artifact = self._describe(candidate)
+        if not candidate.is_file():
+            raise ArtifactError("Artifact not found")
+        artifact = self._describe(candidate, name)
         if artifact is None:
             raise ArtifactError("Artifact not found")
         return artifact

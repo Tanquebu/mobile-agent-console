@@ -117,6 +117,23 @@ class Settings(BaseSettings):
     attachment_ttl_seconds: int = Field(default=86400, ge=300, le=30 * 86400)
     artifacts_prompt_root: str | None = None
     max_artifact_bytes: int = Field(default=25 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
+    max_upload_bytes: int = Field(default=10 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
+    upload_allowed_extensions: list[str] = [
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".svg",
+        ".bmp",
+        ".ico",
+        ".tiff",
+        ".avif",
+        ".heic",
+        ".pdf",
+        ".md",
+        ".mp3",
+    ]
     login_rate_limit: int = Field(default=5, ge=1, le=1000)
     login_rate_window_seconds: int = Field(default=60, ge=1, le=3600)
     mutation_rate_limit: int = Field(default=120, ge=1, le=10000)
@@ -133,7 +150,9 @@ class Settings(BaseSettings):
             raise ValueError("host mode requires an explicit MAC_TMUX_SOCKET_FILE")
         return self
 
-    @field_validator("allowed_roots", "cors_origins", mode="before")
+    @field_validator(
+        "allowed_roots", "cors_origins", "upload_allowed_extensions", mode="before"
+    )
     @classmethod
     def split_csv(cls, value: object) -> object:
         if isinstance(value, str):
@@ -141,6 +160,20 @@ class Settings(BaseSettings):
                 return json.loads(value)
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @field_validator("upload_allowed_extensions")
+    @classmethod
+    def normalize_upload_extensions(cls, exts: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for item in exts:
+            ext = item.strip().lower()
+            if not ext:
+                continue
+            if not ext.startswith("."):
+                ext = f".{ext}"
+            if ext not in normalized:
+                normalized.append(ext)
+        return normalized
 
     @field_validator("workspace_presets", mode="before")
     @classmethod

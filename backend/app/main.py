@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
 import stat
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -72,6 +73,7 @@ from .schemas import (
     UserList,
     UserStatusInput,
     UserView,
+    UploadResultView,
 )
 from .security import COOKIE_NAME, SessionSecurity
 from .services.agent_status_service import AgentStatusService
@@ -797,6 +799,8 @@ def create_app(
         return ConfigView(
             allowed_roots=settings.allowed_roots,
             workspace_presets=settings.workspace_presets,
+            max_upload_bytes=settings.max_upload_bytes,
+            upload_allowed_extensions=settings.upload_allowed_extensions,
             claude_history_enabled=settings.claude_history_enabled,
             host_observability_enabled=settings.host_observability_enabled
             and (user is None or user.role == "admin"),
@@ -1623,6 +1627,91 @@ def create_app(
         )
 
     @app.post(
+        "/api/v1/sessions/{session_id}/directory/upload",
+        response_model=UploadResultView,
+        status_code=201,
+        dependencies=[Depends(require_operator)],
+    )
+    async def upload_directory_file(
+        session_id: str,
+        request: Request,
+        filename: Annotated[str, Query(min_length=1, max_length=255)],
+        path: Annotated[str | None, Query(min_length=1, max_length=4096)] = None,
+    ) -> UploadResultView:
+        if path is None:
+            try:
+                raw_path = await gateway.pane_path(session_id)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            except SessionNotFound as exc:
+                raise HTTPException(404, "Session not found") from exc
+        else:
+            try:
+                TmuxService.validate_target(session_id)
+            except ValueError as exc:
+                raise HTTPException(400, str(exc)) from exc
+            raw_path = path
+
+        roots = [Path(root).resolve() for root in settings.allowed_roots]
+        directory, _ = _resolve_within_allowed_roots(raw_path, roots)
+
+        if not directory.exists() or not directory.is_dir():
+            raise HTTPException(404, "Directory not found")
+
+        safe_name = Path(filename).name
+        if (
+            not safe_name
+            or safe_name in {".", ".."}
+            or "/" in filename
+            or "\\" in filename
+            or "\x00" in filename
+        ):
+            raise HTTPException(400, "Invalid filename")
+
+        target_file = (directory / safe_name).resolve()
+        if target_file.parent != directory:
+            raise HTTPException(400, "Invalid file destination")
+
+        ext = target_file.suffix.lower()
+        if ext not in settings.upload_allowed_extensions:
+            raise HTTPException(400, f"File extension '{ext}' is not allowed")
+
+        stem = safe_name[: -len(ext)] if ext else safe_name
+        if not stem or not re.match(r"^[\w]+$", stem):
+            raise HTTPException(
+                400, "Filename must contain only letters, numbers, and underscores"
+            )
+
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > settings.max_upload_bytes:
+            raise HTTPException(
+                400, f"File exceeds maximum upload size of {settings.max_upload_bytes} bytes"
+            )
+
+        content = bytearray()
+        async for chunk in request.stream():
+            content.extend(chunk)
+            if len(content) > settings.max_upload_bytes:
+                raise HTTPException(
+                    400, f"File exceeds maximum upload size of {settings.max_upload_bytes} bytes"
+                )
+
+        def _write_file() -> None:
+            target_file.write_bytes(content)
+
+        try:
+            await asyncio.to_thread(_write_file)
+        except OSError as exc:
+            raise HTTPException(500, f"Failed to save file: {exc}") from exc
+
+        return UploadResultView(
+            session_id=session_id,
+            path=str(target_file),
+            name=safe_name,
+            size=len(content),
+        )
+
+    @app.post(
         "/api/v1/sessions/{session_id}/attachments",
         response_model=AttachmentView,
         status_code=201,
@@ -1748,7 +1837,7 @@ def create_app(
         return [ArtifactView(**item.__dict__) for item in items]
 
     @app.get(
-        "/api/v1/sessions/{session_id}/artifacts/{name}",
+        "/api/v1/sessions/{session_id}/artifacts/{name:path}",
         dependencies=[Depends(require_active_session)],
     )
     async def download_artifact(session_id: str, name: str) -> FileResponse:

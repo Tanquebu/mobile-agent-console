@@ -52,6 +52,12 @@ export const translations = {
     emptyDirectory: "Directory vuota.",
     copyPath: "Copia percorso",
     copied: "Copiato!",
+    uploadFile: "Carica file",
+    uploadingFile: "Caricamento…",
+    fileUploaded: "File caricato con successo!",
+    invalidFileExtension: "Estensione file non consentita.",
+    invalidFilenamePattern: "Il nome del file può contenere solo lettere, numeri e underscore (_).",
+    fileExceedsMaxSize: "Dimensione file superiore al limite consentito.",
     noArtifacts: "Nessun artefatto consegnato in questa sessione.",
     noSnapshots: "Nessuno snapshot salvato.",
     noSessionsToSave: "Nessuna sessione attiva da salvare.",
@@ -145,15 +151,15 @@ export const translations = {
     helpStep1: "Crea o apri una sessione. Le sessioni continuano a vivere in tmux.",
     helpStep2: "Invia il prompt. Il testo e il tasto Enter restano azioni separate.",
     helpStep3: "Allega file. Immagini e documenti vengono referenziati tramite path.",
-    helpStep4: "Controlla l’agente. Up, Down ed Esc sono disponibili nelle funzioni speciali.",
+    helpStep4: "Controlla l’agente. Up, Down, Left, Right, Tab ed Esc sono disponibili nelle funzioni speciali.",
     helpStep5: "Consulta la directory. \"Contenuto directory\" elenca file e cartelle della sessione con copy rapido per nome.",
     helpStep6: "Interrompi con cautela. Ctrl-C ferma il processo; Termina chiude tutta la sessione.",
     hide: "Nascondi",
 
     // Release Box
     whatsNew: "Cosa c'è di nuovo",
-    latestReleaseTitle: "Layer di traduzione (i18n)",
-    latestReleaseDesc: "Supporto multilancia per l'interfaccia utente di MAC (Italiano / Inglese). Ora è possibile selezionare la lingua preferita direttamente nelle impostazioni.",
+    latestReleaseTitle: "Uploader file in Contenuto Directory",
+    latestReleaseDesc: "È ora disponibile un pulsante 'Carica file' nella vista 'Contenuto directory' per caricare immagini, PDF, documenti Markdown e file audio MP3 direttamente nel percorso di lavoro.",
 
     // Preferences & Settings
     settings: "Preferenze",
@@ -212,6 +218,12 @@ export const translations = {
     emptyDirectory: "Empty directory.",
     copyPath: "Copy path",
     copied: "Copied!",
+    uploadFile: "Upload file",
+    uploadingFile: "Uploading…",
+    fileUploaded: "File uploaded successfully!",
+    invalidFileExtension: "File extension not allowed.",
+    invalidFilenamePattern: "Filename must contain only letters, numbers, and underscores (_).",
+    fileExceedsMaxSize: "File size exceeds allowed limit.",
     noArtifacts: "No artifacts delivered in this session.",
     noSnapshots: "No snapshots saved.",
     noSessionsToSave: "No active session to save.",
@@ -305,15 +317,15 @@ export const translations = {
     helpStep1: "Create or open a session. Sessions persist in tmux.",
     helpStep2: "Send prompt. Text input and Enter key remain separate actions.",
     helpStep3: "Attach files. Images and documents are referenced by path.",
-    helpStep4: "Control agent. Up, Down, and Esc are in special functions.",
+    helpStep4: "Control agent. Up, Down, Left, Right, Tab, and Esc are in special functions.",
     helpStep5: "Browse directory. \"Directory content\" lists session files with quick name copy.",
     helpStep6: "Interrupt carefully. Ctrl-C stops process; Terminate closes full session.",
     hide: "Hide",
 
     // Release Box
     whatsNew: "What's new",
-    latestReleaseTitle: "Translation layer (i18n)",
-    latestReleaseDesc: "Multi-language support for MAC user interface (Italian / English). You can now select your preferred language directly in settings.",
+    latestReleaseTitle: "Directory File Uploader",
+    latestReleaseDesc: "A 'Upload file' button is now available in the 'Directory Content' view to upload images, PDFs, Markdown documents, and MP3 audio files directly into the working path.",
 
     // Preferences & Settings
     settings: "Preferences",
