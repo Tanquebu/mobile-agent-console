@@ -163,10 +163,11 @@ prive di segreti e conservative per le operazioni mutative o esterne.
 
 Le Web Push si attivano per OpenCode appena il classificatore produce
 `waiting_input`/`waiting_authorization` (il poller condivide `provider_for`).
-Possono essere considerate affidabili per OpenCode solo dopo che la
-classificazione è validata sui falsi positivi/negativi: un falso negativo
-nasconde una richiesta importante; un falso positivo genera rumore e riduce
-la fiducia nelle notifiche.
+La classificazione è stata validata sui falsi positivi/negativi su istanza
+pubblica il 08/08/2026 (vedi `IMP-OC-03` in `docs/backlog.md`); resta lo
+stress-test su turni lunghi e sul caso `waiting_input` da feedback. Il
+principio resta: un falso negativo nasconde una richiesta importante; un
+falso positivo genera rumore e riduce la fiducia nelle notifiche.
 
 ## Distinzione tra agente e provider
 
@@ -338,12 +339,17 @@ affidabili per le sessioni OpenCode.
 - frontend: `agenticStatus = agentic || opencode` abilita badge, info-bar e
   Compact/Clear; `/permissions` resta Codex-only;
 - Web Push si attiva automaticamente appena il classificatore produce
-  `waiting_input`/`waiting_authorization`, ma **resta da validare sui falsi
-  positivi/negativi** prima di considerarla affidabile per OpenCode.
+  `waiting_input`/`waiting_authorization`. Validazione FP/FN del 08/08/2026 su
+  istanza pubblicata: nessun falso negativo (box autorizzazione sempre rilevata
+  nei frame osservati) e nessun falso positivo (nessun `esc interrupt` residuo
+  in idle, transizioni `active`↔`waiting_authorization` coerenti coi frame).
+  Resta uno stress-test su turni lunghi e sul caso `waiting_input` da feedback
+  prima di dichiararla del tutto affidabile.
 
 **Gate:** classificazione conservativa, fallback `unknown` e nessuna
-persistenza dell'output. **Follow-up:** validazione FP/FN del classificatore
-prima di annunciare Web Push OpenCode.
+persistenza dell'output. **Follow-up:** stress-test del classificatore su turni
+lunghi e validazione del caso `waiting_input` da feedback prima di dichiarare
+le Web Push OpenCode del tutto affidabili.
 
 ### OC-04 — Adapter strutturato opzionale
 

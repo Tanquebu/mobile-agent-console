@@ -4146,16 +4146,25 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   agentico a OpenCode via `agenticStatus = agentic || opencode`, attivando
   badge, info-bar e pulsanti Compact/Clear (`/compact`, `/clear` sono comandi
   TUI validi); `/permissions` resta riservato a Codex. La vista Blocchi
-  client-side è stata rilasciata con `b21a82f`. Web Push resta da validare sui
-  falsi positivi/negativi (si attiva in automatico appena il classificatore
-  produce `waiting_input`/`waiting_authorization`): un falso negativo nasconde
-  una richiesta importante, un falso positivo erode la fiducia in tutte le
-  notifiche. **Verifica del 08/08/2026 sull'istanza pubblicata:** sessioni
-  OpenCode classificate `provider "opencode"` (idle e active) con summary
-  ripulito dal chrome TUI; `agent-statuses` green; suite backend 341 passed,
-  frontend `test:ui` 8/8 e build ok.
+  client-side è stata rilasciata con `b21a82f`.   Web Push si attiva in automatico appena il classificatore produce
+  `waiting_input`/`waiting_authorization` (poller condiviso in `main.py:351`).
+  **Validazione FP/FN del 08/08/2026 sull'istanza pubblicata:** monitor
+  sincronizzato frame-vs-classificatore per 20 cicli e osservazione delle
+  transizioni per 10 minuti su due sessioni OpenCode live. Nessun falso
+  negativo: ogni `waiting_authorization` osservato aveva la box `Permission
+  required`/`Allow once` nel frame; nessun falso positivo: lo stato `active`
+  corrispondeva a `esc interrupt` nel frame e la transizione a `idle` non
+  lasciava residui di footer (`esc=0`), quindi il rischio INC-AS-01 non si è
+  manifestato. Zero errori di consegna push (`Web push delivery failed` assenti
+  dal log). La validazione resta empirica: casistica ampia (turni lunghi) e
+  `waiting_input` da feedback non ancora stress-testati.
+  **Verifica del 08/08/2026 sull'istanza pubblicata:** sessioni OpenCode
+  classificate `provider "opencode"` (idle, active, waiting_authorization) con
+  summary ripulito dal chrome TUI; `agent-statuses` green; suite backend 341
+  passed, frontend `test:ui` 8/8 e build ok.
   **Gate:** classificazione conservativa, fallback `unknown`, nessuna
-  persistenza dell'output. Aperto il follow-up FP/FN per Web Push.
+  persistenza dell'output. Follow-up FP/FN chiuso con validazione empirica;
+  resta lo stress-test su turni lunghi e `waiting_input`.
 
 #### OC-04 — Adapter strutturato (opzionale, gate a sé)
 
