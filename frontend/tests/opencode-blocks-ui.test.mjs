@@ -55,11 +55,12 @@ function fixture(name) {
 }
 
 test("la vista Blocchi è abilitata per OpenCode via agenticView, senza estendere agentic", () => {
-  assert.match(consoleView, /const agenticView = agentic \|\| \/opencode\/i\.test\(session\.current_command\);/);
+  assert.match(consoleView, /const agenticStatus = agentic \|\| opencode;/);
+  assert.match(consoleView, /const agenticView = agenticStatus;/);
   assert.match(consoleView, /\{agenticView && \(\s*<span className="output-mode"/);
   assert.match(consoleView, /outputMode === "blocks" && agenticView/);
-  // Clear/Compact restano riservati ai provider con classificatore backend: no
-  // estensione di agentic per opencode.
+  // agentic resta riservato ai provider con classificatore backend; opencode
+  // estende lo stato via agenticStatus (Compact/Clear sono comandi TUI validi).
   assert.match(consoleView, /const agentic = \/codex\|claude\|agy\|antigravity\/i\.test\(session\.current_command\);/);
 });
 

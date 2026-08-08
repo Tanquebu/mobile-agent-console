@@ -26,7 +26,8 @@ test("la bozza testuale resta separata per session id e non usa persistenza", ()
 
 test("Clear invia testo ed Enter come operazioni distinte solo nei controlli agentici", () => {
   assert.match(consoleView, /await sendText\(session\.id, "\/clear", \[\], paneId \|\| undefined\);[\s\S]*await sendEnter\(session\.id, paneId \|\| undefined\)/);
-  assert.match(consoleView, /\{agentic && \([\s\S]*onClick=\{\(\) => void runClear\(\)\}[\s\S]*\{clearing \? "Clear…" : "Clear"\}/);
+  assert.match(consoleView, /const agenticStatus = agentic \|\| opencode;/);
+  assert.match(consoleView, /\{agenticStatus && \([\s\S]*onClick=\{\(\) => void runClear\(\)\}[\s\S]*\{clearing \? "Clear…" : "Clear"\}/);
   assert.match(consoleView, /disabled=\{connection === "closed" \|\| compacting \|\| clearing\}/);
   assert.doesNotMatch(consoleView, /sendText\([^\n]*"\/clear[^\n]*Enter/);
 });

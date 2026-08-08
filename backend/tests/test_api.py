@@ -226,6 +226,38 @@ def test_agent_statuses_include_only_agentic_sessions() -> None:
     assert fake.capture_ansi_calls == [False]
 
 
+def test_agent_statuses_opencode_from_real_tui_fixture() -> None:
+    # OC-03: una sessione opencode reale (frame 07-autorizzazione.txt) deve
+    # essere inclusa in /agent-statuses con lo stato waiting_authorization e
+    # il default "ask" (profilo conservativo bash/edit → ask).
+    fixture = (
+        Path(__file__).parent
+        / "fixtures"
+        / "opencode-tui"
+        / "07-autorizzazione.txt"
+    ).read_text(encoding="utf-8")
+    client, fake = client_and_fake()
+    login(client)
+    current = fake.sessions["1"]
+    fake.sessions["1"] = type(current)(
+        current.id,
+        "OpenCode demo",
+        current.attached,
+        current.windows,
+        "opencode",
+        current.activity_at,
+    )
+    fake.content = fixture
+    response = client.get("/api/v1/agent-statuses")
+    assert response.status_code == 200
+    status = response.json()["statuses"][0]
+    assert status["provider"] == "opencode"
+    assert status["state"] == "waiting_authorization"
+    assert status["permission_state"] == "ask"
+    assert status["permission_detail"] == "Chiede conferma"
+    assert "permission" in status["summary"].lower()
+
+
 def test_agent_statuses_prefer_structured_provider_permissions(tmp_path) -> None:
     path = tmp_path / "provider-session-states.json"
     path.write_text(

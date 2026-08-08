@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
-AgentProvider = Literal["codex", "claude", "antigravity"]
+AgentProvider = Literal["codex", "claude", "antigravity", "opencode"]
 AgentState = Literal[
     "active",
     "idle",
@@ -45,6 +45,12 @@ AUTHORIZATION_PATTERNS = {
         r"approve",
         r"(?:yes|no|always)\s*(?:proceed|allow)",
     ),
+    "opencode": (
+        r"Permission required",
+        r"Allow once",
+        r"Allow always",
+        r"Reject",
+    ),
 }
 # Non solo "?" letterale: frasi come "fammi sapere se..."/"dimmi quando..."
 # sono altrettanto una richiesta di feedback ma non terminano con punto
@@ -76,8 +82,35 @@ ACTIVE_PATTERNS = {
         # In alt-screen mode il frame catturato contiene chrome permanente
         # (incluso "esc to interrupt") e l'output precedente.  Qualsiasi
         # pattern testuale produce falsi positivi; lo stato attivo è
-        # rilevato esclusivamente dalla euristica di cambio contenuto
+        # rilevato esclusivamente dall'euristica di cambio contenuto
         # (step 4 di classify), con la guardia prompt-first sotto.
+    ),
+    "opencode": (
+        # Footer della TUI durante un turno: "esc interrupt" (03-attivo) o
+        # "esc again to interrupt" dopo il primo Escape (05-conferma-interrupt).
+        # Spinner "⠏ Thinking" (05). La barra di avanzamento "⬝" compare solo
+        # nei frame attivi. Nota dal README del fixture: resta da verificare su
+        # round più lunghi se "esc interrupt" sopravviva alla fine del turno —
+        # è il modo in cui il problema si è manifestato altrove (INC-AS-01).
+        r"esc (?:again to )?interrupt",
+        r"⠏\s*Thinking",
+        r"⬝",
+    ),
+}
+# Marker di inattività esplicita della TUI OpenCode, verificati sui frame reali:
+# - "Ask anything..." e "● Tip Run /connect": schermata iniziale, nessun turno;
+# - "+ Thought:" : pensiero completato (04-completato, 06-interrotto);
+# - "· interrupted" : turno interrotto (06);
+# - "· 10.1s" : durata di un turno concluso (04).
+# Questi marker prevalgono sull'euristica di cambio contenuto (step 4), così un
+# turno appena concluso resta "idle" anche se l'output è appena cambiato.
+IDLE_PATTERNS = {
+    "opencode": (
+        r"Ask anything",
+        r"● Tip",
+        r"\+ Thought:",
+        r"· interrupted",
+        r"· \d+(?:\.\d+)?[a-z]+",
     ),
 }
 PROMPT_PATTERNS = {
@@ -89,9 +122,10 @@ PROMPT_PATTERNS = {
 # separatori, barre di stato, suggerimenti tastiera) da escludere dal
 # riepilogo euristico: non è un parser degli stessi blocchi di chatBlocks()
 # (frontend), solo un filtro leggero per non includere queste righe nel
-# testo estratto. Verificato su output reali di Claude Code e Codex.
+# testo estratto. Verificato su output reali di Claude Code, Codex e sui
+# fixture OpenCode (logo, bordo "┃", barra "╹▀▀▀", footer, stato modello).
 SUMMARY_NOISE_PREFIX = re.compile(
-    r"^\s*(?:[›❯>•●◻☐]|✔|✘|✱|✻|✽|✢|✳|✶|⏺|⏵⏵|\d+\.\s|─{3,}|Ran\b|Explored\b|Read\b|Edited\b)"
+    r"^\s*(?:[›❯>•●◻☐┃╹▣⬝⠏△]|✔|✘|✱|✻|✽|✢|✳|✶|⏺|⏵⏵|\d+\.\s|─{3,}|[█▀▄]+(?:\s+[█▀▄]+)*\s*$|Ran\b|Explored\b|Read\b|Edited\b)"
 )
 SUMMARY_NOISE_ANYWHERE = re.compile(
     r"─{3,}"
@@ -106,7 +140,15 @@ SUMMARY_NOISE_ANYWHERE = re.compile(
     r"|\buncached\b"
     r"|auto mode on"
     r"|shift\+tab to cycle"
-    r"|for agents\b",
+    r"|for agents\b"
+    r"|ctrl\+p commands"
+    r"|tab agents"
+    r"|Ask anything"
+    r"|Run /connect"
+    r"|esc (?:again to )?interrupt"
+    r"|\+ Thought:"
+    r"|\d+\.\d+K\s*\(\d+%\)"
+    r"|\d+\.\d+\.\d+$",
     re.IGNORECASE,
 )
 # Barra di stato tipica ("Sonnet 5 | ~/percorso | main | ..." lato Claude,
@@ -141,6 +183,8 @@ class AgentStatusService:
             return "claude"
         if "agy" in lowered or "antigravity" in lowered:
             return "antigravity"
+        if "opencode" in lowered:
+            return "opencode"
         return None
 
     @staticmethod
@@ -172,11 +216,16 @@ class AgentStatusService:
         nonempty = [line for line in normalized.splitlines() if line.strip()]
         tail = "\n".join(nonempty[-20:])
         recent_lines = nonempty[-8:]
+        # OpenCode non ha un prompt ">" come Codex/Claude: la barra di input
+        # (bordo "┃") è sempre visibile, in ogni stato. La guardia prompt-first
+        # non si applica: niente PROMPT_PATTERNS["opencode"], quindi prompt_index
+        # resta None e il ramo prompt (feedback/idle) viene saltato.
         prompt_index = next(
             (
                 index
                 for index in range(len(recent_lines) - 1, -1, -1)
-                if PROMPT_PATTERNS[provider].match(recent_lines[index])
+                if PROMPT_PATTERNS.get(provider) is not None
+                and PROMPT_PATTERNS[provider].match(recent_lines[index])
             ),
             None,
         )
@@ -250,6 +299,16 @@ class AgentStatusService:
                 permission_detail,
                 summary,
             )
+        if self._matches(IDLE_PATTERNS.get(provider, ()), tail):
+            return AgentStatus(
+                provider,
+                "idle",
+                "Inattivo o completato",
+                changed_at,
+                permission_state,
+                permission_detail,
+                summary,
+            )
         if previous is not None and observed_now - changed_at <= self.active_window_seconds:
             return AgentStatus(
                 provider,
@@ -315,6 +374,13 @@ class AgentStatusService:
                 ("dont_ask", "Non chiedere", r"don'?t ask|\[dont-ask\]"),
                 ("auto", "Auto", r"\bauto\b.*mode|\[auto\]"),
             )
+        elif provider == "opencode":
+            # La TUI OpenCode non espone un indicatore di modalità permessi
+            # nella status bar come Codex/Claude; il profilo OpenCode è
+            # conservativo (bash/edit → ask, tmux_service.py), quindi il
+            # default coerente è "ask". La box di autorizzazione (07) resta
+            # uno stato `waiting_authorization` a sé, non un cambio di mode.
+            return "ask", "Chiede conferma"
         else:
             patterns = (
                 ("bypass", "Bypass autorizzazioni", r"bypass permissions"),

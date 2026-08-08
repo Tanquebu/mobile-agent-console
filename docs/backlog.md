@@ -4135,17 +4135,27 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
 
 #### OC-03 — Stato agente e notifiche
 
-- [ ] IMP-OC-03 | OWNER: SA-IMP | STATUS: BLOCKED | Sbloccato da `OC-02`.
-  Introdurre `opencode` come tipo agente **senza attribuirgli un provider
+- [x] IMP-OC-03 | OWNER: SA-IMP | STATUS: DONE | 08/08/2026.
+  Introdotto `opencode` come tipo agente **senza attribuirgli un provider
   modello fittizio** (vedi decisione 6 del gate). Classificatore dedicato
-  costruito su fixture reali, non su pattern presi in prestito da Codex o
-  Claude; coprire attività, inattività, feedback e autorizzazione. Web Push
-  solo dopo la validazione dei falsi positivi/negativi: un falso negativo
-  nasconde una richiesta importante, un falso positivo erode la fiducia in
-  tutte le notifiche. Valutare la vista Blocchi come trasformazione
-  client-side opzionale.
+  (`provider_for`, `AUTHORIZATION_PATTERNS`, `ACTIVE_PATTERNS`,
+  `IDLE_PATTERNS` e rumore di chrome in `agent_status_service.py`) costruito
+  su fixture reali della TUI OpenCode, non su pattern presi in prestito da
+  Codex o Claude; copre attività, inattività, feedback e autorizzazione con
+  `permission_state "ask"` e fallback `unknown`. Il frontend estende lo stato
+  agentico a OpenCode via `agenticStatus = agentic || opencode`, attivando
+  badge, info-bar e pulsanti Compact/Clear (`/compact`, `/clear` sono comandi
+  TUI validi); `/permissions` resta riservato a Codex. La vista Blocchi
+  client-side è stata rilasciata con `b21a82f`. Web Push resta da validare sui
+  falsi positivi/negativi (si attiva in automatico appena il classificatore
+  produce `waiting_input`/`waiting_authorization`): un falso negativo nasconde
+  una richiesta importante, un falso positivo erode la fiducia in tutte le
+  notifiche. **Verifica del 08/08/2026 sull'istanza pubblicata:** sessioni
+  OpenCode classificate `provider "opencode"` (idle e active) con summary
+  ripulito dal chrome TUI; `agent-statuses` green; suite backend 341 passed,
+  frontend `test:ui` 8/8 e build ok.
   **Gate:** classificazione conservativa, fallback `unknown`, nessuna
-  persistenza dell'output.
+  persistenza dell'output. Aperto il follow-up FP/FN per Web Push.
 
 #### OC-04 — Adapter strutturato (opzionale, gate a sé)
 

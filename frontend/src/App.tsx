@@ -134,9 +134,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Vista Blocchi per OpenCode",
+  title: "Stato agente per OpenCode",
   description:
-    "Le sessioni OpenCode mostrano la conversazione in blocchi (utente, agente, attività) oltre al terminale, con le esecuzioni dei tool e i permessi richiesti riconosciuti direttamente dallo snapshot tmux.",
+    "Le sessioni OpenCode ora mostrano lo stato euristico dell'agente (attivo, inattivo, attende input o autorizzazione) con il relativo badge nella barra di stato e nel menu di cambio rapido, e i pulsanti Compact/Clear. Il classificatore lavora sui frame reali della TUI e il profilo permessi predefinito è Ask.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -4383,11 +4383,14 @@ function Console({
   const agentic = /codex|claude|agy|antigravity/i.test(session.current_command);
   const claude = /claude/i.test(session.current_command);
   // La vista Blocchi di OpenCode è una trasformazione client-side dello
-  // snapshot tmux (vedi opencodeChatBlocks): la abilitiamo senza estendere
-  // `agentic`, così badge di stato, quote provider e pulsanti Compact/Clear
-  // (specifici di Codex/Claude) non compaiono finché il classificatore
-  // backend di OC-03 non sarà disponibile.
-  const agenticView = agentic || /opencode/i.test(session.current_command);
+  // snapshot tmux (vedi opencodeChatBlocks). Con il classificatore backend
+  // di OC-03 disponibile, anche lo stato agentico e i pulsanti Compact/Clear
+  // (comandi TUI validi per OpenCode) si attivano; restano invece escluse le
+  // quote provider, perché OpenCode non ha una finestra di rate limit
+  // attribuita (nessun modello provider).
+  const opencode = /opencode/i.test(session.current_command);
+  const agenticStatus = agentic || opencode;
+  const agenticView = agenticStatus;
   const [historyEnabled, setHistoryEnabled] = useState(false);
   const [history, setHistory] = useState<ClaudeHistory | null>(null);
   const [historyError, setHistoryError] = useState("");
@@ -4439,7 +4442,7 @@ function Console({
   // qui sotto condividono lo stesso poll: la sessione agentica lo vuole
   // sempre attivo, il menu solo mentre è aperto.
   useEffect(() => {
-    if (!agentic && !showSwitcher) return;
+    if (!agenticStatus && !showSwitcher) return;
     let active = true;
     const refresh = () => {
       listAgentStatuses()
@@ -4455,7 +4458,7 @@ function Console({
       active = false;
       window.clearInterval(interval);
     };
-  }, [agentic, showSwitcher]);
+  }, [agenticStatus, showSwitcher]);
 
   useEffect(() => {
     if (!showSwitcher) return;
@@ -4993,7 +4996,7 @@ function Console({
           ☰
         </button>
       </header>
-      {agentic && (ownStatus || ownProviderLimit) && (
+      {agenticStatus && (ownStatus || ownProviderLimit) && (
         <section className="agent-info-bar" aria-label="Stato agente">
           <div className="agent-info-primary">
             {ownStatus && (
@@ -5306,7 +5309,7 @@ function Console({
             >
               {sendingArtifactPrompt ? translations[readLanguage()].sendingInstructions : translations[readLanguage()].deliverArtifactBtn}
             </button>
-            {agentic && (
+            {agenticStatus && (
               <>
                 <button
                   disabled={connection === "closed" || compacting || clearing}

@@ -1,4 +1,10 @@
+from pathlib import Path
+
+import pytest
+
 from app.services.agent_status_service import AgentStatusService
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures" / "opencode-tui"
 
 
 def test_agent_status_classifies_provider_and_terminal_states() -> None:
@@ -248,3 +254,61 @@ def test_agent_status_uses_recent_output_changes_and_forgets_sessions() -> None:
     observed_again = service.classify("1", "codex", "compiling.", now=30)
     assert observed_again is not None
     assert observed_again.state == "unknown"
+
+
+@pytest.mark.parametrize(
+    ("fixture", "expected_state", "expected_permission"),
+    [
+        ("01-idle.txt", "idle", "ask"),
+        ("02-prompt-inserito.txt", "idle", "ask"),
+        ("03-attivo.txt", "active", "ask"),
+        ("04-completato.txt", "idle", "ask"),
+        ("05-conferma-interrupt.txt", "active", "ask"),
+        ("06-interrotto.txt", "idle", "ask"),
+        ("07-autorizzazione.txt", "waiting_authorization", "ask"),
+    ],
+)
+def test_agent_status_opencode_fixtures(
+    fixture: str, expected_state: str, expected_permission: str
+) -> None:
+    # OC-03: il classificatore OpenCode è costruito sui frame reali della TUI
+    # (tests/fixtures/opencode-tui/README.md, spike IMP-OC-00), non sui
+    # pattern presi in prestito da Codex o Claude. Ogni frame va letto con il
+    # servizio "vergine" (stessa sessione "opencode", now=0), perché le
+    # osservazioni precedenti dello stesso service potrebbero pilotare lo
+    # stato attraverso l'euristica di cambio contenuto.
+    service = AgentStatusService(active_window_seconds=8)
+    content = (FIXTURES_DIR / fixture).read_text(encoding="utf-8")
+    status = service.classify("opencode", "opencode", content, now=0)
+    assert status is not None
+    assert status.state == expected_state, fixture
+    assert status.permission_state == expected_permission, fixture
+
+
+def test_agent_status_opencode_typed_prompt_stays_idle() -> None:
+    # docs/backlog.md OC-03: un "?" letterale nel testo ancora nell'input
+    # (non inviato) non deve diventare waiting_input. OpenCode non ha un
+    # prompt ">", quindi il ramo feedback (che richiede prompt_index) è
+    # sempre saltato; il testo nell'input bar (bordo "┃") resta idle.
+    service = AgentStatusService(active_window_seconds=8)
+    content = (FIXTURES_DIR / "02-prompt-inserito.txt").read_text(encoding="utf-8")
+    status = service.classify("opencode", "opencode", content, now=0)
+    assert status is not None
+    assert status.state == "idle"
+    assert status.summary is None
+
+
+def test_agent_status_opencode_summary_filters_tui_chrome() -> None:
+    # Il riepilogo del frame completato deve contenere la prosa del turno
+    # ("2 righe."), senza il chrome della TUI (logo, bordo "┃", barra di
+    # avanzamento, footer, stato del modello "1.18.11", durate).
+    service = AgentStatusService(active_window_seconds=8)
+    content = (FIXTURES_DIR / "04-completato.txt").read_text(encoding="utf-8")
+    status = service.classify("opencode", "opencode", content, now=0)
+    assert status is not None
+    assert status.summary is not None
+    assert "2 righe." in status.summary
+    assert "esc interrupt" not in status.summary
+    assert "ctrl+p" not in status.summary
+    assert "1.18.11" not in status.summary
+    assert "· 10.1s" not in status.summary

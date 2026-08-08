@@ -161,10 +161,12 @@ automaticamente le richieste non negate e cambierebbe materialmente il modello
 di rischio. Le policy OpenCode dovrebbero essere esplicite, versionate solo se
 prive di segreti e conservative per le operazioni mutative o esterne.
 
-Le Web Push possono essere abilitate per OpenCode solo dopo che la
-classificazione `waiting_input`/`waiting_authorization` è abbastanza stabile.
-Un falso negativo nasconde una richiesta importante; un falso positivo genera
-rumore e riduce la fiducia nelle notifiche.
+Le Web Push si attivano per OpenCode appena il classificatore produce
+`waiting_input`/`waiting_authorization` (il poller condivide `provider_for`).
+Possono essere considerate affidabili per OpenCode solo dopo che la
+classificazione è validata sui falsi positivi/negativi: un falso negativo
+nasconde una richiesta importante; un falso positivo genera rumore e riduce
+la fiducia nelle notifiche.
 
 ## Distinzione tra agente e provider
 
@@ -325,17 +327,23 @@ comandi arbitrari persistiti.
 
 ### OC-03 — Stato agente e notifiche
 
-**Scopo:** aggiungere badge e Web Push affidabili.
+**Stato:** rilasciato con il round del 08/08/2026. **Scopo:** badge e stato
+affidabili per le sessioni OpenCode.
 
-- introdurre `opencode` come tipo agente senza attribuirgli un provider modello
-  fittizio;
-- implementare classificatore dedicato su fixture reali;
-- coprire attività, inattività, feedback e autorizzazione;
-- abilitare Web Push solo dopo la validazione dei falsi positivi/negativi;
-- valutare la vista Blocchi come trasformazione client-side opzionale.
+- introdotto `opencode` come tipo agente senza provider modello fittizio:
+  `AgentProvider` include `"opencode"` e la vista non espone quote provider;
+- classificatore dedicato su fixture reali della TUI (attività, inattività,
+  autorizzazione), con `permission_state "ask"` e fallback `unknown`;
+- rumore di chrome della TUI OpenCode filtrato dal summary (`SUMMARY_NOISE_*`);
+- frontend: `agenticStatus = agentic || opencode` abilita badge, info-bar e
+  Compact/Clear; `/permissions` resta Codex-only;
+- Web Push si attiva automaticamente appena il classificatore produce
+  `waiting_input`/`waiting_authorization`, ma **resta da validare sui falsi
+  positivi/negativi** prima di considerarla affidabile per OpenCode.
 
 **Gate:** classificazione conservativa, fallback `unknown` e nessuna
-persistenza dell'output.
+persistenza dell'output. **Follow-up:** validazione FP/FN del classificatore
+prima di annunciare Web Push OpenCode.
 
 ### OC-04 — Adapter strutturato opzionale
 

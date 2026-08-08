@@ -186,7 +186,7 @@ export type AgentState =
 
 export type AgentStatus = {
   session_id: string;
-  provider: "codex" | "claude" | "antigravity";
+  provider: "codex" | "claude" | "antigravity" | "opencode";
   state: AgentState;
   detail: string;
   permission_state:
