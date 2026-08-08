@@ -324,7 +324,9 @@ sull'istanza pubblicata.
 
 ### OC-02 — Archivio e snapshot
 
-**Scopo:** preservare la semantica operativa già offerta agli altri profili.
+**Stato:** rilasciato con il round del 08/08/2026 (vedi `IMP-OC-02` in
+`docs/backlog.md`). **Scopo:** preservare la semantica operativa già offerta
+agli altri profili.
 
 - estendere archivio, snapshot e restore;
 - usare inizialmente il selettore nativo delle sessioni;
@@ -332,8 +334,16 @@ sull'istanza pubblicata.
 - decidere, con ADR se necessario, se persistere l'ID OpenCode;
 - mantenere conversazioni e credenziali fuori dai backup MAC.
 
+Il flusso archivio/snapshot/restore per `opencode` è stato introdotto con
+`IMP-OC-01` (`6a08467`) e validato dal vivo il 08/08/2026 sul caso
+multi-conversazione: il restore rilancia la TUI senza `--continue` e la
+schermata iniziale lascia scegliere la conversazione dal selettore nativo
+`/sessions`, anche con più conversazioni nello stesso progetto. La
+persistenza dell'ID OpenCode (strategia C) resta non adottata e rinviata a
+una decisione separata con ADR.
+
 **Gate:** restore non ambiguo o esplicitamente mediato dall'utente, senza
-comandi arbitrari persistiti.
+comandi arbitrari persistiti — soddisfatto e verificato dal vivo.
 
 ### OC-03 — Stato agente e notifiche
 

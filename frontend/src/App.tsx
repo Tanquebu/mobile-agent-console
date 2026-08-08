@@ -134,9 +134,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Stato agente per OpenCode",
+  title: "Archivio, snapshot e restore per OpenCode",
   description:
-    "Le sessioni OpenCode ora mostrano lo stato euristico dell'agente (attivo, inattivo, attende input o autorizzazione) con il relativo badge nella barra di stato e nel menu di cambio rapido, e i pulsanti Compact/Clear. Il classificatore lavora sui frame reali della TUI e il profilo permessi predefinito è Ask.",
+    "Le sessioni OpenCode ora si archiviano, si salvano negli snapshot e si ripristinano come gli altri profili: il restore rilancia la TUI senza `--continue`, lasciando scegliere la conversazione giusta dal selettore nativo `/sessions` — anche quando nello stesso progetto ce ne sono più di una. I tasti freccia sono disponibili in console per navigare i dialog di autorizzazione.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {

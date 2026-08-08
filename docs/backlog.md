@@ -4032,29 +4032,31 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
 
 #### OC-UX-01 — I dialog di autorizzazione non sono navigabili dall'app
 
-- [ ] OC-UX-01 | OWNER: ROOT | STATUS: READY | Trovato da `SA-TEST` durante
-  `TEST-OC-01` (04/08/2026). Il dialog `Permission required` di OpenCode si
-  naviga con **Sinistra/Destra** per scegliere fra `Allow once`,
-  `Allow always` e `Reject`, ma `ALLOWED_KEYS` in
-  `backend/app/services/tmux_service.py` non contiene `Left`/`Right`: l'API
-  risponde `400 Unsupported key`. Dall'app si può quindi solo accettare
-  l'opzione predefinita con `Enter`, oppure annullare con `Escape`.
-  **Non è un difetto di `IMP-OC-01`** — la limitazione dell'allowlist è
-  preesistente — ma è quella voce ad averla resa visibile: avendo scelto una
-  policy conservativa, i dialog ora compaiono a ogni comando e a ogni
-  scrittura. L'utente non può **rifiutare esplicitamente** né concedere
-  `Allow always`, che è proprio la scelta che eviterebbe di dover confermare
-  ogni volta.
-  `Escape` ottiene l'effetto pratico del rifiuto (verificato: nessun comando
-  eseguito, nessun file creato, sessione viva), quindi la funzione non è
-  bloccata — è scomoda, e lo è esattamente nel flusso che il gate ha
-  approvato.
-  **Da decidere:** se estendere l'allowlist a `Left`/`Right`. Sono tasti di
-  navigazione senza effetti collaterali, come `Up`/`Down` già ammessi, quindi
-  il costo per il threat model appare nullo — ma l'allowlist è un invariante
-  di sicurezza e si allarga leggendo `docs/security.md`, non per comodità.
-  Valutare anche se serva un'affordance dedicata nella UI invece di tasti
-  grezzi.
+- [x] OC-UX-01 | OWNER: ROOT | STATUS: DONE | 08/08/2026. Trovato da
+  `SA-TEST` durante `TEST-OC-01` (04/08/2026). Il dialog `Permission
+  required` di OpenCode si naviga con **Sinistra/Destra** per scegliere fra
+  `Allow once`, `Allow always` e `Reject`, ma `ALLOWED_KEYS` in
+  `backend/app/services/tmux_service.py` non conteneva `Left`/`Right`:
+  l'API rispondeva `400 Unsupported key`. Dall'app si poteva quindi solo
+  accettare l'opzione predefinita con `Enter`, oppure annullare con
+  `Escape`.
+  **Risoluzione (già nel codice al momento della presa in carico).**
+  `Left`/`Right` sono entrati nell'allowlist con `14f45b8` (07/08/2026),
+  insieme al pulsante `Tab`, e la UI della console ha oggi i pulsanti
+  `← Left` / `→ Right` accanto a `Esc` (`frontend/src/App.tsx`, funzione
+  `pressSpecialKey`). La scelta è coerente con `Up`/`Down` già ammessi:
+  tasti di navigazione pura senza effetti collaterali, costo nullo per il
+  threat model (l'allowlist resta l'invariante di sicurezza documentato in
+  `docs/security.md` — input interpretato da tmux limitato a tasti
+  tipizzati su endpoint separato).
+  **Verifica sull'istanza pubblica (08/08/2026):** `POST
+  /api/v1/sessions/{id}/keys` con `{"key":"Left"}` e `{"key":"Right"}`
+  risponde `{"accepted":true}` su sessione viva; il JS servito da `web`
+  contiene le etichette dei pulsanti `← Left`/`→ Right`. Il percorso
+  end-to-end sul dialog è lo stesso di `Enter`/`Escape` già validato in
+  `TEST-OC-01` (send-keys tipizzato sul pane della sessione): non è stata
+  rigenerata una schermata di autorizzazione su una sessione live per non
+  disturbare conversazioni attive, ma la funzionalità usata è identica.
 
 #### OC-CAP-01 — Costo di una sessione OpenCode e capienza dell'host
 
@@ -4139,22 +4141,59 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
 
 #### OC-02 — Archivio e snapshot
 
-- [ ] IMP-OC-02 | OWNER: SA-IMP | STATUS: READY | Sbloccato da `OC-01`
-  (`TEST-OC-01-T2` `PASSED`). Il vincolo di capacità `OC-CAP-01` è chiuso
-  (08/08/2026): il costo di una sessione è misurato (~480 MB inattiva, fino a
-  ~880 MB a conversazione lunga) e la decisione è che il prodotto non
+- [x] IMP-OC-02 | OWNER: SA-IMP | STATUS: DONE | 08/08/2026. Sbloccato da
+  `OC-01` (`TEST-OC-01-T2` `PASSED`). Il vincolo di capacità `OC-CAP-01` è
+  chiuso (08/08/2026): il costo di una sessione è misurato (~480 MB inattiva,
+  fino a ~880 MB a conversazione lunga) e la decisione è che il prodotto non
   implementi avvisi né limiti — resta però il dato operativo che questo host
   regge circa una sessione OpenCode attiva a conversazione lunga.
-  Estendere archivio, snapshot e restore preservando la semantica già offerta
-  agli altri profili. Usare inizialmente il **selettore nativo delle sessioni**
-  (strategia B dell'analisi): è la scelta prudente per il primo rilascio e non
-  richiede di persistere un identificatore OpenCode. Testare esplicitamente il
-  caso con più conversazioni nello stesso progetto. La persistenza dell'ID
-  OpenCode (strategia C) richiede una decisione separata, con ADR se necessario:
-  l'ID resterebbe un dato distinto dal target tmux e non dovrebbe mai diventare
-  input shell. Conversazioni e credenziali restano fuori dai backup MAC.
-  **Gate:** restore non ambiguo, o esplicitamente mediato dall'utente, senza
-  comandi arbitrari persistiti.
+  **Stato dell'implementazione: già completa da `OC-01`.** Il flusso
+  archivio/snapshot/restore per `opencode` è stato introdotto con `6a08467`
+  (`IMP-OC-01`): profilo in `session_profile()` e nelle union Pydantic,
+  `ArchiveService.PROFILES` e `SnapshotService.SNAPSHOT_MODES` estesi, ramo
+  dedicato in `restore_snapshot()` (che evita la degradazione a shell vuota),
+  restore di archivio già generico. Il restore non usa mai `--continue` né
+  `--session`: lo store delle conversazioni OpenCode è globale per utente e
+  un flag di ripresa potrebbe agganciare la conversazione di un altro progetto
+  o, nello stesso progetto, la più recente senza alcun segnale (verificato in
+  `IMP-OC-00`). La ripresa è quindi **mediata dall'utente** tramite il
+  selettore nativo `/sessions`, coerentemente con i resume picker di Codex e
+  Claude. Nessuna persistenza di ID OpenCode.
+  **Verifica live del caso multi-conversazione (08/08/2026).** Sulle sessioni
+  dell'host è stato eseguito il ciclo completo con una sessione opencode
+  usa-e-getta (progetto `oc02-test`, poi rimosso):
+  1. Creata la sessione via API con profilo `opencode` e confermata la TUI
+     pronta (schermata iniziale "Ask anything").
+  2. Creata la **prima** conversazione (`OK-1`) e poi una **seconda**
+     (`OK-2`) con `/new`, verificando che entrambe risultassero distinte nel
+     selettore `/sessions` (due voci, la più recente selezionata).
+  3. Archiviata la sessione: l'archivio riporta `profile: "opencode"`.
+  4. Ripristinato l'archivio: la sessione è ricreata con profilo `opencode`
+     e la TUI parte **alla schermata iniziale**, non agganciata a `OK-2` —
+     cioè nessun `--continue`, nessun aggancio automatico alla conversazione
+     sbagliata (il gate: restore non ambiguo o mediato dall'utente).
+  5. Nel selettore `/sessions` della sessione ripristinata risultano presenti
+     **entrambe** le conversazioni (`OK-2` e `OK-1`), dimostrando che l'utente
+     sceglie consapevolmente quale riprendere. Sessione di test terminata e
+     directory rimossa; memoria tornata al regime (disponibile ~1.7 GB).
+  **Decisione sulla strategia C (persistenza ID OpenCode): rimandata, non
+  adottata.** Il primo rilascio resta sulla strategia B (selettore nativo).
+  La strategia C richiederebbe una decisione separata con ADR: l'ID resterebbe
+  un dato distinto dal target tmux, vincolato da un pattern severo (`ses_...`),
+  mai input shell. Vincolo aggiuntivo emerso in `IMP-OC-00`: lo store è globale
+  per utente, quindi un eventuale elenco di sessioni esposto da Mobile Agent
+  Console mostrerebbe titoli generati dal contenuto di conversazioni di **altri**
+  progetti — esporrebbe contenuto, non solo identificatori. La strategia C non
+  è necessaria per chiudere questa voce e non va aperta finché non serve un
+  aggancio deterministico. Conversazioni e credenziali restano fuori dai backup
+  MAC (il backup serializza solo snapshot JSON e database, mai lo store
+  OpenCode).
+  **Gate soddisfatto:** restore mediato dall'utente tramite selettore nativo,
+  nessun comando arbitrario persistito (argv costanti server-side), verificato
+  dal vivo sul caso multi-conversazione. Copertura automatica esistente:
+  `test_snapshot_restore_launches_opencode_without_continue`,
+  `test_archive_and_restore_opencode_session`,
+  `test_snapshot_service_accepts_opencode_mode` (suite 341 passed).
 
 #### OC-03 — Stato agente e notifiche
 
