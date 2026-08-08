@@ -202,6 +202,15 @@ processo avviato da tmux, non soltanto quello di una shell SSH interattiva.
 L'installazione dovrebbe essere pinning a una versione nota e l'upgrade dovrebbe
 essere separato dal deploy ordinario di web/backend.
 
+**Capienza operativa (misura `OC-CAP-01`, 08/08/2026).** Su un host di questa
+taglia (2 core, ~3.7 GB, swap 2 GB) una sessione OpenCode inattiva assesta a
+~480 MB, ma a conversazione lunga arriva a ~780–880 MB RSS quasi tutti privati.
+Con `agy` e altri agenti residenti, la capienza utile è circa **una sessione
+OpenCode attiva a conversazione lunga**; due sessioni saturano la memoria e
+l'OOM colpisce i container stateless (backend/web), non le sessioni tmux.
+Decisione del round: il prodotto non implementa avvisi né limiti — il dato è
+operativo del deployment, non un vincolo dell'applicazione.
+
 Al momento di questa valutazione il comando `opencode` non è installato nella
 macchina di lavoro, quindi non è stata ancora eseguita una prova TUI reale.
 

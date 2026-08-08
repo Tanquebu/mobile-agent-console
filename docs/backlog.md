@@ -4058,7 +4058,7 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
 
 #### OC-CAP-01 — Costo di una sessione OpenCode e capienza dell'host
 
-- [ ] OC-CAP-01 | OWNER: ROOT | STATUS: READY | Emerso il 04/08/2026 durante
+- [x] OC-CAP-01 | OWNER: ROOT | STATUS: DONE | 08/08/2026. Emerso il 04/08/2026 durante
   `TEST-OC-01`: la verifica ha aperto cinque TUI insieme e ha saturato l'host
   — due core, load average 13.5, **swap esaurito**, memoria disponibile sotto
   i 500MB. Misure grezze di quel momento: `opencode` ~480MB RSS, `claude`
@@ -4093,35 +4093,58 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
      costo è reale, non un artefatto di `Rss`. **Misurare subito dopo l'avvio
      sovrastima di circa il 20%** — chiunque rifaccia questa misura deve
      aspettare il plateau.
-  2. **Domanda chiusa: una sessione aperta via SSH e una aperta da Mobile
-     Agent Console costano uguale.** `Pss` 440 MB contro 452 MB, differenza
-     dentro il rumore delle due misure. L'ipotesi era corretta: in modalità
-     host girano sullo stesso server tmux e il prodotto non aggiunge peso al
-     processo dell'agente. Il costo del prodotto, se esiste, è in **CPU** e
-     solo mentre un client sta guardando: il loop di `capture-pane` vive per
-     connessione WebSocket, quindi una sessione senza spettatori non costa
-     nulla al backend. Quest'ultima parte è dedotta dall'architettura e
-     **non** misurata: resta da verificare con un client collegato.
-  3. **Quante ne regge l'host: due sono già troppe.** Non è una stima, è un
-     incidente. Tenendo vive contemporaneamente le due sessioni di questa
-     misura, con ~450 MB ciascuna su 3.7 GB e swap già saturo, il kernel ha
-     terminato i container `backend` e `web` (uscita 255) e l'app è diventata
-     irraggiungibile per l'utente. Le sessioni tmux dell'utente sono
-     sopravvissute perché vivono sul server tmux dell'host, mai toccato.
-     **La risposta alla domanda 3 è quindi: su questo host, due sessioni
-     OpenCode concorrenti non convivono con l'applicazione.**
-  **Decisione ancora aperta:** se il prodotto debba conoscere questo limite.
-  Le opzioni non sono equivalenti — un avviso informa ma non protegge, un
-  limite protegge ma va scelto su una soglia che dipende dall'host. Un dato
-  in più per deciderlo: il fallimento non è graduale, è un OOM che colpisce
-  **l'applicazione**, non la sessione che ha causato la pressione.
+   2. **Domanda chiusa: una sessione aperta via SSH e una aperta da Mobile
+      Agent Console costano uguale.** `Pss` 440 MB contro 452 MB, differenza
+      dentro il rumore delle due misure. L'ipotesi era corretta: in modalità
+      host girano sullo stesso server tmux e il prodotto non aggiunge peso al
+      processo dell'agente. Il costo del prodotto, se esiste, è in **CPU** e
+      solo mentre un client sta guardando: il loop di `capture-pane` vive per
+      connessione WebSocket, quindi una sessione senza spettatori non costa
+      nulla al backend. **Misura del 08/08/2026, parte conclusa:** il costo
+      CPU è trascurabile e cresce solo con l'attività dello stream, non con
+      il numero di spettatori. Baseline senza spettatori: backend ~3.3%,
+      tmux server ~2.0%. Con un client WebSocket collegato alla sessione
+      attiva: backend ~4.5%, tmux ~2.3% — la sessione attiva ha prodotto 132
+      messaggi in 180s. Con due client (secondo su sessione idle): backend
+      ~3.4%, tmux ~1.9%, la sessione idle ha prodotto 1 messaggio in 120s.
+      Il `capture-pane` in solitudine costa ~1% di CPU; il grosso del costo
+      del backend è il resto del servizio, non lo stream.
+   3. **Quante ne regge l'host: due sono già troppe.** Non è una stima, è un
+      incidente. Tenendo vive contemporaneamente le due sessioni di questa
+      misura, con ~450 MB ciascuna su 3.7 GB e swap già saturo, il kernel ha
+      terminato i container `backend` e `web` (uscita 255) e l'app è diventata
+      irraggiungibile per l'utente. Le sessioni tmux dell'utente sono
+      sopravvissute perché vivono sul server tmux dell'host, mai toccato.
+      **La risposta alla domanda 3 è quindi: su questo host, due sessioni
+      OpenCode concorrenti non convivono con l'applicazione.**
+   **Aggiornamento 08/08/2026: la memoria cresce molto con la conversazione.**
+   Le due sessioni OpenCode live di quel giorno — conversazioni reali e
+   lunghe, non un turno di prova — pesavano 780 e 879 MB `Rss` (`Pss` 764 e
+   863 MB, ~750/810 MB privati). Non è più il plateau ~484 MB di una sessione
+   inattiva di pochi minuti: una conversazione estesa raddoppia quasi il
+   costo. Con due sessioni simili (~1.7 GB di agenti) più `agy` ~400 MB, gli
+   agenti da soli superano i 2 GB su 3.7 GB totali, con swap già a 1.8/2.0 GB
+   e `available` sotto 800 MB in condizioni di carico normale. La capienza
+   utile di questo host è quindi **una sola sessione OpenCode attiva a
+   conversazione lunga**.
+   **Decisione (08/08/2026): il prodotto non deve conoscere questo limite.**
+   Nessun avviso né limite implementato: la capienza dipende dal singolo host
+   (memoria, swap, carico degli altri agenti) e una soglia scelta sul prodotto
+   sarebbe arbitraria fuori dal contesto di questo host. La protezione resta
+   quella architetturale già in atto: le sessioni tmux dell'utente vivono sul
+   server tmux dell'host e sopravvivono all'OOM, che colpisce i container
+   stateless ricreabili. Il limite va documentato come dato operativo del
+   deployment (una sola sessione OpenCode a conversazione lunga per host di
+   questa taglia), non come vincolo dell'applicazione.
 
 #### OC-02 — Archivio e snapshot
 
 - [ ] IMP-OC-02 | OWNER: SA-IMP | STATUS: READY | Sbloccato da `OC-01`
-  (`TEST-OC-01-T2` `PASSED`). **Non chiudibile senza `OC-CAP-01`**: questa
-  fase assume che aprire sessioni sia economico, e quel costo non e' ancora
-  stato misurato.
+  (`TEST-OC-01-T2` `PASSED`). Il vincolo di capacità `OC-CAP-01` è chiuso
+  (08/08/2026): il costo di una sessione è misurato (~480 MB inattiva, fino a
+  ~880 MB a conversazione lunga) e la decisione è che il prodotto non
+  implementi avvisi né limiti — resta però il dato operativo che questo host
+  regge circa una sessione OpenCode attiva a conversazione lunga.
   Estendere archivio, snapshot e restore preservando la semantica già offerta
   agli altri profili. Usare inizialmente il **selettore nativo delle sessioni**
   (strategia B dell'analisi): è la scelta prudente per il primo rilascio e non
