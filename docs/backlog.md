@@ -4019,7 +4019,7 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   mattino aveva impedito il ripristino, ora innocuo. Chiudere con
   `TEST-DEPLOY-01`.
 
-- [ ] TEST-DEPLOY-01 | OWNER: SA-TEST | STATUS: READY_FOR_TEST | Sbloccato da
+- [x] TEST-DEPLOY-01 | OWNER: SA-TEST | STATUS: DONE | 08/08/2026. Sbloccato da
   `INC-DEPLOY-01`. Verificare che nessun container in esecuzione abbia mount
   che puntano fuori da percorsi stabili (repository, `~/.config`, runtime
   utente, volumi Docker), con l'unica eccezione legittima del socket tmux
@@ -4029,6 +4029,23 @@ sopra, "Protocollo della roadmap per i subagent"): nomi logici
   l'immagine in esecuzione corrisponda al codice pubblicato — la migrazione ha
   ricreato i container senza ricostruire le immagini, quindi vale la pena
   confermare che non ci sia deriva fra ciò che gira e ciò che è committato.
+  **Verifica (08/08/2026).** `docker inspect` su `backend` e `web`: ogni
+  mount punta a path stabili — `/home/max/projects` (workspace),
+  `/run/user/1000/mobile-agent-console` (runtime utente), `.secrets` nel
+  repository e volumi Docker `mobile-agent-console_tmux-socket`. L'unico
+  mount sotto `/tmp` è `/tmp/tmux-1000` sul backend, l'eccezione legittima
+  del socket tmux host. Coerenza con `AGENTS.md`: i container sono stati
+  ricreati dalla directory del repository (i bind mount puntano al percorso
+  di creazione) e nessun mount fa riferimento a una directory temporanea,
+  quindi il mancato riavvio di `INC-DEPLOY-01` non può ripresentarsi.
+  **Riavvio stateless:** `docker compose up -d --force-recreate --no-deps
+  backend web` dalla directory del repository; entrambi ripartiti puliti,
+  `health` `200`, `login` `200` e sessioni tmux host intatte (nessuna
+  ricreazione di `tmux-runtime`). **Assenza di deriva immagine↔codice:**
+  confronto integrale di `backend/app` estratto dall'immagine in esecuzione
+  contro HEAD `5badaee` — inventario e contenuti identici per tutti i file
+  (`main.py`, `schemas.py`, `config.py`, `agent_status_service.py`, ecc.);
+  immagine `web` ricostruita oggi dalle stesse fonti committate.
 
 #### OC-UX-01 — I dialog di autorizzazione non sono navigabili dall'app
 
