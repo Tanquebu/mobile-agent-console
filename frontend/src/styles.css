@@ -215,7 +215,7 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .follow-output { position: absolute; right: 24px; bottom: 14px; min-height: 40px; border: 1px solid #4f7a5c; border-radius: 999px; padding: 0 14px; background: #1b2820; color: #9be5b3; font-weight: 700; box-shadow: 0 4px 16px #0008; }
 .history-loading { position: absolute; z-index: 2; top: 18px; left: 50%; transform: translateX(-50%); border: 1px solid #4f7a5c; border-radius: 999px; padding: 5px 14px; background: #1b2820ee; color: #9be5b3; font-size: .72rem; font-weight: 700; box-shadow: 0 4px 16px #0008; }
 .terminal-loading { position: absolute; z-index: 2; top: 50%; left: 50%; transform: translate(-50%, -50%); margin: 0; }
-.composer { grid-row: 4; position: relative; min-width: 0; overflow: hidden; padding: 10px 12px max(12px, env(safe-area-inset-bottom)); background: #101713; }
+.composer { grid-row: 4; position: relative; min-width: 0; padding: 10px 12px max(12px, env(safe-area-inset-bottom)); background: #101713; }
 .composer.viewer textarea, .composer.viewer .attachments,
 .composer.viewer .file-input, .composer.viewer .attach-button,
 .composer.viewer .enter-button, .composer.viewer button[type="submit"],

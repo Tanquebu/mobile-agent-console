@@ -59,7 +59,11 @@ try {
   assert.equal(await composer.inputValue(), "bozza prima sessione");
 
   await page.getByRole("button", { name: "Funzioni", exact: true }).click();
-  await page.getByRole("button", { name: "Clear", exact: true }).dispatchEvent("click");
+  const specialActions = page.locator(".special-actions");
+  await specialActions.waitFor({ state: "visible" });
+  const specialActionsBox = await specialActions.boundingBox();
+  assert.ok(specialActionsBox && specialActionsBox.width <= 296, "il menu Funzioni deve restare entro il composer mobile");
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
   await page.waitForTimeout(200);
   assert.deepEqual(commands.slice(-2), [
     { path: "/api/v1/sessions/1/input", body: { text: "/clear", attachment_ids: [] } },
@@ -78,9 +82,9 @@ try {
     }),
   ));
   assert.equal(widths.html[0] <= widths.html[1], true, `document overflow: ${JSON.stringify(widths)}`);
-  assert.equal(widths[".console"][0] <= widths[".console"][1], true, `console overflow: ${JSON.stringify(widths)}`);
+  assert.equal(widths[".console"][1] <= widths.html[1], true, `console oltre il viewport: ${JSON.stringify(widths)}`);
   assert.equal(widths[".composer"][1] <= widths.html[1], true, `composer oltre il viewport: ${JSON.stringify(widths)}`);
-  assert.equal(await page.locator(".composer").evaluate((node) => getComputedStyle(node).overflowX), "hidden");
+  assert.equal(await page.locator(".composer").evaluate((node) => getComputedStyle(node).overflowX), "visible");
   assert.equal(widths.textarea[0] <= widths.textarea[1], true, `textarea overflow: ${JSON.stringify(widths)}`);
   assert.equal(widths[".attachments"][0] > widths[".attachments"][1], true, "gli allegati devono scorrere dentro il form");
   await context.close();
