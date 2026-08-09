@@ -822,6 +822,26 @@ function ArtifactPreview({ sessionId, item, onBack }: { sessionId: string; item:
   );
 }
 
+type ArtifactSort = "name-asc" | "name-desc" | "date-desc" | "date-asc";
+
+function sortArtifacts(list: Artifact[], sort: ArtifactSort): Artifact[] {
+  const sorted = [...list];
+  sorted.sort((a, b) => {
+    switch (sort) {
+      case "name-asc":
+        return a.name.localeCompare(b.name);
+      case "name-desc":
+        return b.name.localeCompare(a.name);
+      case "date-asc":
+        return new Date(a.modified_at).getTime() - new Date(b.modified_at).getTime();
+      case "date-desc":
+      default:
+        return new Date(b.modified_at).getTime() - new Date(a.modified_at).getTime();
+    }
+  });
+  return sorted;
+}
+
 function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
   // State for current path within artifacts (empty string = root)
   const [currentPath, setCurrentPath] = useState<string>('');
@@ -829,6 +849,8 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [previewItem, setPreviewItem] = useState<Artifact | null>(null);
+  const [artifactQuery, setArtifactQuery] = useState("");
+  const [artifactSort, setArtifactSort] = useState<ArtifactSort>("name-asc");
 
   useEffect(() => {
     let cancelled = false;
@@ -860,14 +882,26 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     anchor.remove();
   }
 
+  const normalizedQuery = artifactQuery.trim().toLowerCase();
+  const isSearching = normalizedQuery.length > 0;
+
+  // When searching, look across every artifact in the session (not just the
+  // current folder) so results aren't hidden behind navigation.
+  const searchResults = isSearching
+    ? items.filter((item) => item.name.toLowerCase().includes(normalizedQuery))
+    : [];
+
   // Compute visible items based on currentPath
   const visibleItems = items.filter((item) => {
     if (!currentPath) return !item.name.includes("/");
     return item.name.startsWith(currentPath + "/") && !item.name.slice(currentPath.length + 1).includes("/");
   });
 
-  // Compute subfolders in the current directory
-  const subfolders = Array.from(new Set(items
+  const displayedItems = sortArtifacts(isSearching ? searchResults : visibleItems, artifactSort);
+
+  // Compute subfolders in the current directory (always sorted by name;
+  // folders have no date of their own to sort by).
+  const subfolders = isSearching ? [] : Array.from(new Set(items
     .filter((item) => {
       const prefix = currentPath ? currentPath + "/" : "";
       if (!item.name.startsWith(prefix)) return false;
@@ -879,7 +913,7 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
       const remainder = item.name.slice(prefix.length);
       return remainder.split("/")[0];
     })
-  ));
+  )).sort((a, b) => a.localeCompare(b));
 
   const goUp = () => {
     if (!currentPath) return;
@@ -918,19 +952,42 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
             <div className="directory-nav">
               <button
                 type="button"
-                disabled={!currentPath}
+                disabled={!currentPath || isSearching}
                 onClick={goUp}
               >
                 ↑ Su
               </button>
               <button
                 type="button"
-                disabled={!currentPath}
+                disabled={!currentPath || isSearching}
                 onClick={() => setCurrentPath("")}
               >
                 ⌂ Root artefatti
               </button>
             </div>
+            {items.length > 0 && (
+              <div className="artifact-toolbar">
+                <input
+                  type="search"
+                  className="artifact-search"
+                  placeholder={translations[readLanguage()].artifactSearchPlaceholder}
+                  aria-label={translations[readLanguage()].artifactSearchPlaceholder}
+                  value={artifactQuery}
+                  onChange={(event) => setArtifactQuery(event.target.value)}
+                />
+                <select
+                  className="artifact-sort"
+                  aria-label={translations[readLanguage()].artifactSortLabel}
+                  value={artifactSort}
+                  onChange={(event) => setArtifactSort(event.target.value as ArtifactSort)}
+                >
+                  <option value="name-asc">{translations[readLanguage()].artifactSortNameAsc}</option>
+                  <option value="name-desc">{translations[readLanguage()].artifactSortNameDesc}</option>
+                  <option value="date-desc">{translations[readLanguage()].artifactSortDateDesc}</option>
+                  <option value="date-asc">{translations[readLanguage()].artifactSortDateAsc}</option>
+                </select>
+              </div>
+            )}
             {loading && <p className="empty">{translations[readLanguage()].loading}</p>}
             {error && <p className="error">{error}</p>}
             {!loading && !error && (
@@ -947,7 +1004,7 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                     </button>
                   </li>
                 ))}
-                {visibleItems.map((item) => (
+                {displayedItems.map((item) => (
                   <li key={item.name} className="directory-entry">
                     <button
                       type="button"
@@ -956,7 +1013,7 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                       onClick={() => setPreviewItem(item)}
                     >
                       <span className="directory-type file">FILE</span>
-                      <span className="directory-name" title={item.name}>{item.name.split("/").pop()}</span>
+                      <span className="directory-name" title={item.name}>{isSearching ? item.name : item.name.split("/").pop()}</span>
                       <span className="directory-meta">{formatSize(item.size)} · {formatDate(item.modified_at)}</span>
                     </button>
                     <button type="button" className="directory-download" onClick={() => downloadArtifact(item)}>
@@ -964,7 +1021,11 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                     </button>
                   </li>
                 ))}
-                {visibleItems.length === 0 && subfolders.length === 0 && <li className="empty">{translations[readLanguage()].noArtifacts}</li>}
+                {displayedItems.length === 0 && subfolders.length === 0 && (
+                  <li className="empty">
+                    {isSearching ? translations[readLanguage()].noArtifactsMatch : translations[readLanguage()].noArtifacts}
+                  </li>
+                )}
               </ul>
             )}
           </>

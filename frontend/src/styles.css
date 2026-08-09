@@ -258,6 +258,9 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .whats-new p { margin: 0; color: #a9bcaf; line-height: 1.45; }
 .directory-path { margin: 4px 0 0; font-size: .95rem; font-family: ui-monospace, monospace; word-break: break-all; color: #b8c9bd; }
 .directory-nav { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 14px; }
+.artifact-toolbar { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 10px; }
+.artifact-search { min-width: 0; min-height: 40px; border: 1px solid #344b3b; border-radius: 10px; padding: 0 10px; background: #18231c; color: white; }
+.artifact-sort { min-height: 40px; border: 1px solid #344b3b; border-radius: 10px; padding: 0 8px; background: #18231c; color: #d2e3d7; font-size: .78rem; }
 .directory-nav button { min-height: 38px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .76rem; font-weight: 700; }
 .directory-nav button.directory-upload-btn { border-color: #3b7454; background: #1c3628; color: #a4f0c1; }
 .directory-nav button:disabled { opacity: .4; cursor: default; }
