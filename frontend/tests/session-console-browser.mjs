@@ -12,13 +12,15 @@ function json(route, body, status = 200) {
 
 const browser = await chromium.launch({ headless: true });
 try {
-  const context = await browser.newContext({ viewport: { width: 320, height: 720 } });
+  const context = await browser.newContext({ viewport: { width: 320, height: 720 }, locale: "it-IT" });
   const page = await context.newPage();
   page.setDefaultTimeout(7_000);
   const commands = [];
+  let attachmentSequence = 0;
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
-    const path = new URL(request.url()).pathname;
+    const url = new URL(request.url());
+    const path = url.pathname;
     if (path === "/api/v1/auth/session") return json(route, { username: "admin", role: "admin", csrf_token: "csrf" });
     if (path === "/api/v1/config") return json(route, { allowed_roots: ["/workspace"], workspace_presets: {}, claude_history_enabled: false, host_observability_enabled: false });
     if (path === "/api/v1/sessions") return json(route, { sessions });
@@ -26,6 +28,17 @@ try {
     if (path === "/api/v1/provider-rate-limits") return json(route, null);
     if (path === "/api/v1/orchestrator-state") return json(route, null);
     if (/^\/api\/v1\/sessions\/\d+\/panes$/.test(path)) return json(route, { panes: [] });
+    if (/^\/api\/v1\/sessions\/\d+\/attachments$/.test(path) && request.method() === "POST") {
+      attachmentSequence += 1;
+      const name = url.searchParams.get("filename");
+      return json(route, {
+        id: `attachment-${attachmentSequence}`,
+        name,
+        path: `/workspace/.agent-attachments/1/${name}`,
+        media_type: "text/plain",
+        size: request.postDataBuffer()?.length || 0,
+      }, 201);
+    }
     if (/^\/api\/v1\/sessions\/\d+\/(input|keys)$/.test(path) && request.method() === "POST") {
       commands.push({ path, body: request.postDataJSON() });
       return route.fulfill({ status: 202, body: "" });
@@ -45,17 +58,34 @@ try {
   await page.locator(".session-switcher-item", { hasText: "osservabilità" }).click();
   assert.equal(await composer.inputValue(), "bozza prima sessione");
 
-  await page.getByRole("button", { name: "Funzioni speciali" }).click();
-  await page.getByRole("button", { name: "Clear", exact: true }).click();
-  await page.getByRole("button", { name: "Clear", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Funzioni", exact: true }).click();
+  await page.getByRole("button", { name: "Clear", exact: true }).dispatchEvent("click");
+  await page.waitForTimeout(200);
   assert.deepEqual(commands.slice(-2), [
     { path: "/api/v1/sessions/1/input", body: { text: "/clear", attachment_ids: [] } },
     { path: "/api/v1/sessions/1/keys", body: { key: "Enter", confirmed: false } },
   ]);
-  assert.equal(await page.locator("html").evaluate((node) => node.scrollWidth <= node.clientWidth), true);
+  await page.locator(".file-input").setInputFiles([
+    { name: "Screenshot_20260809-013106-con-un-nome-molto-lungo.txt", mimeType: "text/plain", buffer: Buffer.from("uno") },
+    { name: "Screenshot_20260809-013107-con-un-altro-nome-molto-lungo.txt", mimeType: "text/plain", buffer: Buffer.from("due") },
+  ]);
+  await page.locator(".attachment-chip").nth(1).waitFor();
+
+  const widths = await page.evaluate(() => Object.fromEntries(
+    ["html", ".console", ".composer", ".attachments", "textarea"].map((selector) => {
+      const node = selector === "html" ? document.documentElement : document.querySelector(selector);
+      return [selector, [node.scrollWidth, node.clientWidth]];
+    }),
+  ));
+  assert.equal(widths.html[0] <= widths.html[1], true, `document overflow: ${JSON.stringify(widths)}`);
+  assert.equal(widths[".console"][0] <= widths[".console"][1], true, `console overflow: ${JSON.stringify(widths)}`);
+  assert.equal(widths[".composer"][1] <= widths.html[1], true, `composer oltre il viewport: ${JSON.stringify(widths)}`);
+  assert.equal(await page.locator(".composer").evaluate((node) => getComputedStyle(node).overflowX), "hidden");
+  assert.equal(widths.textarea[0] <= widths.textarea[1], true, `textarea overflow: ${JSON.stringify(widths)}`);
+  assert.equal(widths[".attachments"][0] > widths[".attachments"][1], true, "gli allegati devono scorrere dentro il form");
   await context.close();
 } finally {
   await browser.close();
 }
 
-console.log("Session console browser checks passed (Unicode, per-session drafts, Clear)");
+console.log("Session console browser checks passed (Unicode, per-session drafts, Clear, attachment overflow)");

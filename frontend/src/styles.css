@@ -215,7 +215,7 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .follow-output { position: absolute; right: 24px; bottom: 14px; min-height: 40px; border: 1px solid #4f7a5c; border-radius: 999px; padding: 0 14px; background: #1b2820; color: #9be5b3; font-weight: 700; box-shadow: 0 4px 16px #0008; }
 .history-loading { position: absolute; z-index: 2; top: 18px; left: 50%; transform: translateX(-50%); border: 1px solid #4f7a5c; border-radius: 999px; padding: 5px 14px; background: #1b2820ee; color: #9be5b3; font-size: .72rem; font-weight: 700; box-shadow: 0 4px 16px #0008; }
 .terminal-loading { position: absolute; z-index: 2; top: 50%; left: 50%; transform: translate(-50%, -50%); margin: 0; }
-.composer { grid-row: 4; position: relative; padding: 10px 12px max(12px, env(safe-area-inset-bottom)); background: #101713; }
+.composer { grid-row: 4; position: relative; min-width: 0; overflow: hidden; padding: 10px 12px max(12px, env(safe-area-inset-bottom)); background: #101713; }
 .composer.viewer textarea, .composer.viewer .attachments,
 .composer.viewer .file-input, .composer.viewer .attach-button,
 .composer.viewer .enter-button, .composer.viewer button[type="submit"],
@@ -230,7 +230,7 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .special-actions button { min-height: 38px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .76rem; font-weight: 700; }
 .special-actions button.danger { border-color: #704039; color: #ffaaa0; }
 .file-input { display: none; }
-.attachments { display: flex; gap: 6px; overflow-x: auto; padding: 0 0 8px; }
+.attachments { display: flex; width: 100%; min-width: 0; max-width: 100%; gap: 6px; overflow-x: auto; padding: 0 0 8px; }
 .attachment-chip { display: inline-flex; align-items: center; flex: 0 0 auto; max-width: 240px; min-height: 36px; border: 1px solid #344b3b; border-radius: 999px; padding-left: 11px; background: #18231c; color: #d2e3d7; font-size: .78rem; }
 .attachment-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attachment-thumb { width: 28px; height: 28px; margin: -1px 8px -1px -11px; border-radius: 999px 0 0 999px; object-fit: cover; flex: 0 0 auto; }
