@@ -36,6 +36,12 @@ export function errorMessage(value: unknown): string {
     if (value.status === 409 && value.message === "Session name already exists") {
       return "Esiste già una sessione con questo nome.";
     }
+    if (
+      value.status === 409 &&
+      value.message === "Refusing to terminate the reserved keepalive session"
+    ) {
+      return "Questa sessione è riservata al servizio e non può essere terminata.";
+    }
     if (value.status === 429) {
       return "Troppe richieste ravvicinate. Attendi qualche secondo e riprova.";
     }

@@ -332,9 +332,67 @@ def test_only_allowlisted_keys_are_supported(monkeypatch) -> None:
 
 
 def test_terminate_targets_session_id(monkeypatch) -> None:
+    # Il guard interroga prima list-sessions (nessun risultato = nessuna
+    # sessione riservata con quell'id): la kill-session resta l'ultima call.
     recorder = Recorder(monkeypatch)
     asyncio.run(TmuxService("test").terminate_session("7"))
-    assert recorder.calls[0][-3:] == ("kill-session", "-t", "$7")
+    assert recorder.calls[-1][-3:] == ("kill-session", "-t", "$7")
+
+
+def test_list_sessions_filters_configured_host_keepalive_name(monkeypatch) -> None:
+    lines = (
+        b"$3\t1\t2\tnode\t1700000000\tdemo\n"
+        b"$4\t0\t1\tbash\t1700000000\tkeepalive\n"
+        b"$5\t0\t1\tbash\t1700000000\t__runtime__\n"
+    )
+    recorder = Recorder(monkeypatch, stdout=lines)
+    service = TmuxService("test", external_server=True, reserved_host_session="keepalive")
+    hosted = asyncio.run(service.list_sessions())
+    # Solo "keepalive" è filtrato in modalità host con questo nome
+    # configurato: "__runtime__" è un dettaglio della modalità docker e non
+    # ha alcun significato speciale qui.
+    assert [(s.id, s.name) for s in hosted] == [("3", "demo"), ("5", "__runtime__")]
+
+    recorder.calls.clear()
+    disabled = asyncio.run(
+        TmuxService("test", external_server=True, reserved_host_session="").list_sessions()
+    )
+    assert [(s.id, s.name) for s in disabled] == [
+        ("3", "demo"),
+        ("4", "keepalive"),
+        ("5", "__runtime__"),
+    ]
+
+
+def test_terminate_refuses_reserved_docker_runtime_session_even_by_known_id(
+    monkeypatch,
+) -> None:
+    # Il guard chiede `#{session_id}\t#{session_name}`, non il formato più
+    # ampio di list_sessions: due soli campi.
+    recorder = Recorder(monkeypatch, stdout=b"$4\t__runtime__\n")
+    with pytest.raises(TmuxError, match="Refusing to terminate"):
+        asyncio.run(TmuxService("test").terminate_session("4"))
+    assert all("kill-session" not in call for call in recorder.calls)
+
+
+def test_terminate_refuses_configured_host_keepalive_session_even_by_known_id(
+    monkeypatch,
+) -> None:
+    recorder = Recorder(monkeypatch, stdout=b"$9\tkeepalive\n")
+    service = TmuxService("test", external_server=True, reserved_host_session="keepalive")
+    with pytest.raises(TmuxError, match="Refusing to terminate"):
+        asyncio.run(service.terminate_session("9"))
+    assert all("kill-session" not in call for call in recorder.calls)
+
+
+def test_terminate_allows_host_session_when_keepalive_filter_disabled(monkeypatch) -> None:
+    recorder = Recorder(monkeypatch)
+    service = TmuxService("test", external_server=True, reserved_host_session="")
+    asyncio.run(service.terminate_session("9"))
+    # Filtro disattivato (stringa vuota): niente lookup di guardia, un'unica
+    # call diretta a kill-session.
+    assert len(recorder.calls) == 1
+    assert recorder.calls[0][-3:] == ("kill-session", "-t", "$9")
 
 
 def test_pane_path_targets_active_pane(monkeypatch) -> None:

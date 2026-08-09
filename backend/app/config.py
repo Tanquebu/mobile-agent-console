@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     tmux_socket_path: str | None = None
     tmux_socket_file: str | None = None
     tmux_mode: str = Field(default="docker", pattern=r"^(docker|host)$")
+    # Nome della sessione tmux di servizio in modalità host (unit
+    # `mobile-agent-console-tmux-host.service`, INC-HOST-01): nascosta da
+    # `list_sessions` e protetta dalla terminazione, per lo stesso motivo per
+    # cui `__runtime__` lo è già in modalità docker. Configurabile perché in
+    # modalità host i nomi delle sessioni sono arbitrari e scelti
+    # dall'utente: chi rinomina una sessione operativa proprio "keepalive"
+    # la nasconderebbe per omonimia (vedi ADR 005). Stringa vuota disabilita
+    # il filtro; ignorato in modalità docker.
+    tmux_host_keepalive_session: str = "keepalive"
     host_observability_enabled: bool = False
     host_observability_socket_file: str = (
         "/host-observability/host-observability.sock"
@@ -174,6 +183,11 @@ class Settings(BaseSettings):
             if ext not in normalized:
                 normalized.append(ext)
         return normalized
+
+    @field_validator("tmux_host_keepalive_session")
+    @classmethod
+    def strip_tmux_host_keepalive_session(cls, value: str) -> str:
+        return value.strip()
 
     @field_validator("workspace_presets", mode="before")
     @classmethod

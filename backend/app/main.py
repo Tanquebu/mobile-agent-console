@@ -243,6 +243,9 @@ def create_app(
         socket_path=settings.tmux_socket_path,
         socket_file=settings.tmux_socket_file if settings.tmux_mode == "host" else None,
         external_server=settings.tmux_mode == "host",
+        reserved_host_session=(
+            settings.tmux_host_keepalive_session if settings.tmux_mode == "host" else None
+        ),
     )
     security = SessionSecurity(settings)
     snapshots = SnapshotService(settings.snapshots_root)
@@ -1919,6 +1922,8 @@ def create_app(
             raise HTTPException(400, str(exc)) from exc
         except SessionNotFound as exc:
             raise HTTPException(404, "Session not found") from exc
+        except TmuxError as exc:
+            raise HTTPException(409, str(exc)) from exc
         await _cleanup_session_files(session_id)
         return Response(status_code=204)
 

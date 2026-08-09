@@ -24,6 +24,9 @@ class FakeTmux:
         self.created: list[tuple[str, str, str, bool]] = []
         self.server_down = False
         self.duplicate_name = False
+        # Simula la sessione di servizio riservata (INC-HOST-01): esclusa da
+        # list_sessions e la cui terminazione va rifiutata anche per id noto.
+        self.protected_session_id: str | None = None
         self.directory = "/workspace"
         self.sessions = {
             "1": TmuxSession("1", "demo", False, 1, "bash", datetime.now(UTC))
@@ -36,7 +39,9 @@ class FakeTmux:
         return "no server running" if self.server_down else None
 
     async def list_sessions(self) -> list[TmuxSession]:
-        return list(self.sessions.values())
+        return [
+            item for item in self.sessions.values() if item.id != self.protected_session_id
+        ]
 
     async def create_session(
         self,
@@ -133,6 +138,8 @@ class FakeTmux:
         TmuxService.validate_target(session_id)
         if session_id not in self.sessions:
             raise SessionNotFound(session_id)
+        if session_id == self.protected_session_id:
+            raise TmuxError("Refusing to terminate the reserved keepalive session")
         self.terminated.append(session_id)
         del self.sessions[session_id]
 

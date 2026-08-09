@@ -1450,6 +1450,25 @@ def test_terminating_session_cleans_up_its_attachments(tmp_path) -> None:
     ).status_code == 404
 
 
+def test_reserved_session_is_hidden_and_termination_refused_even_by_known_id() -> None:
+    # INC-HOST-01: nascondere non basta, l'id resta un target tmux valido.
+    client, fake = client_and_fake()
+    fake.protected_session_id = "1"
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+
+    listed = client.get("/api/v1/sessions").json()["sessions"]
+    assert all(item["id"] != "1" for item in listed)
+
+    terminated = client.request(
+        "DELETE", "/api/v1/sessions/1", headers=headers, json={"confirmed": True}
+    )
+    assert terminated.status_code == 409
+    assert terminated.json()["detail"] == "Refusing to terminate the reserved keepalive session"
+    # non toccata: la sessione fake resta viva dopo il rifiuto.
+    assert "1" in fake.sessions
+
+
 def test_artifacts_require_authentication() -> None:
     client, _ = client_and_fake()
     assert client.get("/api/v1/sessions/1/artifacts").status_code == 401

@@ -93,3 +93,26 @@ Scelte vincolanti:
   sessioni operative.
 - La modalità Docker resta la modalità di default per sviluppo e test
   isolati; il contratto API/WebSocket è identico nelle due modalità.
+
+## Conflitto noto: visibilità totale vs sessione di servizio nascosta (INC-HOST-01)
+
+Questa ADR motiva la modalità host proprio con la visibilità delle sessioni
+preesistenti dell'host, oggi invisibili in modalità Docker. `TmuxService`
+nasconde però deliberatamente da `list_sessions` (e rifiuta la terminazione
+di, anche per id noto) una sessione il cui nome coincide con
+`MAC_TMUX_HOST_KEEPALIVE_SESSION` (default `keepalive`, lo stesso nome usato
+da `mobile-agent-console-tmux-host.service`): senza quella sessione sempre
+viva, il server tmux host può risultare senza sessioni e `create_session`
+fallisce per la guardia anti auto-start sopra descritta (INC-HOST-01). È
+un'eccezione esplicita al principio "tutte le sessioni host, senza filtri"
+di questa ADR, accettata perché la sessione nascosta non è lavoro
+dell'utente ma infrastruttura di MAC stesso — stesso trattamento già
+riservato a `__runtime__` in modalità Docker.
+
+Il nome è configurabile (non una costante come `__runtime__`) proprio per
+questo conflitto: in modalità host i nomi sono scelti dall'utente, quindi
+una sessione di lavoro chiamata per coincidenza come quella di servizio
+verrebbe nascosta e protetta da terminazione per omonimia. Impostare
+`MAC_TMUX_HOST_KEEPALIVE_SESSION` a un nome improbabile (o a stringa vuota
+per disabilitare del tutto il filtro, per chi non usa la unit keepalive)
+riduce ma non elimina il rischio residuo di collisione.

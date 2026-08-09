@@ -155,6 +155,7 @@ class TmuxService:
         socket_path: str | None = None,
         socket_file: str | None = None,
         external_server: bool = False,
+        reserved_host_session: str | None = None,
     ) -> None:
         if not SOCKET_NAME.fullmatch(socket_name):
             raise ValueError("Invalid tmux socket name")
@@ -164,6 +165,15 @@ class TmuxService:
             else [binary, "-L", socket_name]
         )
         self._external_server = external_server
+        # In modalità docker la sessione di servizio è sempre `__runtime__`
+        # (interna, non configurabile). In modalità host (`external_server`)
+        # il nome è quello della sessione keepalive dell'utente host
+        # (INC-HOST-01), passato dal chiamante perché configurabile
+        # (`MAC_TMUX_HOST_KEEPALIVE_SESSION`); una stringa vuota o `None`
+        # disabilita la protezione.
+        self._reserved_session_name: str | None = (
+            RUNTIME_KEEPALIVE if not external_server else (reserved_host_session or None)
+        )
 
     @staticmethod
     def validate_session_name(name: str) -> str:
@@ -237,7 +247,7 @@ class TmuxService:
             session_id = raw_id.removeprefix("$")
             if not TARGET_ID.fullmatch(session_id):
                 continue
-            if not self._external_server and name == RUNTIME_KEEPALIVE:
+            if name == self._reserved_session_name:
                 continue
             sessions.append(
                 TmuxSession(
@@ -390,7 +400,27 @@ class TmuxService:
 
     async def terminate_session(self, session_id: str) -> None:
         target = self.validate_target(session_id)
+        # Nascondere la sessione riservata da `list_sessions` non basta: il
+        # suo id resta un target tmux valido come qualunque altro (client
+        # con lista in cache, chiamata API diretta). INC-HOST-01 richiede di
+        # rifiutare la terminazione anche quando l'id è noto, non solo di
+        # ometterla dall'elenco.
+        if await self._is_reserved_session(session_id):
+            raise TmuxError("Refusing to terminate the reserved keepalive session")
         await self._run("kill-session", "-t", target)
+
+    async def _is_reserved_session(self, session_id: str) -> bool:
+        if self._reserved_session_name is None:
+            return False
+        try:
+            raw = await self._run("list-sessions", "-F", "#{session_id}\t#{session_name}")
+        except SessionNotFound:
+            return False
+        for line in raw.decode(errors="replace").splitlines():
+            raw_id, _, name = line.partition("\t")
+            if raw_id.removeprefix("$") == session_id and name == self._reserved_session_name:
+                return True
+        return False
 
     async def pane_path(self, session_id: str, pane_id: str | None = None) -> str:
         target = await self._pane_target(session_id, pane_id)

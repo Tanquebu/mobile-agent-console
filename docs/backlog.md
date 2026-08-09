@@ -4334,9 +4334,10 @@ configurazione del proxy), non solo quelli citati nel codice.
 
 ## INC-HOST-01 — creazione sessione impossibile quando il server tmux host è giù
 
-**Stato:** cause 1, 2 e 3 corrette e verificate su host reale il 05/08/2026.
-Resta aperta la sola remediation aggiuntiva (protezione della sessione di
-servizio dentro MAC), in fondo alla scheda.
+**Stato:** cause 1, 2 e 3 corrette e verificate su host reale il 05/08/2026;
+remediation aggiuntiva (protezione della sessione di servizio dentro MAC)
+implementata il 09/08/2026 e verificata su host reale lo stesso giorno —
+vedi in fondo alla scheda.
 
 **Sintomo:** `create_session` fallisce ("unable to create session") ogni volta
 che il server tmux host non ha nessuna sessione attiva. È by design (ADR 005,
@@ -4427,3 +4428,75 @@ verrebbe nascosta per omonimia. Resta il conflitto dichiarato con ADR 005
 
 **Non contiene** nomi host, IP o path reali per costruzione — vedi
 `docs/adr/005-host-default-socket.md` per i placeholder di riferimento.
+
+### Remediation aggiuntiva (09/08/2026): protezione della sessione di servizio
+
+Implementata la scelta "nascondere" del 05/08/2026, con l'estensione
+richiesta esplicitamente: nascondere da solo non basta perché l'id resta un
+target tmux valido, quindi il rifiuto copre anche la terminazione per id
+noto, non solo l'elenco.
+
+- `TmuxService.list_sessions` filtrava la sessione riservata solo in
+  modalità Docker (`__runtime__`, costante). Ora filtra in entrambe le
+  modalità: Docker resta su `__runtime__` hardcoded, host usa un nome
+  configurabile (`MAC_TMUX_HOST_KEEPALIVE_SESSION`, default `keepalive`,
+  lo stesso nome avviato da `mobile-agent-console-tmux-host.service`).
+  Stringa vuota disabilita il filtro per chi non usa la unit keepalive.
+- `TmuxService.terminate_session` risolve prima il nome della sessione
+  target (`list-sessions -F "#{session_id}\t#{session_name}"`) e rifiuta con
+  `TmuxError` se coincide con quella riservata, *prima* di eseguire
+  `kill-session`. L'endpoint `DELETE /api/v1/sessions/{id}` mappa il nuovo
+  `TmuxError` a `409` con il messaggio esplicito (stesso pattern già usato
+  per "duplicate session" su create/rename). L'endpoint di archiviazione
+  era già protetto indirettamente: cerca la sessione in `list_sessions()`
+  prima di procedere, quindi la sessione riservata risulta già "not found".
+- Nome riservato reso **configurabile** in modalità host (non una costante
+  come `__runtime__`): i nomi delle sessioni host sono scelti dall'utente,
+  quindi il conflitto per omonimia è reale, non teorico. Annotato
+  esplicitamente in `docs/adr/005-host-default-socket.md`, sezione
+  "Conflitto noto: visibilità totale vs sessione di servizio nascosta", con
+  la scelta di mitigazione (nome configurabile, filtro disattivabile) e il
+  rischio residuo che resta.
+- Messaggio d'errore tradotto lato frontend (`errorMessage` in `api.ts`) in
+  un testo comprensibile invece del messaggio tecnico grezzo; nessuna
+  logica di stato client duplicata, perché la sessione non compare mai
+  nell'elenco (filtro solo backend) — il frontend si affida al percorso di
+  errore generico già esistente per terminazione/archiviazione.
+
+Test aggiunti: `backend/tests/test_tmux_service.py` (filtro per nome
+configurato in modalità host, indipendenza da `__runtime__`, rifiuto della
+terminazione per id noto in entrambe le modalità, comportamento con filtro
+disattivato) e `backend/tests/test_api.py`
+(`test_reserved_session_is_hidden_and_termination_refused_even_by_known_id`,
+tramite un nuovo `FakeTmux.protected_session_id`); lato frontend,
+`frontend/tests/session-termination-guard.test.mjs` (nuovo, in `test:ui`)
+verifica il testo del messaggio tradotto e che `terminateListedSession` non
+introduca un caso speciale hardcoded. Suite eseguita con
+`docker compose run --rm backend-test` (dopo `docker compose build
+backend-test`, la cache stantia altrimenti maschera le modifiche — vedi
+promemoria in `[[docker-compose-build-cache]]`) e `docker compose build
+frontend-build` (esegue `npm run test:ui` prima della build Vite).
+
+**Scoperta collaterale, non toccata in questo round:** la suite backend ha
+5 test preesistenti già rotti prima di queste modifiche — quattro
+(`test_upload_directory_file_*`) per un helper `get_csrf_token` mai
+definito in `test_api.py` (`NameError`/`F821`, confermato con `git show
+HEAD` sullo stesso file) e uno (`test_agent_statuses_opencode_from_real_tui_fixture`)
+per un'asserzione sul campo `summary` non più coerente col fixture. `ruff
+check --no-cache .` segnala inoltre un blocco import disordinato in
+`main.py` e due import inutilizzati in `artifact_service.py`, anch'essi
+preesistenti (confermati con `git diff` sui soli file di questo round, che
+non li tocca). Il `Dockerfile` di test esegue `pytest -q tests && ruff
+check --no-cache .`: il fallimento di pytest impedisce oggi a ruff di
+girare affatto in `docker compose run --rm backend-test`, quindi questi
+problemi sono probabilmente invisibili a chi non esegue `ruff` a parte —
+da segnalare e correggere in un round dedicato, separato da INC-HOST-01
+per non mischiare commit.
+
+**Verificato su host reale il 09/08/2026** dopo rebuild e ricreazione di
+`backend`/`web` (routine, `tmux` host non toccato): con `keepalive` viva
+come `$0` accanto a due sessioni di lavoro reali, `GET /api/v1/sessions` non
+la elenca; `DELETE /api/v1/sessions/0` risponde `409`
+(`"Refusing to terminate the reserved keepalive session"`) e la sessione
+resta viva su host dopo il tentativo. Entrambi i comportamenti confermano
+quanto già coperto dai test automatici.
