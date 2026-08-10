@@ -67,6 +67,7 @@ PROFILE_ARGV = {
     "codex": ("bash", "-l", "-c", "exec codex"),
     "claude": ("bash", "-l", "-c", "exec claude"),
     "antigravity": ("bash", "-l", "-c", "exec agy"),
+    "antigravity_yolo": ("bash", "-l", "-c", "exec agy --dangerously-skip-permissions"),
     "opencode": _OPENCODE_LAUNCH,
 }
 RESUME_PROFILE_ARGV = {
@@ -74,6 +75,7 @@ RESUME_PROFILE_ARGV = {
     "codex": ("bash", "-l", "-c", "exec codex resume"),
     "claude": ("bash", "-l", "-c", "exec claude --resume"),
     "antigravity": ("bash", "-l", "-c", "exec agy -c"),
+    "antigravity_yolo": ("bash", "-l", "-c", "exec agy -c --dangerously-skip-permissions"),
     # Lo store delle conversazioni OpenCode e' globale per utente, non per
     # progetto: `--continue` puo' agganciare la conversazione di un altro
     # progetto (verificato in IMP-OC-00). Il profilo di ripresa avvia quindi

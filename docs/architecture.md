@@ -31,7 +31,7 @@ React PWA ── Nginx same-origin ── FastAPI
 Il browser non conosce comandi shell. Gli endpoint ricevono identificatori e
 operazioni tipizzate; directory e profili vengono risolti/validati server-side.
 L’endpoint di creazione espone i profili `shell`, `codex`, `claude`,
-`antigravity` e `opencode`, risolti
+`antigravity`, `antigravity_yolo` e `opencode`, risolti
 in argv costanti server-side.
 
 ### OpenCode (profilo TUI)
@@ -72,6 +72,20 @@ quella verificata. L'argv del profilo verifica quindi la risoluzione con
 `command -v` prima di eseguire OpenCode; se il binario manca, stampa un
 messaggio comprensibile nel pane e lascia la sessione viva in una shell di
 login invece di farla sparire.
+
+### Antigravity YOLO (`antigravity_yolo`)
+
+Il profilo `antigravity_yolo` è identico ad `antigravity`, ma lancia `agy`
+con `--dangerously-skip-permissions`: come ogni altro profilo, è un argv
+costante server-side scelto dal client solo tramite l'enum del profilo,
+mai un flag libero. È una scelta di postura di sicurezza deliberata —
+l'agente non chiede conferma per modifiche o comandi — e va usato
+consapevolmente. Non viene mai persistito in modalità "yolo": archiviazione
+e snapshot inferiscono il profilo dal nome del processo osservato nel pane
+(`agy`), identico per `antigravity` e `antigravity_yolo`, quindi al
+ripristino la sessione torna sempre al profilo `antigravity` conservativo —
+un riavvio dell'host o un ripristino non può resuscitare in silenzio una
+sessione con permessi bypassati.
 
 ## Container e persistenza
 

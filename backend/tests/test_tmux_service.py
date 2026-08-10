@@ -144,6 +144,10 @@ def test_split_pane_uses_constant_login_shell(monkeypatch) -> None:
         ("codex", ("bash", "-l", "-c", "exec codex")),
         ("claude", ("bash", "-l", "-c", "exec claude")),
         ("antigravity", ("bash", "-l", "-c", "exec agy")),
+        (
+            "antigravity_yolo",
+            ("bash", "-l", "-c", "exec agy --dangerously-skip-permissions"),
+        ),
     ],
 )
 def test_create_session_uses_server_side_profile(monkeypatch, profile, expected) -> None:
@@ -163,6 +167,10 @@ def test_create_session_uses_server_side_profile(monkeypatch, profile, expected)
         # profilo di ripresa di antigravity era identico a quello di avvio,
         # quindi "riprendi" apriva in realta' una sessione nuova.
         ("antigravity", ("bash", "-l", "-c", "exec agy -c")),
+        (
+            "antigravity_yolo",
+            ("bash", "-l", "-c", "exec agy -c --dangerously-skip-permissions"),
+        ),
     ],
 )
 def test_create_session_uses_server_side_resume_profile(

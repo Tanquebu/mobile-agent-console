@@ -78,6 +78,7 @@ import {
   sendKey,
   sendText,
   Session,
+  SessionProfile,
   SessionUsageBucket,
   SessionUsageEntry,
   SessionUsageReport,
@@ -3732,6 +3733,7 @@ function SessionList({
   const [name, setName] = useState("");
   const [directory, setDirectory] = useState("");
   const [profile, setProfile] = useState<"shell" | "codex" | "claude" | "antigravity" | "opencode">("shell");
+  const [agyFullPermissions, setAgyFullPermissions] = useState(false);
   const [presets, setPresets] = useState<[string, string][]>([]);
   const [customDirectory, setCustomDirectory] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -4154,9 +4156,10 @@ function SessionList({
           return;
         }
         try {
-          await createSession(normalizedName, directory, profile);
+          const effectiveProfile: SessionProfile = profile === "antigravity" && agyFullPermissions ? "antigravity_yolo" : profile;
+          await createSession(normalizedName, directory, effectiveProfile);
           const updatedSessions = await listSessions();
-          setCreating(false); setName(""); setProfile("shell"); setError("");
+          setCreating(false); setName(""); setProfile("shell"); setAgyFullPermissions(false); setError("");
           setSessions(updatedSessions);
           const createdSession = updatedSessions.find((session) => session.name === normalizedName);
           if (createdSession) onOpen(createdSession);
@@ -4187,7 +4190,10 @@ function SessionList({
         <select
           aria-label="Profilo sessione"
           value={profile}
-          onChange={(event) => setProfile(event.target.value as "shell" | "codex" | "claude" | "antigravity" | "opencode")}
+          onChange={(event) => {
+            setProfile(event.target.value as "shell" | "codex" | "claude" | "antigravity" | "opencode");
+            setAgyFullPermissions(false);
+          }}
         >
           <option value="shell">Shell</option>
           <option value="codex">Codex</option>
@@ -4195,6 +4201,17 @@ function SessionList({
           <option value="antigravity">Antigravity (agy)</option>
           <option value="opencode">OpenCode</option>
         </select>
+        {profile === "antigravity" && (
+          <label className="agy-full-permissions">
+            <input
+              type="checkbox"
+              checked={agyFullPermissions}
+              onChange={(event) => setAgyFullPermissions(event.target.checked)}
+            />
+            {t.agyFullPermissionsLabel}
+            <small>{t.agyFullPermissionsHint}</small>
+          </label>
+        )}
         <button type="submit">{t.createSessionBtn}</button>
       </form>}
       {(providerLimits || orchestratorState) && (

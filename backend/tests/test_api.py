@@ -836,6 +836,18 @@ def test_create_session_requires_allowed_directory() -> None:
     assert antigravity.status_code == 201
     assert any(session.name == "Antigravity Agent" and session.current_command == "agy"
                for session in fake.sessions.values())
+    antigravity_yolo = client.post(
+        "/api/v1/sessions",
+        headers=headers,
+        json={
+            "name": "Antigravity Yolo Agent",
+            "directory": "/workspace",
+            "profile": "antigravity_yolo",
+        },
+    )
+    assert antigravity_yolo.status_code == 201
+    assert any(session.name == "Antigravity Yolo Agent" and session.current_command == "agy"
+               for session in fake.sessions.values())
     opencode = client.post(
         "/api/v1/sessions",
         headers=headers,

@@ -68,6 +68,7 @@ class FakeTmux:
                 "codex": "codex",
                 "claude": "claude",
                 "antigravity": "agy",
+                "antigravity_yolo": "agy",
                 "opencode": "opencode",
             }[profile],
             datetime.now(UTC),
