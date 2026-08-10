@@ -958,6 +958,12 @@ export function fileDownloadUrl(id: string, path: string): string {
   return `/api/v1/sessions/${encodeURIComponent(id)}/file/download?path=${encodeURIComponent(path)}`;
 }
 
+// Immagini e video del browser di directory: il backend li serve inline col media
+// type dedotto dai byte, come gia' fa la cartella artefatti.
+export function filePreviewUrl(id: string, path: string): string {
+  return `/api/v1/sessions/${encodeURIComponent(id)}/file/preview?path=${encodeURIComponent(path)}`;
+}
+
 export function attachmentPreviewUrl(sessionId: string, attachmentId: string): string {
   return `/api/v1/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}/preview`;
 }

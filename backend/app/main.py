@@ -78,7 +78,7 @@ from .schemas import (
 from .security import COOKIE_NAME, SessionSecurity
 from .services.agent_status_service import AgentStatusService
 from .services.archive_service import ArchiveService
-from .services.artifact_service import ArtifactError, ArtifactService
+from .services.artifact_service import ArtifactError, ArtifactService, sniff_media_type
 from .services.attachment_service import AttachmentError, AttachmentService
 from .services.audit_service import AuditService
 from .services.backup_service import BackupError, BackupService
@@ -157,6 +157,16 @@ DOWNLOADABLE_EXTENSIONS = {
     ".tif",
     ".tiff",
     ".webp",
+}
+# Tipi che il browser puo' rendere *dentro* la pagina. Deliberatamente stretta e
+# definita per media type dedotto dal contenuto, non per estensione: servire
+# text/html o image/svg+xml inline dalla stessa origine sarebbe XSS memorizzato,
+# perche' il browser di directory legge da tutta la radice consentita.
+INLINE_PREVIEW_MEDIA_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "video/mp4",
 }
 SNAPSHOT_RESUME_COMMANDS = {
     "codex": "codex resume",
@@ -1627,6 +1637,46 @@ def create_app(
             file_path,
             filename=file_path.name,
             content_disposition_type="attachment",
+        )
+
+    @app.get(
+        "/api/v1/sessions/{session_id}/file/preview",
+        dependencies=[Depends(require_active_session)],
+    )
+    async def preview_session_file(
+        session_id: str,
+        path: Annotated[str, Query(min_length=1, max_length=4096)],
+    ) -> FileResponse:
+        """Serve immagini e video *dentro* la pagina, come gia' fa la cartella artefatti.
+
+        L'anteprima testuale (`/file`) rifiuta qualunque file con un byte nullo, quindi
+        un mp4 nel browser di directory finiva in "Binary file, no preview available"
+        anche se lo stesso file, fra gli artefatti, si guardava senza problemi.
+        """
+        try:
+            TmuxService.validate_target(session_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        roots = [Path(root).resolve() for root in settings.allowed_roots]
+        file_path, _ = _resolve_within_allowed_roots(path, roots)
+        if not file_path.exists():
+            raise HTTPException(404, "File not found")
+        if not file_path.is_file():
+            raise HTTPException(400, "Not a file")
+        media_type = await asyncio.to_thread(sniff_media_type, file_path)
+        if media_type not in INLINE_PREVIEW_MEDIA_TYPES:
+            raise HTTPException(400, "File type has no inline preview")
+        return FileResponse(
+            file_path,
+            # Senza `filename` Starlette non emette affatto Content-Disposition, e
+            # `content_disposition_type` da solo non ha effetto. Il nome serve anche
+            # al "salva con nome" del browser.
+            filename=file_path.name,
+            media_type=media_type,
+            content_disposition_type="inline",
+            # Il tipo e' dedotto dai byte, non dall'estensione: impedire al browser di
+            # indovinarne un altro e' l'altra meta' della difesa.
+            headers={"X-Content-Type-Options": "nosniff"},
         )
 
     @app.post(

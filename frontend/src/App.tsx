@@ -39,6 +39,7 @@ import {
   fetchSessionUsage,
   fetchSessionTimeline,
   fileDownloadUrl,
+  filePreviewUrl,
   FileContent,
   errorMessage,
   login,
@@ -483,6 +484,17 @@ function isDownloadable(name: string): boolean {
   return DOWNLOADABLE_FILE.test(name);
 }
 
+// L'estensione qui decide solo *quale elemento montare*: il tipo vero lo stabilisce
+// il backend leggendo i byte, e rifiuta con 400 tutto cio' che non e' immagine o mp4.
+const PREVIEWABLE_VIDEO = /\.mp4$/i;
+const PREVIEWABLE_IMAGE = /\.(?:jpe?g|png|webp)$/i;
+
+function mediaPreviewKind(name: string): "video" | "image" | null {
+  if (PREVIEWABLE_VIDEO.test(name)) return "video";
+  if (PREVIEWABLE_IMAGE.test(name)) return "image";
+  return null;
+}
+
 function FileModal({
   sessionId,
   path,
@@ -497,8 +509,17 @@ function FileModal({
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const t = translations[readLanguage()];
+  const mediaKind = mediaPreviewKind(path);
 
   useEffect(() => {
+    // Su un media non si chiama `/file`: quella rotta legge solo testo e
+    // risponderebbe "Binary file, no preview available". Il tag lo carica da solo.
+    if (mediaKind) {
+      setFile(null);
+      setError("");
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError("");
@@ -507,7 +528,7 @@ function FileModal({
       .catch((value) => { if (!cancelled) setError(errorMessage(value)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [sessionId, path]);
+  }, [sessionId, path, mediaKind]);
 
   async function copy() {
     if (!file || !file.content) return;
@@ -527,6 +548,18 @@ function FileModal({
         </div>
         <button className="modal-close" onClick={onBack} aria-label={t.backToList}>‹</button>
       </header>
+      {mediaKind === "video" && (
+        <video
+          className="file-media"
+          src={filePreviewUrl(sessionId, path)}
+          controls
+          playsInline
+          preload="metadata"
+        />
+      )}
+      {mediaKind === "image" && (
+        <img className="file-media" src={filePreviewUrl(sessionId, path)} alt={path} />
+      )}
       {loading && <p className="empty">{t.loading}</p>}
       {error && <p className="error">{error}</p>}
       {!loading && !error && file && (

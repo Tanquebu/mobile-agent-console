@@ -21,6 +21,41 @@ MP4_MAJOR_BRANDS = frozenset(
 )
 
 
+def sniff_media_type(path: Path) -> str | None:
+    """Tipo di media dedotto dal contenuto, non dall'estensione.
+
+    Usato sia dagli artefatti di sessione sia dall'anteprima del browser di
+    directory: un solo posto in cui si decide che cosa e' un mp4, altrimenti le
+    due viste finiscono per non essere d'accordo.
+    """
+    try:
+        with path.open("rb") as handle:
+            prefix = handle.read(64)
+    except OSError:
+        return None
+    for media_type, (signature, _extension) in SIGNATURE_MEDIA_TYPES.items():
+        if prefix.startswith(signature):
+            return media_type
+    if len(prefix) >= 12 and prefix[:4] == b"RIFF" and prefix[8:12] == b"WEBP":
+        return "image/webp"
+    if len(prefix) >= 12 and prefix[4:8] == b"ftyp" and prefix[8:12] in MP4_MAJOR_BRANDS:
+        return "video/mp4"
+    suffix = path.suffix.lower()
+    for media_type, extension in TEXT_MEDIA_TYPES.items():
+        if extension != suffix:
+            continue
+        try:
+            content = path.read_bytes()
+        except OSError:
+            return None
+        try:
+            content.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+        return media_type
+    return None
+
+
 class ArtifactError(ValueError):
     pass
 
@@ -59,32 +94,7 @@ class ArtifactService:
         return str(self.prompt_root / session_id)
 
     def _sniff(self, path: Path) -> str | None:
-        try:
-            with path.open("rb") as handle:
-                prefix = handle.read(64)
-        except OSError:
-            return None
-        for media_type, (signature, _extension) in SIGNATURE_MEDIA_TYPES.items():
-            if prefix.startswith(signature):
-                return media_type
-        if len(prefix) >= 12 and prefix[:4] == b"RIFF" and prefix[8:12] == b"WEBP":
-            return "image/webp"
-        if len(prefix) >= 12 and prefix[4:8] == b"ftyp" and prefix[8:12] in MP4_MAJOR_BRANDS:
-            return "video/mp4"
-        suffix = path.suffix.lower()
-        for media_type, extension in TEXT_MEDIA_TYPES.items():
-            if extension != suffix:
-                continue
-            try:
-                content = path.read_bytes()
-            except OSError:
-                return None
-            try:
-                content.decode("utf-8")
-            except UnicodeDecodeError:
-                return None
-            return media_type
-        return None
+        return sniff_media_type(path)
 
     def _describe(self, entry: Path, relative_name: str) -> Artifact | None:
         try:

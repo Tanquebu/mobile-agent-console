@@ -1812,3 +1812,63 @@ def test_push_service_notify_removes_stale_subscriptions(tmp_path, monkeypatch) 
     with service._sessions() as session:
         assert session.query(PushSubscription).count() == 0
     database.dispose()
+
+
+MP4_BYTES = b"\x00\x00\x00\x18ftypisom" + b"\x00" * 32
+
+
+def _preview_client(tmp_path):
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(tmp_path)],
+    )
+    return TestClient(create_app(settings, FakeTmux()))
+
+
+def test_session_file_preview_serves_mp4_inline(tmp_path) -> None:
+    """Il caso che mandava il browser di directory in 'Binary file, no preview'."""
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(MP4_BYTES)
+    client = _preview_client(tmp_path)
+    url = "/api/v1/sessions/1/file/preview"
+
+    assert client.get(url, params={"path": str(video)}).status_code == 401
+    login(client)
+
+    response = client.get(url, params={"path": str(video)})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("video/mp4")
+    assert response.headers["content-disposition"].startswith("inline")
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.content == MP4_BYTES
+
+
+def test_session_file_preview_refuses_types_that_could_execute(tmp_path) -> None:
+    """Il tipo si deduce dai byte: un .mp4 che contiene HTML non passa comunque.
+
+    Servire html o svg inline dalla stessa origine sarebbe XSS memorizzato, e il
+    browser di directory legge da tutta la radice consentita.
+    """
+    disguised = tmp_path / "payload.mp4"
+    disguised.write_bytes(b"<svg onload=alert(1)></svg>")
+    notes = tmp_path / "notes.txt"
+    notes.write_text("solo testo")
+    client = _preview_client(tmp_path)
+    login(client)
+    url = "/api/v1/sessions/1/file/preview"
+
+    assert client.get(url, params={"path": str(disguised)}).status_code == 400
+    assert client.get(url, params={"path": str(notes)}).status_code == 400
+
+
+def test_session_file_preview_stays_inside_allowed_roots(tmp_path) -> None:
+    client = _preview_client(tmp_path)
+    login(client)
+    url = "/api/v1/sessions/1/file/preview"
+
+    assert client.get(url, params={"path": "/etc/hostname"}).status_code == 400
+    assert client.get(url, params={"path": str(tmp_path / "assente.mp4")}).status_code == 404
+    assert client.get(url, params={"path": str(tmp_path)}).status_code == 400
