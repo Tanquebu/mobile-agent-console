@@ -51,6 +51,7 @@ export const translations = {
     // Directory Browser & Modals
     emptyDirectory: "Directory vuota.",
     copyPath: "Copia percorso",
+    copyContent: "Copia contenuto",
     copied: "Copiato!",
     uploadFile: "Carica file",
     uploadingFile: "Caricamento…",
@@ -224,6 +225,7 @@ export const translations = {
     // Directory Browser & Modals
     emptyDirectory: "Empty directory.",
     copyPath: "Copy path",
+    copyContent: "Copy content",
     copied: "Copied!",
     uploadFile: "Upload file",
     uploadingFile: "Uploading…",

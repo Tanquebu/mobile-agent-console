@@ -495,6 +495,7 @@ function FileModal({
   const [file, setFile] = useState<FileContent | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
   const t = translations[readLanguage()];
 
   useEffect(() => {
@@ -507,6 +508,15 @@ function FileModal({
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [sessionId, path]);
+
+  async function copy() {
+    if (!file || !file.content) return;
+    const ok = await copyToClipboard(file.content);
+    if (ok) {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    }
+  }
 
   return (
     <>
@@ -521,6 +531,11 @@ function FileModal({
       {error && <p className="error">{error}</p>}
       {!loading && !error && file && (
         <>
+          {file.content && (
+            <button type="button" className="directory-copy" onClick={() => void copy()}>
+              {copied ? t.copied : t.copyContent}
+            </button>
+          )}
           <pre className="file-preview">{file.content || t.emptyFile}</pre>
           {file.truncated && <small>{t.truncatedPreview}</small>}
         </>
@@ -790,6 +805,8 @@ function ArtifactPreview({ sessionId, item, onBack }: { sessionId: string; item:
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(!isImage && !isVideo);
+  const [copied, setCopied] = useState(false);
+  const t = translations[readLanguage()];
 
   useEffect(() => {
     if (isImage || isVideo) return;
@@ -802,6 +819,15 @@ function ArtifactPreview({ sessionId, item, onBack }: { sessionId: string; item:
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [sessionId, item.name, isImage, isVideo]);
+
+  async function copy() {
+    if (!content) return;
+    const ok = await copyToClipboard(content);
+    if (ok) {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    }
+  }
 
   return (
     <>
@@ -824,7 +850,16 @@ function ArtifactPreview({ sessionId, item, onBack }: { sessionId: string; item:
         <>
           {loading && <p className="empty">Caricamento…</p>}
           {error && <p className="error">{error}</p>}
-          {!loading && !error && <pre className="file-preview">{content || "(file vuoto)"}</pre>}
+          {!loading && !error && (
+            <>
+              {content && (
+                <button type="button" className="directory-copy" onClick={() => void copy()}>
+                  {copied ? t.copied : t.copyContent}
+                </button>
+              )}
+              <pre className="file-preview">{content || "(file vuoto)"}</pre>
+            </>
+          )}
         </>
       )}
     </>
