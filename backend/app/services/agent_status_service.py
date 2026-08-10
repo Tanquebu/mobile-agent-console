@@ -156,6 +156,23 @@ SUMMARY_NOISE_ANYWHERE = re.compile(
 # separatori "|" oppure "·" nella stessa riga.
 SUMMARY_STATUS_BAR = re.compile(r"(?:\s\|\s.*){2,}|(?:\s·\s.*){2,}")
 SUMMARY_MAX_CHARS = 140
+# Bordo del pannello TUI OpenCode ("┃ "): a differenza degli altri marker in
+# SUMMARY_NOISE_PREFIX, il bordo da solo non significa "riga di chrome" — è
+# usato per QUALSIASI contenuto del pannello attivo, incluso il dialogo di
+# autorizzazione ("△ Permission required", nome del comando). _summarize()
+# lo tratta comunque come rumore (corretto per lo stato idle: vedi
+# test_agent_status_opencode_typed_prompt_stays_idle, il testo nella input
+# bar non ancora inviato non deve comparire nel riepilogo). Per il ramo
+# waiting_authorization serve invece leggere dentro il bordo: vedi
+# _summarize_authorization.
+OPENCODE_BORDER = re.compile(r"^\s*┃\s*")
+# Icone decorative che possono precedere il testo utile dentro il bordo
+# (es. "△ Permission required"): da rimuovere, non da usare per scartare
+# l'intera riga.
+LEADING_DECORATION = re.compile(r"^[△✔✘✱✻✽✢✳✶⏺⠏]\s*")
+# Riga dei pulsanti del dialogo di conferma OpenCode ("Allow once   Allow
+# always   Reject  ctrl+f fullscreen  ⇆ select  enter con..."): chrome puro.
+OPENCODE_CONFIRM_BUTTONS = re.compile(r"Allow once\s+Allow always\s+Reject")
 
 
 @dataclass(frozen=True)
@@ -234,6 +251,12 @@ class AgentStatusService:
         summary = self._summarize(nonempty)
 
         if self._matches(AUTHORIZATION_PATTERNS[provider], tail):
+            # Solo OpenCode borda ogni riga del pannello con "┃": per gli altri
+            # provider _summarize() già produce un riepilogo corretto del
+            # dialogo di autorizzazione, quindi restano invariati.
+            authorization_summary = (
+                self._summarize_authorization(recent_lines) if provider == "opencode" else None
+            )
             return AgentStatus(
                 provider,
                 "waiting_authorization",
@@ -241,7 +264,7 @@ class AgentStatusService:
                 changed_at,
                 permission_state,
                 permission_detail,
-                summary,
+                authorization_summary or summary,
             )
         if prompt_index is not None:
             before_prompt = "\n".join(
@@ -344,6 +367,33 @@ class AgentStatusService:
             for line in nonempty_lines
             if line.strip() and not AgentStatusService._is_noise(line)
         ]
+        if not prose:
+            return None
+        text = re.sub(r"\s+", " ", " ".join(prose[-3:])).strip()
+        if not text:
+            return None
+        if len(text) > SUMMARY_MAX_CHARS:
+            text = f"{text[: SUMMARY_MAX_CHARS - 1].rstrip()}…"
+        return text
+
+    @staticmethod
+    def _summarize_authorization(recent_lines: list[str]) -> str | None:
+        # Variante di _summarize() usata solo per il ramo waiting_authorization
+        # di OpenCode (vedi OPENCODE_BORDER sopra): rimuove il bordo "┃" invece
+        # di trattarlo come marker di riga-intera-rumore, per non perdere il
+        # testo del dialogo di autorizzazione ("Permission required", nome del
+        # comando) che nella TUI OpenCode è bordato come tutto il resto.
+        prose = []
+        for line in recent_lines:
+            without_border = OPENCODE_BORDER.sub("", line).strip()
+            if not without_border or OPENCODE_CONFIRM_BUTTONS.search(without_border):
+                continue
+            without_border = LEADING_DECORATION.sub("", without_border).strip()
+            if without_border and not (
+                SUMMARY_NOISE_ANYWHERE.search(without_border)
+                or SUMMARY_STATUS_BAR.search(without_border)
+            ):
+                prose.append(without_border)
         if not prose:
             return None
         text = re.sub(r"\s+", " ", " ".join(prose[-3:])).strip()

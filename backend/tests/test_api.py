@@ -958,9 +958,7 @@ def test_upload_directory_file_success(tmp_path) -> None:
         allowed_roots=[str(tmp_path)],
     )
     client = TestClient(create_app(settings, fake))
-    login(client)
-
-    csrf_token = get_csrf_token(client)
+    csrf_token = login(client)
     headers = {"X-CSRF-Token": csrf_token, "Content-Type": "image/png"}
     content = b"\x89PNG\r\n\x1a\nfake-image-bytes"
 
@@ -1002,8 +1000,7 @@ def test_upload_directory_file_rejects_disallowed_extension(tmp_path) -> None:
         allowed_roots=[str(tmp_path)],
     )
     client = TestClient(create_app(settings, fake))
-    login(client)
-    csrf_token = get_csrf_token(client)
+    csrf_token = login(client)
 
     res = client.post(
         "/api/v1/sessions/1/directory/upload",
@@ -1027,8 +1024,7 @@ def test_upload_directory_file_rejects_exceeding_max_bytes(tmp_path) -> None:
         max_upload_bytes=50,
     )
     client = TestClient(create_app(settings, fake))
-    login(client)
-    csrf_token = get_csrf_token(client)
+    csrf_token = login(client)
 
     res = client.post(
         "/api/v1/sessions/1/directory/upload",
@@ -1051,8 +1047,7 @@ def test_upload_directory_file_security_and_traversal(tmp_path) -> None:
         allowed_roots=[str(tmp_path)],
     )
     client = TestClient(create_app(settings, fake))
-    login(client)
-    csrf_token = get_csrf_token(client)
+    csrf_token = login(client)
 
     # Path traversal attempt in filename
     res1 = client.post(
