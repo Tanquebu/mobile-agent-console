@@ -776,18 +776,23 @@ function isPreviewableText(mediaType: string): boolean {
   return PREVIEWABLE_TEXT_TYPES.has(mediaType);
 }
 
+function isPreviewableVideo(mediaType: string): boolean {
+  return mediaType === "video/mp4";
+}
+
 function isPreviewableArtifact(mediaType: string): boolean {
-  return isPreviewableImage(mediaType) || isPreviewableText(mediaType);
+  return isPreviewableImage(mediaType) || isPreviewableText(mediaType) || isPreviewableVideo(mediaType);
 }
 
 function ArtifactPreview({ sessionId, item, onBack }: { sessionId: string; item: Artifact; onBack: () => void }) {
   const isImage = isPreviewableImage(item.media_type);
+  const isVideo = isPreviewableVideo(item.media_type);
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(!isImage);
+  const [loading, setLoading] = useState(!isImage && !isVideo);
 
   useEffect(() => {
-    if (isImage) return;
+    if (isImage || isVideo) return;
     let cancelled = false;
     setLoading(true);
     setError("");
@@ -796,7 +801,7 @@ function ArtifactPreview({ sessionId, item, onBack }: { sessionId: string; item:
       .catch((value) => { if (!cancelled) setError(errorMessage(value)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [sessionId, item.name, isImage]);
+  }, [sessionId, item.name, isImage, isVideo]);
 
   return (
     <>
@@ -810,6 +815,10 @@ function ArtifactPreview({ sessionId, item, onBack }: { sessionId: string; item:
       {isImage ? (
         <div className="artifact-preview">
           <img src={artifactDownloadUrl(sessionId, item.name)} alt={item.name} />
+        </div>
+      ) : isVideo ? (
+        <div className="artifact-preview">
+          <video controls src={artifactDownloadUrl(sessionId, item.name)} />
         </div>
       ) : (
         <>

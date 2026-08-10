@@ -3,11 +3,21 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .attachment_service import (
-    SIGNATURE_MEDIA_TYPES,
-    TEXT_MEDIA_TYPES,
-    AttachmentError,
-    AttachmentService,
+from .attachment_service import SIGNATURE_MEDIA_TYPES, TEXT_MEDIA_TYPES
+
+# Major brand values in the ftyp box that we accept as video/mp4. Kept
+# deliberately narrow: other ISO-BMFF containers (.mov, .m4a, .3gp, ...)
+# share the same ftyp structure but are not mp4 video.
+MP4_MAJOR_BRANDS = frozenset(
+    {
+        b"isom",
+        b"iso2",
+        b"mp41",
+        b"mp42",
+        b"avc1",
+        b"M4V ",
+        b"3gp5",
+    }
 )
 
 
@@ -59,6 +69,8 @@ class ArtifactService:
                 return media_type
         if len(prefix) >= 12 and prefix[:4] == b"RIFF" and prefix[8:12] == b"WEBP":
             return "image/webp"
+        if len(prefix) >= 12 and prefix[4:8] == b"ftyp" and prefix[8:12] in MP4_MAJOR_BRANDS:
+            return "video/mp4"
         suffix = path.suffix.lower()
         for media_type, extension in TEXT_MEDIA_TYPES.items():
             if extension != suffix:
