@@ -70,10 +70,10 @@ from .schemas import (
     SnapshotSessionView,
     SnapshotView,
     TextInput,
+    UploadResultView,
     UserList,
     UserStatusInput,
     UserView,
-    UploadResultView,
 )
 from .security import COOKIE_NAME, SessionSecurity
 from .services.agent_status_service import AgentStatusService
