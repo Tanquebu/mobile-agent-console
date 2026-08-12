@@ -136,9 +136,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Allegati leggibili anche su mobile",
+  title: "Directory e progetti più facili da esplorare",
   description:
-    "Quando un prompt contiene più allegati, la relativa riga ora scorre all’interno del composer senza allargare il form oltre lo schermo: il testo del prompt e i controlli restano interamente leggibili anche sui display più stretti.",
+    "La directory ora offre ricerca, ordinamento e anteprima di immagini e video senza perdere posizione o filtri. Anche la scelta del progetto per una nuova sessione è ricercabile, ordinabile e più comoda con elenchi lunghi.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -155,6 +155,7 @@ const RECENT_SESSIONS_KEY = "mac-recent-sessions";
 const ORCHESTRATOR_EXPANDED_KEY = "mac-orchestrator-expanded";
 
 type DashboardDensity = "extended" | "compact";
+type ProjectSort = "name-asc" | "name-desc";
 
 function readDefaultAgentView(): "blocks" | "terminal" {
   return window.localStorage.getItem(DEFAULT_AGENT_VIEW_KEY) === "terminal" ? "terminal" : "blocks";
@@ -496,6 +497,29 @@ function mediaPreviewKind(name: string): "video" | "image" | null {
   return null;
 }
 
+type BrowserSort = "name-asc" | "name-desc" | "date-desc" | "date-asc";
+
+function compareNullableDates(a: string | null, b: string | null, ascending: boolean): number {
+  const aTime = a ? new Date(a).getTime() : 0;
+  const bTime = b ? new Date(b).getTime() : 0;
+  return ascending ? aTime - bTime : bTime - aTime;
+}
+
+function sortDirectoryEntries(entries: DirectoryEntry[], sort: BrowserSort): DirectoryEntry[] {
+  return [...entries].sort((a, b) => {
+    // Le cartelle restano in testa, come in un file manager, qualunque sia
+    // l'ordinamento scelto per le voci dello stesso tipo.
+    if (a.type !== b.type) {
+      if (a.type === "dir") return -1;
+      if (b.type === "dir") return 1;
+    }
+    if (sort === "name-asc") return a.name.localeCompare(b.name);
+    if (sort === "name-desc") return b.name.localeCompare(a.name);
+    const dateOrder = compareNullableDates(a.created_at, b.created_at, sort === "date-asc");
+    return dateOrder || a.name.localeCompare(b.name);
+  });
+}
+
 function FileModal({
   sessionId,
   path,
@@ -588,7 +612,12 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadNotice, setUploadNotice] = useState("");
+  const [directoryQuery, setDirectoryQuery] = useState("");
+  const [directorySort, setDirectorySort] = useState<BrowserSort>("name-asc");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const modalRef = useRef<HTMLElement>(null);
+  const savedScrollTopRef = useRef(0);
+  const restoreScrollRef = useRef(false);
 
   useEffect(() => {
     fetchConfig().then(setAppConfig).catch(() => {});
@@ -608,12 +637,30 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (openFile !== null) setOpenFile(null);
+      if (openFile !== null) closeFilePreview();
       else onClose();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [onClose, openFile]);
+
+  useEffect(() => {
+    if (openFile !== null || !restoreScrollRef.current) return;
+    restoreScrollRef.current = false;
+    let restoreFrame = 0;
+    const layoutFrame = window.requestAnimationFrame(() => {
+      // Il primo frame completa lo scambio anteprima/lista; il secondo applica
+      // lo scroll dopo il layout definitivo, evitando che il browser lo
+      // corregga in seguito in base all'altezza del media appena smontato.
+      restoreFrame = window.requestAnimationFrame(() => {
+        if (modalRef.current) modalRef.current.scrollTop = savedScrollTopRef.current;
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(layoutFrame);
+      window.cancelAnimationFrame(restoreFrame);
+    };
+  }, [openFile]);
 
   async function copy(entry: DirectoryEntry) {
     const ok = await copyToClipboard(shellQuote(entry.name));
@@ -630,8 +677,19 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     if (!listing) return;
     const fullPath = joinPath(listing.path, entry.name);
     if (entry.type === "dir") setCurrentPath(fullPath);
-    else if (entry.type === "file" && isDownloadable(entry.name)) downloadEntry(entry);
-    else if (entry.type === "file") setOpenFile(fullPath);
+    else if (entry.type === "file" && mediaPreviewKind(entry.name)) {
+      savedScrollTopRef.current = modalRef.current?.scrollTop ?? 0;
+      setOpenFile(fullPath);
+    } else if (entry.type === "file" && isDownloadable(entry.name)) downloadEntry(entry);
+    else if (entry.type === "file") {
+      savedScrollTopRef.current = modalRef.current?.scrollTop ?? 0;
+      setOpenFile(fullPath);
+    }
+  }
+
+  function closeFilePreview() {
+    restoreScrollRef.current = true;
+    setOpenFile(null);
   }
 
   function downloadEntry(entry: DirectoryEntry) {
@@ -663,6 +721,13 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   const allowedExtensions = appConfig?.upload_allowed_extensions || defaultAllowedExtensions;
   const maxUploadBytes = appConfig?.max_upload_bytes || 10 * 1024 * 1024;
   const acceptAttr = allowedExtensions.join(",");
+  const normalizedDirectoryQuery = directoryQuery.trim().toLocaleLowerCase();
+  const displayedEntries = listing
+    ? sortDirectoryEntries(
+      listing.entries.filter((entry) => entry.name.toLocaleLowerCase().includes(normalizedDirectoryQuery)),
+      directorySort,
+    )
+    : [];
 
   async function handleFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -712,12 +777,14 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
       className="modal-backdrop"
       role="presentation"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target !== event.currentTarget) return;
+        if (openFile !== null) closeFilePreview();
+        else onClose();
       }}
     >
-      <section className="help-modal directory-modal" role="dialog" aria-modal="true" aria-labelledby="directory-title">
+      <section ref={modalRef} className="help-modal directory-modal" role="dialog" aria-modal="true" aria-labelledby="directory-title">
         {openFile !== null ? (
-          <FileModal sessionId={sessionId} path={openFile} onBack={() => setOpenFile(null)} />
+          <FileModal sessionId={sessionId} path={openFile} onBack={closeFilePreview} />
         ) : (
           <>
             <header>
@@ -763,12 +830,35 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
               </div>
             )}
             {uploadNotice && <p className="directory-upload-notice">{uploadNotice}</p>}
+            {listing && listing.entries.length > 0 && (
+              <div className="artifact-toolbar">
+                <input
+                  type="search"
+                  className="artifact-search"
+                  placeholder={translations[readLanguage()].directorySearchPlaceholder}
+                  aria-label={translations[readLanguage()].directorySearchPlaceholder}
+                  value={directoryQuery}
+                  onChange={(event) => setDirectoryQuery(event.target.value)}
+                />
+                <select
+                  className="artifact-sort"
+                  aria-label={translations[readLanguage()].artifactSortLabel}
+                  value={directorySort}
+                  onChange={(event) => setDirectorySort(event.target.value as BrowserSort)}
+                >
+                  <option value="name-asc">{translations[readLanguage()].artifactSortNameAsc}</option>
+                  <option value="name-desc">{translations[readLanguage()].artifactSortNameDesc}</option>
+                  <option value="date-desc">{translations[readLanguage()].artifactSortDateDesc}</option>
+                  <option value="date-asc">{translations[readLanguage()].artifactSortDateAsc}</option>
+                </select>
+              </div>
+            )}
             {loading && <p className="empty">{translations[readLanguage()].loading}</p>}
             {error && <p className="error">{error}</p>}
             {!loading && !error && listing && (
               <>
                 <ul className="directory-list">
-                  {listing.entries.map((entry) => (
+                  {displayedEntries.map((entry) => (
                     <li key={entry.name} className="directory-entry">
                       <button
                         type="button"
@@ -796,7 +886,13 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                       )}
                     </li>
                   ))}
-                  {listing.entries.length === 0 && <li className="empty">{translations[readLanguage()].emptyDirectory}</li>}
+                  {displayedEntries.length === 0 && (
+                    <li className="empty">
+                      {listing.entries.length === 0
+                        ? translations[readLanguage()].emptyDirectory
+                        : translations[readLanguage()].noDirectoryMatch}
+                    </li>
+                  )}
                 </ul>
                 {listing.truncated && <small>Elenco troncato alle prime 2000 voci.</small>}
               </>
@@ -900,7 +996,7 @@ function ArtifactPreview({ sessionId, item, onBack }: { sessionId: string; item:
   );
 }
 
-type ArtifactSort = "name-asc" | "name-desc" | "date-desc" | "date-asc";
+type ArtifactSort = BrowserSort;
 
 function sortArtifacts(list: Artifact[], sort: ArtifactSort): Artifact[] {
   const sorted = [...list];
@@ -3736,6 +3832,8 @@ function SessionList({
   const [agyFullPermissions, setAgyFullPermissions] = useState(false);
   const [presets, setPresets] = useState<[string, string][]>([]);
   const [customDirectory, setCustomDirectory] = useState(false);
+  const [projectQuery, setProjectQuery] = useState("");
+  const [projectSort, setProjectSort] = useState<ProjectSort>("name-asc");
   const [showHelp, setShowHelp] = useState(false);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [showArchives, setShowArchives] = useState(false);
@@ -3786,6 +3884,13 @@ function SessionList({
   const [searchQuery, setSearchQuery] = useState("");
 
   const compactDashboard = dashboardDensity === "compact";
+  const normalizedProjectQuery = projectQuery.trim().toLocaleLowerCase();
+  const displayedPresets = [...presets]
+    .filter(([label, path]) => `${label} ${path}`.toLocaleLowerCase().includes(normalizedProjectQuery))
+    .sort(([aLabel, aPath], [bLabel, bPath]) => {
+      const order = aLabel.localeCompare(bLabel) || aPath.localeCompare(bPath);
+      return projectSort === "name-asc" ? order : -order;
+    });
 
   const dashboardSessions = useMemo(() => sessions.filter((session) => !session.hidden), [sessions]);
   const hiddenSessions = useMemo(() => sessions.filter((session) => session.hidden), [sessions]);
@@ -3834,7 +3939,7 @@ function SessionList({
     });
     fetchConfig()
       .then((config) => {
-        const entries = Object.entries(config.workspace_presets);
+        const entries = Object.entries(config.workspace_presets).sort(([aLabel], [bLabel]) => aLabel.localeCompare(bLabel));
         setPresets(entries);
         setDirectory((value) => value || entries[0]?.[1] || config.allowed_roots[0] || "");
         setHostObservabilityEnabled(
@@ -4177,15 +4282,55 @@ function SessionList({
           onChange={(event) => setName(event.target.value)}
         />
         {presets.length > 0 && !customDirectory ? (
-          <select value={directory} onChange={(event) => {
-            if (event.target.value === "__custom__") setCustomDirectory(true);
-            else setDirectory(event.target.value);
-          }}>
-            {presets.map(([label, path]) => <option key={label} value={path}>{label} — {path}</option>)}
-            <option value="__custom__">{t.customDirOption}</option>
-          </select>
+          <fieldset className="project-picker">
+            <legend>{t.projectLabel}</legend>
+            <div className="project-picker-toolbar">
+              <input
+                type="search"
+                placeholder={t.projectSearchPlaceholder}
+                aria-label={t.projectSearchPlaceholder}
+                value={projectQuery}
+                onChange={(event) => setProjectQuery(event.target.value)}
+              />
+              <select
+                aria-label={t.projectSortLabel}
+                value={projectSort}
+                onChange={(event) => setProjectSort(event.target.value as ProjectSort)}
+              >
+                <option value="name-asc">{t.projectSortNameAsc}</option>
+                <option value="name-desc">{t.projectSortNameDesc}</option>
+              </select>
+            </div>
+            <div className="project-picker-list" role="listbox" aria-label={t.availableProjects}>
+              {displayedPresets.map(([label, path]) => (
+                <button
+                  key={`${label}-${path}`}
+                  type="button"
+                  className="project-option"
+                  role="option"
+                  aria-selected={directory === path}
+                  onClick={() => setDirectory(path)}
+                >
+                  <strong>{label}</strong>
+                  <small>{path}</small>
+                </button>
+              ))}
+              {displayedPresets.length === 0 && <p className="empty">{t.noProjectMatch}</p>}
+            </div>
+            <button type="button" className="project-custom" onClick={() => setCustomDirectory(true)}>
+              {t.chooseCustomDirectory}
+            </button>
+          </fieldset>
         ) : (
-          <input required placeholder={t.allowedDirPlaceholder} value={directory} onChange={(event) => setDirectory(event.target.value)} />
+          <div className="custom-directory-field">
+            <input required placeholder={t.allowedDirPlaceholder} value={directory} onChange={(event) => setDirectory(event.target.value)} />
+            {presets.length > 0 && (
+              <button type="button" onClick={() => {
+                if (!presets.some(([, path]) => path === directory)) setDirectory(presets[0][1]);
+                setCustomDirectory(false);
+              }}>{t.backToProjects}</button>
+            )}
+          </div>
         )}
         <select
           aria-label="Profilo sessione"

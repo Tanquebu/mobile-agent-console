@@ -1858,6 +1858,26 @@ def test_session_file_preview_serves_mp4_inline(tmp_path) -> None:
     assert response.content == MP4_BYTES
 
 
+def test_session_file_preview_serves_image_inline(tmp_path) -> None:
+    image = tmp_path / "photo.png"
+    buffer = BytesIO()
+    Image.new("RGB", (8, 6), color="green").save(buffer, format="PNG")
+    image.write_bytes(buffer.getvalue())
+    client = _preview_client(tmp_path)
+    login(client)
+
+    response = client.get(
+        "/api/v1/sessions/1/file/preview", params={"path": str(image)}
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/png")
+    assert response.headers["content-disposition"].startswith("inline")
+    assert response.headers["x-content-type-options"] == "nosniff"
+    with Image.open(BytesIO(response.content)) as preview:
+        assert preview.size == (8, 6)
+
+
 def test_session_file_preview_refuses_types_that_could_execute(tmp_path) -> None:
     """Il tipo si deduce dai byte: un .mp4 che contiene HTML non passa comunque.
 

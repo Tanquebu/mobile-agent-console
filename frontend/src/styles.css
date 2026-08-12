@@ -110,6 +110,19 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .create-form input, .create-form select { width: 100%; min-width: 0; min-height: 44px; border: 1px solid #344b3b; border-radius: 12px; padding: 10px; background: #18231c; color: white; }
 .create-form select { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .create-form button { border: 0; border-radius: 12px; background: #75d493; color: #092111; font-weight: 750; }
+.project-picker { min-width: 0; margin: 0; border: 1px solid #344b3b; border-radius: 14px; padding: 10px; background: #111a14; }
+.project-picker legend { padding: 0 5px; color: #8ee2aa; font-size: .7rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.project-picker-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+.project-picker-toolbar input, .project-picker-toolbar select { min-height: 40px; font-size: .78rem; }
+.project-picker-list { display: grid; gap: 6px; max-height: 210px; margin-top: 8px; overflow-y: auto; overscroll-behavior: contain; }
+.create-form .project-option { display: grid; gap: 2px; width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid #293a30; background: #18231c; color: #d2e3d7; text-align: left; }
+.create-form .project-option[aria-selected="true"] { border-color: #75d493; background: #20382a; box-shadow: inset 3px 0 #75d493; }
+.project-option strong, .project-option small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-option strong { font-size: .84rem; }
+.project-option small { color: #91a397; font: .68rem ui-monospace, monospace; }
+.project-picker-list .empty { margin: 4px; font-size: .78rem; }
+.create-form .project-custom, .custom-directory-field button { width: 100%; min-height: 38px; margin-top: 8px; border: 1px solid #3a5142; background: #1b2820; color: #9be5b3; font-size: .76rem; }
+.custom-directory-field { display: grid; align-content: start; }
 .agy-full-permissions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 2px; color: #d2e3d7; font-size: .85rem; }
 .agy-full-permissions small { flex-basis: 100%; color: #8fa398; font-size: .72rem; }
 .session-card { display: flex; align-items: center; gap: 13px; flex: 1; min-width: 0; border: 1px solid #293a30; border-radius: 16px; padding: 14px; color: inherit; background: #172019; text-align: left; }
@@ -246,6 +259,7 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .login button { border: 0; border-radius: 12px; background: #75d493; color: #092111; font-weight: 750; }
 .modal-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; place-items: end center; padding: 16px; background: #000a; }
 .help-modal { width: min(100%, 560px); max-height: min(84dvh, 720px); overflow: auto; border: 1px solid #3a5142; border-radius: 22px; padding: 20px; background: #141d17; box-shadow: 0 20px 60px #000a; }
+.directory-modal { overflow-anchor: none; }
 .help-modal > header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .help-modal h2 { margin: 4px 0 0; font-size: 1.55rem; }
 .help-modal ol { display: grid; gap: 12px; margin: 22px 0; padding-left: 22px; color: #b8c9bd; }
@@ -593,6 +607,7 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
   .compact-dashboard .dashboard-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .create-form { grid-template-columns: minmax(180px, .8fr) minmax(280px, 1.5fr) minmax(150px, .6fr) minmax(150px, .6fr); }
   .create-form > * { align-self: stretch; }
+  .project-picker, .custom-directory-field { grid-row: span 2; }
   .agy-full-permissions { grid-column: 1 / -1; }
   .agent-legend { grid-template-columns: minmax(0, .8fr) minmax(0, 1.5fr); }
 }
