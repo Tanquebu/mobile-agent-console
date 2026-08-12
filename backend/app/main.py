@@ -33,6 +33,7 @@ from .schemas import (
     AgentStatusView,
     ArchivedSessionView,
     ArchiveList,
+    ArtifactDirectoryView,
     ArtifactView,
     AttachmentView,
     AuditEventView,
@@ -1875,6 +1876,18 @@ def create_app(
         except AttachmentError as exc:
             raise HTTPException(404, str(exc)) from exc
         return Response(status_code=204)
+
+    @app.get(
+        "/api/v1/sessions/{session_id}/artifact-directory",
+        response_model=ArtifactDirectoryView,
+        dependencies=[Depends(require_active_session)],
+    )
+    async def get_artifact_directory(session_id: str) -> ArtifactDirectoryView:
+        try:
+            TmuxService.validate_target(session_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return ArtifactDirectoryView(path=artifacts.prompt_path(session_id))
 
     @app.get(
         "/api/v1/sessions/{session_id}/artifacts",

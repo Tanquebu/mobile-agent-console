@@ -975,6 +975,15 @@ export type Artifact = {
   modified_at: string;
 };
 
+export type ArtifactDirectory = {
+  path: string;
+};
+
+export async function fetchArtifactDirectory(sessionId: string): Promise<ArtifactDirectory> {
+  const response = await request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/artifact-directory`);
+  return response.json();
+}
+
 export async function listArtifacts(sessionId: string): Promise<Artifact[]> {
   const response = await request(`/api/v1/sessions/${encodeURIComponent(sessionId)}/artifacts`);
   return response.json();

@@ -1478,6 +1478,7 @@ def test_reserved_session_is_hidden_and_termination_refused_even_by_known_id() -
 
 def test_artifacts_require_authentication() -> None:
     client, _ = client_and_fake()
+    assert client.get("/api/v1/sessions/1/artifact-directory").status_code == 401
     assert client.get("/api/v1/sessions/1/artifacts").status_code == 401
     assert client.get("/api/v1/sessions/1/artifacts/note.txt").status_code == 401
 
@@ -1508,6 +1509,25 @@ def test_list_and_download_artifacts(tmp_path) -> None:
 
     assert client.get("/api/v1/sessions/1/artifacts/unrecognized.bin").status_code == 404
     assert client.get("/api/v1/sessions/1/artifacts/missing.pdf").status_code == 404
+
+
+def test_artifact_directory_uses_the_path_visible_to_the_session(tmp_path) -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        artifacts_root=str(tmp_path / "storage"),
+        artifacts_prompt_root="/workspace/.agent-artifacts",
+    )
+    client = TestClient(create_app(settings, FakeTmux()))
+    login(client)
+
+    response = client.get("/api/v1/sessions/1/artifact-directory")
+
+    assert response.status_code == 200
+    assert response.json() == {"path": "/workspace/.agent-artifacts/1"}
+    assert client.get("/api/v1/sessions/not-an-id/artifact-directory").status_code == 400
 
 
 def test_create_session_does_not_interrupt_cli_first_run(tmp_path) -> None:

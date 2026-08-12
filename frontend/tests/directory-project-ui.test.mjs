@@ -11,6 +11,10 @@ const sessionList = app.slice(
   app.indexOf("function SessionList("),
   app.indexOf("function Console("),
 );
+const artifactsModal = app.slice(
+  app.indexOf("function ArtifactsModal("),
+  app.indexOf("function suggestedSnapshotMode("),
+);
 
 test("la directory espone ricerca e ordinamento senza mutare il listing autorevole", () => {
   assert.match(directoryModal, /directoryQuery/);
@@ -47,4 +51,11 @@ test("il selettore progetto mostra ricerca, ordinamento e risultati accessibili"
   assert.match(sessionList, /displayedPresets\.map/);
   assert.match(sessionList, /role="listbox"/);
   assert.match(sessionList, /aria-selected=\{directory === path\}/);
+});
+
+test("la modale artefatti mostra e copia il percorso fornito dal backend", () => {
+  assert.match(artifactsModal, /fetchArtifactDirectory\(sessionId\)/);
+  assert.match(artifactsModal, /artifactFolderLabel/);
+  assert.match(artifactsModal, /copyToClipboard\(artifactDirectory\)/);
+  assert.match(artifactsModal, /directoryCopied \? t\.copied : t\.copyPath/);
 });

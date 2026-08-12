@@ -136,6 +136,10 @@ class ArtifactView(BaseModel):
     modified_at: datetime
 
 
+class ArtifactDirectoryView(BaseModel):
+    path: str
+
+
 class DirectoryEntryView(BaseModel):
     name: str
     type: Literal["file", "dir", "other"]

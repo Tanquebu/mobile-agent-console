@@ -14,6 +14,7 @@ import {
   artifactDownloadUrl,
   attachmentPreviewUrl,
   fetchArtifactContent,
+  fetchArtifactDirectory,
   backupDownloadUrl,
   createBackup,
   createUser,
@@ -136,9 +137,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Directory e progetti più facili da esplorare",
+  title: "Percorso artefatti sempre a portata di mano",
   description:
-    "La directory ora offre ricerca, ordinamento e anteprima di immagini e video senza perdere posizione o filtri. Anche la scelta del progetto per una nuova sessione è ricercabile, ordinabile e più comoda con elenchi lunghi.",
+    "La finestra Artefatti mostra la cartella dedicata alla sessione e permette di copiarne il percorso per richiedere consegne mirate in un prompt.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1025,6 +1026,10 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   const [previewItem, setPreviewItem] = useState<Artifact | null>(null);
   const [artifactQuery, setArtifactQuery] = useState("");
   const [artifactSort, setArtifactSort] = useState<ArtifactSort>("name-asc");
+  const [artifactDirectory, setArtifactDirectory] = useState("");
+  const [artifactDirectoryError, setArtifactDirectoryError] = useState(false);
+  const [directoryCopied, setDirectoryCopied] = useState(false);
+  const t = translations[readLanguage()];
 
   useEffect(() => {
     let cancelled = false;
@@ -1034,6 +1039,16 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
       .then((result) => { if (!cancelled) setItems(result); })
       .catch((value) => { if (!cancelled) setError(errorMessage(value)); })
       .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [sessionId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setArtifactDirectory("");
+    setArtifactDirectoryError(false);
+    fetchArtifactDirectory(sessionId)
+      .then((result) => { if (!cancelled) setArtifactDirectory(result.path); })
+      .catch(() => { if (!cancelled) setArtifactDirectoryError(true); });
     return () => { cancelled = true; };
   }, [sessionId]);
 
@@ -1054,6 +1069,14 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
+  }
+
+  async function copyArtifactDirectory() {
+    if (!artifactDirectory) return;
+    if (await copyToClipboard(artifactDirectory)) {
+      setDirectoryCopied(true);
+      window.setTimeout(() => setDirectoryCopied(false), 1500);
+    }
   }
 
   const normalizedQuery = artifactQuery.trim().toLowerCase();
@@ -1123,6 +1146,20 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
               </div>
               <button className="modal-close" onClick={onClose} aria-label={translations[readLanguage()].close}>×</button>
             </header>
+            <div className="artifact-directory">
+              <span>{t.artifactFolderLabel}</span>
+              <code title={artifactDirectory}>
+                {artifactDirectory || (artifactDirectoryError ? t.artifactFolderUnavailable : "…")}
+              </code>
+              <button
+                type="button"
+                className="directory-copy"
+                disabled={!artifactDirectory}
+                onClick={() => void copyArtifactDirectory()}
+              >
+                {directoryCopied ? t.copied : t.copyPath}
+              </button>
+            </div>
             <div className="directory-nav">
               <button
                 type="button"
