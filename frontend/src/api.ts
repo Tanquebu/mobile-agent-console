@@ -687,6 +687,7 @@ function mediaTypeFromName(name: string): string {
     json: "application/json",
     md: "text/markdown",
     markdown: "text/markdown",
+    mp3: "audio/mpeg",
     pdf: "application/pdf",
     txt: "text/plain",
     xml: "application/xml",

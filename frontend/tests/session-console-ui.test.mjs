@@ -31,3 +31,7 @@ test("Clear invia testo ed Enter come operazioni distinte solo nei controlli age
   assert.match(consoleView, /disabled=\{connection === "closed" \|\| compacting \|\| clearing\}/);
   assert.doesNotMatch(consoleView, /sendText\([^\n]*"\/clear[^\n]*Enter/);
 });
+
+test("il selettore Allega abilita gli MP3", () => {
+  assert.match(consoleView, /accept="[^"]*\.mp3[^"]*audio\/mpeg/);
+});

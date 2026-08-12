@@ -247,8 +247,9 @@ solo le prime 2000 in ordine cartelle-poi-file, alfabetico case-insensitive.
 
 Scarica come allegato un file entro `MAC_ALLOWED_ROOTS`. Richiede il cookie di
 sessione, valida l'id tmux numerico e risolve il path lato server. Sono
-consentiti immagini (`bmp`, `gif`, `jpg/jpeg`, `png`, `tif/tiff`, `webp`), PDF
-e documenti Word (`doc`, `docx`). Il file viene trasmesso in streaming con
+consentiti immagini (`bmp`, `gif`, `jpg/jpeg`, `png`, `tif/tiff`, `webp`), PDF,
+documenti Word (`doc`, `docx`) e audio MP3 (`mp3`). Il file viene trasmesso in
+streaming con
 `Content-Disposition: attachment`.
 
 ## `POST /api/v1/sessions/{id}/input`
@@ -263,7 +264,7 @@ non invia Enter. Risposta `202 {"accepted":true}`.
 Richiede autenticazione, CSRF e il database dei metadati (`503` se
 `MAC_DATABASE_AUTH_ENABLED` è spento, come per archivi/audit). Il body è il
 contenuto binario del singolo file e `Content-Type` deve essere uno dei tipi
-consentiti: PNG, JPEG, WebP, PDF, testo UTF-8, Markdown, CSV, JSON o XML. La
+consentiti: PNG, JPEG, WebP, PDF, MP3, testo UTF-8, Markdown, CSV, JSON o XML. La
 dimensione massima predefinita è 10 MiB (`MAC_MAX_ATTACHMENT_BYTES`); la
 somma degli allegati della sessione non può superare
 `MAC_MAX_ATTACHMENT_BYTES_PER_SESSION` (100 MiB per default). Se il contenuto

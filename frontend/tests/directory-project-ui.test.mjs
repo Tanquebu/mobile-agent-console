@@ -33,6 +33,12 @@ test("immagini e video aprono l'anteprima prima del ramo download", () => {
   assert.match(openEntry, /setOpenFile\(fullPath\)/);
 });
 
+test("i file MP3 sono scaricabili dal browser directory", () => {
+  assert.match(app, /DOWNLOADABLE_FILE = \/.*mp3/);
+  assert.match(app, /mediaType === "audio\/mpeg"/);
+  assert.match(app, /<audio controls src=\{artifactDownloadUrl/);
+});
+
 test("la chiusura dell'anteprima conserva scroll, path e filtri della directory", () => {
   assert.match(directoryModal, /savedScrollTopRef\.current = modalRef\.current\?\.scrollTop \?\? 0/);
   assert.match(directoryModal, /modalRef\.current\.scrollTop = savedScrollTopRef\.current/);

@@ -4,6 +4,8 @@ PNG_HEADER = b"\x89PNG\r\n\x1a\nrest-of-file"
 PDF_HEADER = b"%PDF-1.4\nrest-of-file"
 MP4_HEADER = b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00" + b"rest-of-file"
 MOV_HEADER = b"\x00\x00\x00\x14ftypqt  \x00\x00\x02\x00" + b"rest-of-file"
+MP3_ID3_HEADER = b"ID3\x04\x00\x00\x00\x00\x00\x00rest-of-file"
+MP3_FRAME_HEADER = b"\xff\xfb\x90\x64rest-of-file"
 
 
 def make_service(tmp_path, max_bytes: int = 1024) -> ArtifactService:
@@ -42,6 +44,7 @@ def test_list_returns_only_recognized_files_within_size_limit(tmp_path) -> None:
     (session_dir / "too-big.txt").write_text("x" * 64, encoding="utf-8")
     (session_dir / "empty.txt").write_bytes(b"")
     (session_dir / "clip.mp4").write_bytes(MP4_HEADER)
+    (session_dir / "recording.mp3").write_bytes(MP3_ID3_HEADER)
     sub_dir = session_dir / "screenshot"
     sub_dir.mkdir()
     (sub_dir / "shot.png").write_bytes(PNG_HEADER)
@@ -52,12 +55,14 @@ def test_list_returns_only_recognized_files_within_size_limit(tmp_path) -> None:
         "note.txt",
         "screenshot/shot.png",
         "clip.mp4",
+        "recording.mp3",
     }
     assert artifacts["photo.png"].media_type == "image/png"
     assert artifacts["note.txt"].media_type == "text/plain"
     assert artifacts["screenshot/shot.png"].media_type == "image/png"
     assert artifacts["clip.mp4"].media_type == "video/mp4"
     assert artifacts["clip.mp4"].size == len(MP4_HEADER)
+    assert artifacts["recording.mp3"].media_type == "audio/mpeg"
 
 
 def test_list_returns_empty_for_missing_session_dir(tmp_path) -> None:
@@ -95,6 +100,19 @@ def test_sniff_rejects_iso_bmff_brands_outside_mp4_whitelist(tmp_path) -> None:
 
     assert service._sniff(session_dir / "movie.mov") is None
     assert service.list("1") == []
+
+
+def test_list_and_get_recognize_mp3_id3_and_frame_signatures(tmp_path) -> None:
+    service = make_service(tmp_path)
+    session_dir = service.ensure_session_dir("1")
+    (session_dir / "tagged.mp3").write_bytes(MP3_ID3_HEADER)
+    (session_dir / "untagged.mp3").write_bytes(MP3_FRAME_HEADER)
+    (session_dir / "fake.mp3").write_bytes(b"not really audio")
+
+    artifacts = {item.name: item for item in service.list("1")}
+    assert set(artifacts) == {"tagged.mp3", "untagged.mp3"}
+    assert artifacts["tagged.mp3"].media_type == "audio/mpeg"
+    assert service.get("1", "untagged.mp3").media_type == "audio/mpeg"
 
 
 def test_get_rejects_path_traversal(tmp_path) -> None:

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .attachment_service import SIGNATURE_MEDIA_TYPES, TEXT_MEDIA_TYPES
+from .attachment_service import SIGNATURE_MEDIA_TYPES, TEXT_MEDIA_TYPES, is_mp3
 
 # Major brand values in the ftyp box that we accept as video/mp4. Kept
 # deliberately narrow: other ISO-BMFF containers (.mov, .m4a, .3gp, ...)
@@ -40,6 +40,8 @@ def sniff_media_type(path: Path) -> str | None:
         return "image/webp"
     if len(prefix) >= 12 and prefix[4:8] == b"ftyp" and prefix[8:12] in MP4_MAJOR_BRANDS:
         return "video/mp4"
+    if path.suffix.lower() == ".mp3" and is_mp3(prefix):
+        return "audio/mpeg"
     suffix = path.suffix.lower()
     for media_type, extension in TEXT_MEDIA_TYPES.items():
         if extension != suffix:

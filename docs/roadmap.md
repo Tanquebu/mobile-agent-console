@@ -174,7 +174,8 @@ API specifiche di Codex, Claude o altri agenti.
   voci.
 - [x] Anteprima in sola lettura dei file UTF-8, con rifiuto dei binari e
   troncamento sicuro a 256 KiB.
-- [x] Download autenticato di immagini, PDF e documenti Word dalla directory.
+- [x] Download autenticato di immagini, PDF, documenti Word e audio MP3 dalla
+  directory.
 - [x] Filename completi nel browser directory, leggibili su più righe anche
   su schermi mobili.
 - [x] Toolbar contestuale per sessione nella dashboard con rinomina e

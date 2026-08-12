@@ -137,9 +137,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Percorso artefatti sempre a portata di mano",
+  title: "MP3 in download e negli allegati",
   description:
-    "La finestra Artefatti mostra la cartella dedicata alla sessione e permette di copiarne il percorso per richiedere consegne mirate in un prompt.",
+    "I file audio MP3 si possono scaricare dalla directory e dagli Artefatti, riprodurre in anteprima e allegare ai prompt.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -481,7 +481,7 @@ function joinPath(base: string, name: string): string {
   return base.endsWith("/") ? `${base}${name}` : `${base}/${name}`;
 }
 
-const DOWNLOADABLE_FILE = /\.(?:bmp|docx?|gif|jpe?g|pdf|png|tiff?|webp)$/i;
+const DOWNLOADABLE_FILE = /\.(?:bmp|docx?|gif|jpe?g|mp3|pdf|png|tiff?|webp)$/i;
 
 function isDownloadable(name: string): boolean {
   return DOWNLOADABLE_FILE.test(name);
@@ -926,21 +926,26 @@ function isPreviewableVideo(mediaType: string): boolean {
   return mediaType === "video/mp4";
 }
 
+function isPreviewableAudio(mediaType: string): boolean {
+  return mediaType === "audio/mpeg";
+}
+
 function isPreviewableArtifact(mediaType: string): boolean {
-  return isPreviewableImage(mediaType) || isPreviewableText(mediaType) || isPreviewableVideo(mediaType);
+  return isPreviewableImage(mediaType) || isPreviewableText(mediaType) || isPreviewableVideo(mediaType) || isPreviewableAudio(mediaType);
 }
 
 function ArtifactPreview({ sessionId, item, onBack }: { sessionId: string; item: Artifact; onBack: () => void }) {
   const isImage = isPreviewableImage(item.media_type);
   const isVideo = isPreviewableVideo(item.media_type);
+  const isAudio = isPreviewableAudio(item.media_type);
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(!isImage && !isVideo);
+  const [loading, setLoading] = useState(!isImage && !isVideo && !isAudio);
   const [copied, setCopied] = useState(false);
   const t = translations[readLanguage()];
 
   useEffect(() => {
-    if (isImage || isVideo) return;
+    if (isImage || isVideo || isAudio) return;
     let cancelled = false;
     setLoading(true);
     setError("");
@@ -949,7 +954,7 @@ function ArtifactPreview({ sessionId, item, onBack }: { sessionId: string; item:
       .catch((value) => { if (!cancelled) setError(errorMessage(value)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [sessionId, item.name, isImage, isVideo]);
+  }, [sessionId, item.name, isImage, isVideo, isAudio]);
 
   async function copy() {
     if (!content) return;
@@ -976,6 +981,10 @@ function ArtifactPreview({ sessionId, item, onBack }: { sessionId: string; item:
       ) : isVideo ? (
         <div className="artifact-preview">
           <video controls src={artifactDownloadUrl(sessionId, item.name)} />
+        </div>
+      ) : isAudio ? (
+        <div className="artifact-preview">
+          <audio controls src={artifactDownloadUrl(sessionId, item.name)} />
         </div>
       ) : (
         <>
@@ -5620,7 +5629,7 @@ function Console({
           className="file-input"
           type="file"
           multiple
-          accept=".csv,.json,.md,.markdown,.pdf,.txt,.xml,image/jpeg,image/png,image/webp"
+          accept=".csv,.json,.md,.markdown,.mp3,.pdf,.txt,.xml,audio/mpeg,image/jpeg,image/png,image/webp"
           onChange={(event) => void selectFiles(event.target.files)}
         />
         {showSpecialKeys && (

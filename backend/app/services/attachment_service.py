@@ -32,6 +32,18 @@ IMAGE_MEDIA_TYPES = {"image/png", "image/jpeg", "image/webp"}
 THUMBNAIL_MAX_SIZE = (256, 256)
 
 
+def is_mp3(prefix: bytes) -> bool:
+    if prefix.startswith(b"ID3"):
+        return True
+    if len(prefix) < 4 or prefix[0] != 0xFF or prefix[1] & 0xE0 != 0xE0:
+        return False
+    version = (prefix[1] >> 3) & 0x03
+    layer = (prefix[1] >> 1) & 0x03
+    bitrate = (prefix[2] >> 4) & 0x0F
+    sample_rate = (prefix[2] >> 2) & 0x03
+    return version != 0x01 and layer != 0 and bitrate not in (0, 0x0F) and sample_rate != 0x03
+
+
 class AttachmentError(ValueError):
     pass
 
@@ -90,6 +102,10 @@ class AttachmentService:
             if len(prefix) < 12 or prefix[:4] != b"RIFF" or prefix[8:12] != b"WEBP":
                 raise AttachmentError("Attachment content does not match its media type")
             return ".webp"
+        if normalized in {"audio/mpeg", "audio/mp3"}:
+            if not is_mp3(prefix):
+                raise AttachmentError("Attachment content does not match its media type")
+            return ".mp3"
         signature = SIGNATURE_MEDIA_TYPES.get(normalized)
         if not signature:
             raise AttachmentError("Attachment media type is not allowed")

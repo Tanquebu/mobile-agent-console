@@ -1206,6 +1206,7 @@ def test_session_file_truncation_does_not_split_utf8_character(tmp_path) -> None
         ("report.pdf", b"%PDF-1.7\nfake"),
         ("notes.doc", b"legacy-word"),
         ("notes.docx", b"zip-like-word"),
+        ("recording.mp3", b"ID3\x04\x00\x00\x00\x00\x00\x00fake"),
     ],
 )
 def test_session_file_downloads_supported_binary_types(
@@ -1338,6 +1339,53 @@ def test_upload_attachment_and_reference_it_in_prompt(tmp_path) -> None:
         json={"text": "test", "attachment_ids": [attachment["id"]]},
     )
     assert deleted_reference.status_code == 400
+
+
+def test_upload_mp3_attachment_and_reference_it_in_prompt(tmp_path) -> None:
+    fake = FakeTmux()
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        attachments_root=str(tmp_path),
+        attachments_prompt_root="/workspace/.agent-attachments",
+        max_attachment_bytes=1024,
+        database_path=migrated_database_with_admin(tmp_path),
+        database_auth_enabled=True,
+        push_vapid_key_path=str(tmp_path / "vapid.pem"),
+    )
+    client = TestClient(create_app(settings, fake))
+    csrf = login_admin(client)
+    headers = {"X-CSRF-Token": csrf, "Content-Type": "audio/mpeg"}
+    content = b"ID3\x04\x00\x00\x00\x00\x00\x00audio"
+
+    uploaded = client.post(
+        "/api/v1/sessions/1/attachments?filename=recording.mp3",
+        content=content,
+        headers=headers,
+    )
+    assert uploaded.status_code == 201
+    attachment = uploaded.json()
+    assert attachment["name"] == "recording.mp3"
+    assert attachment["media_type"] == "audio/mpeg"
+    assert attachment["path"].endswith(".mp3")
+
+    sent = client.post(
+        "/api/v1/sessions/1/input",
+        headers={"X-CSRF-Token": csrf},
+        json={"text": "Trascrivi", "attachment_ids": [attachment["id"]]},
+    )
+    assert sent.status_code == 202
+    assert '"recording.mp3"' in fake.texts[-1]
+    assert attachment["path"] in fake.texts[-1]
+
+    invalid = client.post(
+        "/api/v1/sessions/1/attachments?filename=fake.mp3",
+        content=b"not really audio",
+        headers=headers,
+    )
+    assert invalid.status_code == 400
 
 
 def test_attachment_preview_only_for_images(tmp_path) -> None:
@@ -1496,16 +1544,22 @@ def test_list_and_download_artifacts(tmp_path) -> None:
     session_dir = tmp_path / "1"
     session_dir.mkdir(parents=True)
     (session_dir / "report.pdf").write_bytes(b"%PDF-1.4\nhello")
+    (session_dir / "recording.mp3").write_bytes(b"ID3\x04\x00\x00\x00\x00\x00\x00hello")
     (session_dir / "unrecognized.bin").write_bytes(b"\x01\x02\x03")
 
     listed = client.get("/api/v1/sessions/1/artifacts").json()
-    assert [item["name"] for item in listed] == ["report.pdf"]
-    assert listed[0]["media_type"] == "application/pdf"
+    assert [item["name"] for item in listed] == ["recording.mp3", "report.pdf"]
+    assert listed[0]["media_type"] == "audio/mpeg"
+    assert listed[1]["media_type"] == "application/pdf"
 
     downloaded = client.get("/api/v1/sessions/1/artifacts/report.pdf")
     assert downloaded.status_code == 200
     assert downloaded.content == b"%PDF-1.4\nhello"
     assert downloaded.headers["content-type"] == "application/pdf"
+
+    downloaded_mp3 = client.get("/api/v1/sessions/1/artifacts/recording.mp3")
+    assert downloaded_mp3.status_code == 200
+    assert downloaded_mp3.headers["content-type"] == "audio/mpeg"
 
     assert client.get("/api/v1/sessions/1/artifacts/unrecognized.bin").status_code == 404
     assert client.get("/api/v1/sessions/1/artifacts/missing.pdf").status_code == 404

@@ -338,7 +338,8 @@ automaticamente al CLI: l'operatore lo invia esplicitamente dal menu Funzioni,
 via lo stesso meccanismo `load-buffer`/`paste-buffer` usato per l'input libero.
 Questo preserva i flussi di onboarding, consenso e login del CLI — nessuna
 modifica ai CLAUDE.md di progetto, nessun collector host-side, nessun parsing
-di transcript. Qualunque file che l'agente (o l'utente) copia in quella cartella
-diventa per definizione un artefatto scaricabile; il backend non si fida di
+di transcript. Qualunque file consentito che l'agente (o l'utente) copia in
+quella cartella diventa un artefatto scaricabile; gli MP3 sono riconosciuti
+tramite firma ID3 o frame MPEG e il backend non si fida di
 alcun path stampato nel terminale e non apre altre directory. La pulizia è
 legata al ciclo di vita della sessione, come per gli allegati M2A.

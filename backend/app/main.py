@@ -153,6 +153,7 @@ DOWNLOADABLE_EXTENSIONS = {
     ".gif",
     ".jpeg",
     ".jpg",
+    ".mp3",
     ".pdf",
     ".png",
     ".tif",
