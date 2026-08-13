@@ -30,22 +30,24 @@ try {
   await page.locator('input[type="password"]').fill(password)
   await page.getByRole("button", { name: "Continua" }).click()
   await page.getByRole("heading", { name: "Sessions" }).waitFor()
-  await page.getByRole("button", { name: /^(Mostra altre azioni|Altre azioni)$/ }).click()
+  await page.locator("button.dashboard-more-actions").click()
   const initialResponsePromise = page.waitForResponse(
     (response) => new URL(response.url()).pathname === "/api/v1/host-observability",
   )
-  await page.getByRole("button", { name: "Osservabilità host" }).click()
+  await page.getByRole("button", { name: "Host" }).click()
   const initialResponse = await initialResponsePromise
   assert.ok(initialResponse.ok(), `initial Host response: ${initialResponse.status()}`)
   const latestSnapshot = await initialResponse.json()
   await initialResponse.finished()
-  await page.locator('[data-observability-version="2"]').waitFor()
+  await page.locator('[data-observability-version="3"]').waitFor()
+  assert.equal(latestSnapshot.tmux_orphans?.available, true)
+  assert.equal(latestSnapshot.tmux_orphans?.items?.length, 1)
   assert.equal(hostRequests, 1)
   assert.equal(await page.evaluate(() => document.activeElement?.tagName), "H1")
   const cards = page.locator("details.host-card")
-  assert.equal(await cards.count(), 7)
+  assert.equal(await cards.count(), 8)
   assert.equal(await cards.evaluateAll((items) => items.every((item) => !item.open)), true)
-  const processGroups = cards.filter({ has: page.getByRole("heading", { name: "Gruppi di processi" }) })
+  const processGroups = cards.filter({ has: page.getByRole("heading", { name: /^(Policy sui processi|Process policies)$/ }) })
   assert.equal(await processGroups.locator(".host-process-list").isVisible(), false)
   await processGroups.locator("summary").click()
   assert.equal(await processGroups.locator(".host-process-list").isVisible(), true)
@@ -94,4 +96,4 @@ try {
   await browser.close()
 }
 
-console.log(`Live Host v2 browser gate passed ${iterations}× (320px, export, clipboard, no polling${abortRefresh ? ", controlled abort" : ""})`)
+console.log(`Live Host v3 browser gate passed ${iterations}× (320px, orphan scope, export, clipboard, no polling${abortRefresh ? ", controlled abort" : ""})`)
