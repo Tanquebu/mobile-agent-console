@@ -26,7 +26,13 @@ class ArchiveService:
             return session.get(ArchivedSession, archive_id)
 
     def create(
-        self, name: str, directory: str, profile: str, archived_by: str
+        self,
+        name: str,
+        directory: str,
+        profile: str,
+        archived_by: str,
+        agent_session_name: str | None = None,
+        summary: str | None = None,
     ) -> ArchivedSession:
         if profile not in PROFILES:
             raise ValueError("Unsupported profile")
@@ -35,6 +41,8 @@ class ArchiveService:
             name=name,
             directory=directory,
             profile=profile,
+            agent_session_name=agent_session_name,
+            summary=summary,
             archived_by=archived_by,
             archived_at=datetime.now(UTC),
         )

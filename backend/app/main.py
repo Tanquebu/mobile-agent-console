@@ -31,8 +31,10 @@ from .schemas import (
     Accepted,
     AgentStatusList,
     AgentStatusView,
+    ArchiveDraftView,
     ArchivedSessionView,
     ArchiveList,
+    ArchiveSessionInput,
     ArtifactDirectoryView,
     ArtifactView,
     AttachmentView,
@@ -79,7 +81,12 @@ from .schemas import (
 from .security import COOKIE_NAME, SessionSecurity
 from .services.agent_status_service import AgentStatusService
 from .services.archive_service import ArchiveService
-from .services.artifact_service import ArtifactError, ArtifactService, sniff_media_type
+from .services.artifact_service import (
+    ARCHIVE_SUMMARY_NAME,
+    ArtifactError,
+    ArtifactService,
+    sniff_media_type,
+)
 from .services.attachment_service import AttachmentError, AttachmentService
 from .services.audit_service import AuditService
 from .services.backup_service import BackupError, BackupService
@@ -1245,7 +1252,7 @@ def create_app(
     )
     async def archive_session(
         session_id: str,
-        payload: ConfirmedAction,
+        payload: ArchiveSessionInput,
         cookie: str = Depends(require_operator),
     ) -> ArchivedSessionView:
         if not payload.confirmed:
@@ -1268,6 +1275,8 @@ def create_app(
             directory,
             session_profile(live.current_command),
             user.username if user is not None else "legacy",
+            payload.agent_session_name,
+            payload.summary,
         )
         try:
             await gateway.terminate_session(session_id)
@@ -1276,6 +1285,27 @@ def create_app(
             raise HTTPException(409, "Unable to archive session") from exc
         await _cleanup_session_files(session_id)
         return ArchivedSessionView.model_validate(item, from_attributes=True)
+
+    @app.get(
+        "/api/v1/sessions/{session_id}/archive-draft",
+        response_model=ArchiveDraftView,
+        dependencies=[Depends(require_active_session)],
+    )
+    async def get_archive_draft(session_id: str) -> ArchiveDraftView:
+        try:
+            TmuxService.validate_target(session_id)
+            live = next(
+                (item for item in await gateway.list_sessions() if item.id == session_id),
+                None,
+            )
+        except ValueError as exc:
+            raise HTTPException(404, "Session not found") from exc
+        except TmuxError as exc:
+            raise HTTPException(503, "tmux unavailable") from exc
+        if live is None:
+            raise HTTPException(404, "Session not found")
+        summary = await asyncio.to_thread(artifacts.read_archive_summary, session_id)
+        return ArchiveDraftView(summary=summary)
 
     @app.post(
         "/api/v1/archives/{archive_id}/restore",
@@ -1846,6 +1876,33 @@ def create_app(
             hint = (
                 "Quando hai un file da consegnare nella console mobile, "
                 f"salvalo in: {artifacts.prompt_path(session_id)}"
+            )
+            await gateway.send_text(session_id, hint, payload.pane_id)
+            await gateway.send_key(session_id, "Enter", payload.pane_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except SessionNotFound as exc:
+            raise HTTPException(404, "Session not found") from exc
+        return Accepted()
+
+    @app.post(
+        "/api/v1/sessions/{session_id}/archive-summary-prompt",
+        response_model=Accepted,
+        status_code=202,
+        dependencies=[Depends(require_operator)],
+    )
+    async def send_archive_summary_prompt(
+        session_id: str, payload: PaneTargetInput
+    ) -> Accepted:
+        try:
+            TmuxService.validate_target(session_id)
+            await asyncio.to_thread(artifacts.ensure_session_dir, session_id)
+            summary_path = f"{artifacts.prompt_path(session_id)}/{ARCHIVE_SUMMARY_NAME}"
+            hint = (
+                "Prepara un breve riepilogo della conversazione corrente, utile per "
+                "riconoscerla e riprenderla in futuro. Scrivi solo il riepilogo, senza "
+                "segreti, credenziali o trascrizioni estese, nel file UTF-8: "
+                f"{summary_path}. Mantienilo indicativamente tra 400 e 800 caratteri."
             )
             await gateway.send_text(session_id, hint, payload.pane_id)
             await gateway.send_key(session_id, "Enter", payload.pane_id)

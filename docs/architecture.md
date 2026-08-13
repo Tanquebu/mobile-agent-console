@@ -109,7 +109,9 @@ per nessun profilo.
 Il database SQLite vive in `.mobile-agent-console/app.db` nella root
 persistente del workspace. L'avvio applica le migrazioni prima di esporre il
 backend. tmux resta autorevole per le sessioni vive; output, prompt, file e
-segreti non sono salvati nel database.
+segreti non sono salvati nel database. Fa eccezione soltanto il breve riepilogo
+di archivio revisionato esplicitamente dall'utente, che è un metadato e non una
+trascrizione.
 
 I backup amministrativi sono archivi ZIP locali sotto
 `.mobile-agent-console/backups`. Una copia consistente di SQLite viene creata
@@ -118,10 +120,15 @@ dimensioni e SHA-256 dei singoli file; un checksum dell'intero archivio viene
 salvato separatamente e verificato prima del download. La retention predefinita
 mantiene gli ultimi dieci backup. Il restore è esclusivamente offline.
 
-L'archivio conserva soltanto nome, directory, profilo, autore e data. Archiviare
-è un'azione esplicita che scrive i metadati prima di terminare la sessione
-tmux; il rilancio usa esclusivamente un profilo server-side e rimuove la voce
-dall'archivio dopo la creazione riuscita.
+L'archivio conserva nome tmux, directory, profilo, autore, data e, se forniti,
+nome della conversazione agentica e breve riepilogo. Il riepilogo può essere
+preparato dall'agente nel file riservato `archive-summary.md` della propria
+cartella artefatti: non appare tra le consegne e viene soltanto usato per
+precompilare una textarea modificabile. Il valore definitivo è quello
+revisionato e confermato dall'utente. Archiviare scrive questi metadati prima
+di terminare la sessione tmux e ripulire gli artefatti; il rilancio usa
+esclusivamente un profilo server-side e rimuove la voce dall'archivio dopo la
+creazione riuscita.
 Per i profili Codex e Claude il rilancio apre il selettore nativo di resume
 tramite comandi costanti server-side; Antigravity rilancia `agy` e OpenCode
 riavvia normalmente (senza `--continue`, per lo stesso motivo del profilo di

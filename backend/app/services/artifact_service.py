@@ -25,6 +25,13 @@ MP4_MAJOR_BRANDS = frozenset(
 # riconoscimento separato evita anche di classificare come video un audio MP4.
 M4A_MAJOR_BRANDS = frozenset({b"M4A "})
 
+# Metadato di passaggio tra agente e modale di archiviazione. Non e' una
+# consegna: resta escluso dall'elenco/download degli artefatti e viene copiato
+# nel database soltanto dopo la revisione esplicita dell'utente.
+ARCHIVE_SUMMARY_NAME = "archive-summary.md"
+ARCHIVE_SUMMARY_MAX_BYTES = 8 * 1024
+ARCHIVE_SUMMARY_MAX_CHARS = 2_000
+
 
 def sniff_media_type(path: Path) -> str | None:
     """Tipo di media dedotto dal contenuto, non dall'estensione.
@@ -127,6 +134,31 @@ class ArtifactService:
             modified_at=datetime.fromtimestamp(stat.st_mtime, UTC),
         )
 
+    def read_archive_summary(self, session_id: str) -> str | None:
+        session_dir = (self.storage_root / session_id).resolve()
+        candidate = (session_dir / ARCHIVE_SUMMARY_NAME).resolve()
+        try:
+            candidate.relative_to(session_dir)
+        except ValueError:
+            return None
+        try:
+            content = candidate.read_bytes()
+        except OSError:
+            return None
+        if not content or len(content) > ARCHIVE_SUMMARY_MAX_BYTES:
+            return None
+        try:
+            text = content.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            return None
+        if not text or any(
+            (ord(character) < 32 and character not in {"\n", "\t"})
+            or ord(character) == 127
+            for character in text
+        ):
+            return None
+        return text[:ARCHIVE_SUMMARY_MAX_CHARS]
+
     def list(self, session_id: str) -> list[Artifact]:
         session_dir = (self.storage_root / session_id).resolve()
         if not session_dir.is_dir():
@@ -139,6 +171,8 @@ class ArtifactService:
                 rel_path = entry.relative_to(session_dir).as_posix()
             except ValueError:
                 continue
+            if rel_path == ARCHIVE_SUMMARY_NAME:
+                continue
             artifact = self._describe(entry, rel_path)
             if artifact is not None:
                 artifacts.append(artifact)
@@ -146,6 +180,8 @@ class ArtifactService:
 
     def get(self, session_id: str, name: str) -> Artifact:
         name = self.validate_name(name)
+        if name == ARCHIVE_SUMMARY_NAME:
+            raise ArtifactError("Artifact not found")
         session_dir = (self.storage_root / session_id).resolve()
         candidate = (session_dir / name).resolve()
         try:

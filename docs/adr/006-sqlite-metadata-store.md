@@ -40,6 +40,13 @@ La revisione `0003` introduce l'archivio delle sessioni concluse. Conserva
 soltanto nome, directory, profilo, autore e timestamp; non conserva output,
 prompt, environment o contenuti degli allegati.
 
+La revisione `0009` estende l'archivio con nome agentico e breve riepilogo
+opzionali. Il riepilogo non è acquisito automaticamente da una trascrizione:
+può essere precompilato da un file artefatto riservato, ma viene sempre
+mostrato e reso modificabile prima della conferma. È quindi metadato deliberato
+dell'archivio, soggetto anche ai backup SQLite, e resta limitato a 2.000
+caratteri.
+
 La revisione `0004` introduce l'audit append-only. Ogni record contiene soltanto
 attore, operazione tipizzata, target, status HTTP e timestamp. La vista è
 limitata agli amministratori e restituisce al massimo 500 eventi per richiesta.

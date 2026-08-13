@@ -20,6 +20,7 @@ def _bootstrapped_client(tmp_path: Path) -> tuple[TestClient, FakeTmux, dict[str
         database_auth_enabled=True,
         backups_root=str(tmp_path / "backups"),
         snapshots_root=str(tmp_path / "snapshots"),
+        artifacts_root=str(tmp_path / "artifacts"),
         push_vapid_key_path=str(tmp_path / "vapid.pem"),
     )
     fake = FakeTmux()
@@ -153,15 +154,22 @@ def test_database_auth_bootstrap_and_login(tmp_path: Path) -> None:
     archived = client.post(
         "/api/v1/sessions/1/archive",
         headers=headers,
-        json={"confirmed": True},
+        json={
+            "confirmed": True,
+            "agent_session_name": "Autenticazione mobile",
+            "summary": "Correzione del redirect dopo il login.",
+        },
     )
     assert archived.status_code == 201
     archive = archived.json()
     assert archive["name"] == "demo"
     assert archive["profile"] == "shell"
+    assert archive["agent_session_name"] == "Autenticazione mobile"
+    assert archive["summary"] == "Correzione del redirect dopo il login."
     assert archive["archived_by"] == "admin"
     assert "1" not in fake.sessions
     assert client.get("/api/v1/archives").json()["archives"][0]["id"] == archive["id"]
+    assert client.get("/api/v1/archives").json()["archives"][0]["summary"] == archive["summary"]
     assert viewer.get("/api/v1/archives").status_code == 200
     restored = client.post(
         f"/api/v1/archives/{archive['id']}/restore",

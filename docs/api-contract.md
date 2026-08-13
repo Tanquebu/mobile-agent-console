@@ -32,8 +32,13 @@ vedi `docs/architecture.md`, sezione OpenCode.
 ## Archivio sessioni
 
 - `GET /api/v1/archives`: elenca i metadati archiviati.
-- `POST /api/v1/sessions/{id}/archive`: con `{"confirmed":true}` salva nome,
-  directory, profilo, autore e data, quindi termina la sessione tmux.
+- `GET /api/v1/sessions/{id}/archive-draft`: restituisce il riepilogo UTF-8
+  opzionale letto dal file riservato `archive-summary.md`, oppure `null`.
+- `POST /api/v1/sessions/{id}/archive-summary-prompt`: invia al pane scelto un
+  prompt costante per preparare il file riservato nella cartella artefatti.
+- `POST /api/v1/sessions/{id}/archive`: con `confirmed`, `agent_session_name`
+  e `summary` opzionali salva i metadati revisionati, quindi termina la
+  sessione tmux.
 - `POST /api/v1/archives/{id}/restore`: con `{"confirmed":true}` ricrea la
   sessione tramite il profilo server-side; per Codex e Claude apre il selettore
   nativo di resume, OpenCode riavvia normalmente senza `--continue`, e rimuove
@@ -41,8 +46,11 @@ vedi `docs/architecture.md`, sezione OpenCode.
 - `DELETE /api/v1/archives/{id}`: con `{"confirmed":true}` elimina
   definitivamente i soli metadati.
 
-Le mutazioni richiedono ruolo `operator` o `admin`. Nessun output, prompt,
-environment, segreto o allegato entra nell'archivio.
+Le mutazioni richiedono ruolo `operator` o `admin`. Nessun output completo,
+prompt, environment, segreto o allegato entra nell'archivio. Il nome agentico
+è limitato a 128 caratteri e il riepilogo a 2.000; entrambi entrano nel database
+e nei backup amministrativi soltanto dopo la conferma dell'utente. Il file
+riservato non è elencabile o scaricabile dall'API artefatti.
 
 ## `GET /api/v1/audit`
 

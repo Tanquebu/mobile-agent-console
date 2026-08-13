@@ -21,8 +21,8 @@ orchestrazione agentica o API vendor.
 
 L'applicazione pubblicata comprende:
 
-- elenco, creazione, rinomina, archivio, ripristino e terminazione delle
-  sessioni;
+- elenco, creazione, rinomina, archivio descrittivo ricercabile, ripristino e
+  terminazione delle sessioni;
 - selezione, split e resize dei pane;
 - output WebSocket, input multilinea, Enter e tasti come operazioni separate;
 - browser delle directory consentite, preview, download e allegati;

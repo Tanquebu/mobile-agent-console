@@ -1530,6 +1530,7 @@ def test_artifacts_require_authentication() -> None:
     assert client.get("/api/v1/sessions/1/artifact-directory").status_code == 401
     assert client.get("/api/v1/sessions/1/artifacts").status_code == 401
     assert client.get("/api/v1/sessions/1/artifacts/note.txt").status_code == 401
+    assert client.get("/api/v1/sessions/1/archive-draft").status_code == 401
 
 
 def test_list_and_download_artifacts(tmp_path) -> None:
@@ -1548,6 +1549,7 @@ def test_list_and_download_artifacts(tmp_path) -> None:
     (session_dir / "recording.mp3").write_bytes(b"ID3\x04\x00\x00\x00\x00\x00\x00hello")
     (session_dir / "memo.m4a").write_bytes(b"\x00\x00\x00\x18ftypM4A " + b"\x00" * 32)
     (session_dir / "unrecognized.bin").write_bytes(b"\x01\x02\x03")
+    (session_dir / "archive-summary.md").write_text("Riepilogo riservato", encoding="utf-8")
 
     listed = client.get("/api/v1/sessions/1/artifacts").json()
     assert [item["name"] for item in listed] == ["memo.m4a", "recording.mp3", "report.pdf"]
@@ -1570,6 +1572,32 @@ def test_list_and_download_artifacts(tmp_path) -> None:
 
     assert client.get("/api/v1/sessions/1/artifacts/unrecognized.bin").status_code == 404
     assert client.get("/api/v1/sessions/1/artifacts/missing.pdf").status_code == 404
+    assert client.get("/api/v1/sessions/1/artifacts/archive-summary.md").status_code == 404
+
+
+def test_archive_draft_reads_only_a_small_valid_reserved_summary(tmp_path) -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        artifacts_root=str(tmp_path),
+    )
+    client = TestClient(create_app(settings, FakeTmux()))
+    login(client)
+    session_dir = tmp_path / "1"
+    session_dir.mkdir(parents=True)
+
+    assert client.get("/api/v1/sessions/1/archive-draft").json() == {"summary": None}
+    (session_dir / "archive-summary.md").write_text("  Stato della sessione.  ", encoding="utf-8")
+    assert client.get("/api/v1/sessions/1/archive-draft").json() == {
+        "summary": "Stato della sessione."
+    }
+    (session_dir / "archive-summary.md").write_bytes(b"\xff")
+    assert client.get("/api/v1/sessions/1/archive-draft").json() == {"summary": None}
+    (session_dir / "archive-summary.md").write_bytes(b"x" * 8193)
+    assert client.get("/api/v1/sessions/1/archive-draft").json() == {"summary": None}
+    assert client.get("/api/v1/sessions/999/archive-draft").status_code == 404
 
 
 def test_artifact_directory_uses_the_path_visible_to_the_session(tmp_path) -> None:
@@ -1658,6 +1686,31 @@ def test_artifact_prompt_is_explicit_and_uses_the_current_pane(tmp_path) -> None
     )
     assert invalid.status_code == 400
     assert not (tmp_path / "not-an-id").exists()
+
+
+def test_archive_summary_prompt_targets_the_reserved_file(tmp_path) -> None:
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        artifacts_root=str(tmp_path / "storage"),
+        artifacts_prompt_root="/workspace/.agent-artifacts",
+    )
+    fake = FakeTmux()
+    client = TestClient(create_app(settings, fake))
+    csrf = login(client)
+    response = client.post(
+        "/api/v1/sessions/1/archive-summary-prompt",
+        headers={"X-CSRF-Token": csrf},
+        json={"pane_id": "10"},
+    )
+    assert response.status_code == 202
+    assert "/workspace/.agent-artifacts/1/archive-summary.md" in fake.texts[0]
+    assert "senza segreti" in fake.texts[0]
+    assert fake.keys == ["Enter"]
+    assert fake.targets == ["10", "10"]
+    assert (tmp_path / "storage" / "1").is_dir()
 
 
 def test_terminating_session_cleans_up_its_artifacts(tmp_path) -> None:

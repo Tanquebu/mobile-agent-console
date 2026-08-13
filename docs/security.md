@@ -25,6 +25,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Confused deputy | ruoli ricontrollati dal database, permessi espliciti per operazioni mutative |
 | Snapshot manipolati | file UUID mode 0600, schema validato, path nuovamente sottoposti ad allowlist e soli comandi resume costanti |
 | Archivio manipolato | directory ricontrollata contro l'allowlist e profilo server-side prima del rilancio |
+| Riepilogo archivio sensibile o malevolo | file riservato UTF-8 con limite stretto, non esposto tra gli artefatti; anteprima modificabile e conferma esplicita prima della persistenza |
 | Database locale | path privato nel workspace, nessun prompt/output/segreto, migrazioni versionate |
 | Backup manipolati | checksum archivio e file, manifest con path chiusi, restore offline e riservato all'operatore host |
 | Quote provider sensibili | collector host-side, output JSON sanitizzato; credenziali e transcript non montati nel backend |

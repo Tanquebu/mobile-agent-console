@@ -776,6 +776,13 @@ export async function sendArtifactPrompt(id: string, paneId?: string) {
   });
 }
 
+export async function sendArchiveSummaryPrompt(id: string, paneId?: string) {
+  await request(`/api/v1/sessions/${encodeURIComponent(id)}/archive-summary-prompt`, {
+    method: "POST",
+    body: JSON.stringify({ pane_id: paneId }),
+  });
+}
+
 export async function sendEnter(id: string, paneId?: string) {
   await sendKey(id, "Enter", false, paneId);
 }
@@ -811,6 +818,8 @@ export type ArchivedSession = {
   name: string;
   directory: string;
   profile: "shell" | "codex" | "claude" | "antigravity" | "opencode";
+  agent_session_name: string | null;
+  summary: string | null;
   archived_by: string;
   archived_at: string;
 };
@@ -820,10 +829,23 @@ export async function listArchives(): Promise<ArchivedSession[]> {
   return (await response.json()).archives;
 }
 
-export async function archiveSession(id: string): Promise<ArchivedSession> {
+export async function fetchArchiveDraft(id: string): Promise<{ summary: string | null }> {
+  const response = await request(`/api/v1/sessions/${encodeURIComponent(id)}/archive-draft`);
+  return response.json();
+}
+
+export async function archiveSession(
+  id: string,
+  agentSessionName: string,
+  summary: string,
+): Promise<ArchivedSession> {
   const response = await request(`/api/v1/sessions/${encodeURIComponent(id)}/archive`, {
     method: "POST",
-    body: JSON.stringify({ confirmed: true }),
+    body: JSON.stringify({
+      confirmed: true,
+      agent_session_name: agentSessionName.trim() || null,
+      summary: summary.trim() || null,
+    }),
   });
   return response.json();
 }

@@ -43,6 +43,8 @@ class ArchivedSession(Base):
     name: Mapped[str] = mapped_column(String(64), index=True)
     directory: Mapped[str] = mapped_column(String(4096))
     profile: Mapped[str] = mapped_column(String(32))
+    agent_session_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    summary: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     archived_by: Mapped[str] = mapped_column(String(64))
     archived_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)

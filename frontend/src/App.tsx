@@ -15,6 +15,7 @@ import {
   attachmentPreviewUrl,
   fetchArtifactContent,
   fetchArtifactDirectory,
+  fetchArchiveDraft,
   backupDownloadUrl,
   createBackup,
   createUser,
@@ -76,6 +77,7 @@ import {
   resizePane,
   sendEnter,
   sendArtifactPrompt,
+  sendArchiveSummaryPrompt,
   sendKey,
   sendText,
   Session,
@@ -137,9 +139,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Anteprima audio M4A",
+  title: "Archivio sessioni riconoscibile",
   description:
-    "Directory e Artefatti ora riproducono i file audio M4A direttamente in anteprima, mantenendo disponibile anche il download.",
+    "Prima di archiviare puoi aggiungere il nome della conversazione e revisionare un riepilogo preparato dall’agente; l’archivio è ora ricercabile.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1475,6 +1477,94 @@ function SnapshotModal({
   );
 }
 
+function ArchiveSessionModal({
+  session,
+  onClose,
+  onArchived,
+}: {
+  session: Session;
+  onClose: () => void;
+  onArchived: (session: Session) => void;
+}) {
+  const [agentSessionName, setAgentSessionName] = useState("");
+  const [summary, setSummary] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    fetchArchiveDraft(session.id)
+      .then((draft) => {
+        if (active) setSummary(draft.summary ?? "");
+      })
+      .catch((value) => {
+        if (active) setError(`Riepilogo precompilato non disponibile: ${errorMessage(value)}`);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, [session.id]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      await archiveSession(session.id, agentSessionName, summary);
+      onArchived(session);
+    } catch (value) {
+      setError(errorMessage(value));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget && !saving) onClose();
+    }}>
+      <section className="help-modal archive-create-modal" role="dialog" aria-modal="true" aria-labelledby="archive-create-title">
+        <header>
+          <div><span className="eyebrow">METADATI SESSIONE</span><h2 id="archive-create-title">Archivia {session.name}</h2></div>
+          <button className="modal-close" onClick={onClose} disabled={saving} aria-label="Chiudi">×</button>
+        </header>
+        <form className="archive-create" onSubmit={(event) => void submit(event)}>
+          <label>
+            Nome conversazione <small>Opzionale, utile per ritrovarla nel picker dell’agente.</small>
+            <input
+              value={agentSessionName}
+              onChange={(event) => setAgentSessionName(event.target.value)}
+              maxLength={128}
+              placeholder="Es. Correzione login mobile"
+              autoFocus
+            />
+          </label>
+          <label>
+            Riepilogo <small>{loading ? "Cerco archive-summary.md…" : "Opzionale e modificabile."}</small>
+            <textarea
+              value={summary}
+              onChange={(event) => setSummary(event.target.value)}
+              maxLength={2000}
+              rows={8}
+              disabled={loading}
+              placeholder="A cosa serviva questa conversazione e cosa resta da fare?"
+            />
+            <small className="archive-counter">{summary.length}/2000</small>
+          </label>
+          <p className="archive-privacy-note">Questi metadati saranno salvati nel database e inclusi nei backup amministrativi. Non inserire segreti.</p>
+          {error && <p className="error">{error}</p>}
+          <div className="snapshot-actions">
+            <button type="button" onClick={onClose} disabled={saving}>Annulla</button>
+            <button type="submit" disabled={saving || loading}>{saving ? "Archiviazione…" : "Archivia e termina tmux"}</button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function ArchiveModal({
   onClose,
   onRestored,
@@ -1486,6 +1576,19 @@ function ArchiveModal({
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+
+  const filteredArchives = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase();
+    if (!normalized) return archives;
+    return archives.filter((item) => [
+      item.name,
+      item.agent_session_name,
+      item.summary,
+      item.directory,
+      item.profile,
+    ].filter(Boolean).join(" ").toLocaleLowerCase().includes(normalized));
+  }, [archives, query]);
 
   async function refresh() {
     setArchives(await listArchives());
@@ -1535,13 +1638,25 @@ function ArchiveModal({
           <button className="modal-close" onClick={onClose} aria-label={translations[readLanguage()].close}>×</button>
         </header>
         <div className="snapshot-existing">
+          {!loading && archives.length > 0 && (
+            <input
+              className="archive-search"
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Cerca per nome, riepilogo o percorso…"
+              aria-label="Cerca sessioni archiviate"
+            />
+          )}
           {loading && <p className="empty">{translations[readLanguage()].loading}</p>}
-          {!loading && archives.map((item) => (
+          {!loading && filteredArchives.map((item) => (
             <article className="snapshot-card" key={item.id}>
               <div>
                 <strong>{item.name}</strong>
+                {item.agent_session_name && <h3 className="archive-agent-name">{item.agent_session_name}</h3>}
                 <small>{item.profile} · {new Date(item.archived_at).toLocaleString()}</small>
                 <small>{item.directory}</small>
+                {item.summary && <p className="archive-summary">{item.summary}</p>}
                 <small>Archived by {item.archived_by}</small>
               </div>
               <div className="snapshot-actions">
@@ -1550,6 +1665,7 @@ function ArchiveModal({
               </div>
             </article>
           ))}
+          {!loading && archives.length > 0 && filteredArchives.length === 0 && <p className="empty">Nessun archivio corrisponde alla ricerca.</p>}
           {!loading && archives.length === 0 && <p className="empty">{translations[readLanguage()].noArchivedSessions}</p>}
         </div>
         {error && <p className="error">{error}</p>}
@@ -3934,6 +4050,7 @@ function SessionList({
   const [showHelp, setShowHelp] = useState(false);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [showArchives, setShowArchives] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState<Session | null>(null);
   const [showAudit, setShowAudit] = useState(false);
   const [showBackups, setShowBackups] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
@@ -4182,19 +4299,15 @@ function SessionList({
     }
   }
 
-  async function archiveListedSession(session: Session) {
-    const confirmed = window.confirm(
-      `Archiviare “${session.name}”? I metadati saranno conservati e la sessione tmux verrà terminata.`,
-    );
-    if (!confirmed) return;
+  function archiveListedSession(session: Session) {
     setError("");
-    try {
-      await archiveSession(session.id);
-      setSessions((items) => items.filter((item) => item.id !== session.id));
-      setOpenActionsId(null);
-    } catch (value) {
-      setError(errorMessage(value));
-    }
+    setOpenActionsId(null);
+    setArchiveTarget(session);
+  }
+
+  function archivedListedSession(session: Session) {
+    setSessions((items) => items.filter((item) => item.id !== session.id));
+    setArchiveTarget(null);
   }
 
   async function hideListedSession(session: Session) {
@@ -4734,6 +4847,13 @@ function SessionList({
           onRestored={refreshSessions}
         />
       )}
+      {archiveTarget && (
+        <ArchiveSessionModal
+          session={archiveTarget}
+          onClose={() => setArchiveTarget(null)}
+          onArchived={archivedListedSession}
+        />
+      )}
     </main>
   );
 }
@@ -4767,6 +4887,7 @@ function Console({
   const [compacting, setCompacting] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [sendingArtifactPrompt, setSendingArtifactPrompt] = useState(false);
+  const [sendingArchiveSummaryPrompt, setSendingArchiveSummaryPrompt] = useState(false);
   const [showDirectory, setShowDirectory] = useState(false);
   const [showArtifacts, setShowArtifacts] = useState(false);
   const [fullscreenOutput, setFullscreenOutput] = useState(false);
@@ -5323,6 +5444,18 @@ function Console({
     }
   }
 
+  async function sendArchiveSummaryInstructions() {
+    setSendingArchiveSummaryPrompt(true);
+    setControlError("");
+    try {
+      await sendArchiveSummaryPrompt(session.id, paneId || undefined);
+    } catch (value) {
+      setControlError(errorMessage(value));
+    } finally {
+      setSendingArchiveSummaryPrompt(false);
+    }
+  }
+
   async function pressEnter() {
     setControlError("");
     try {
@@ -5708,6 +5841,13 @@ function Console({
             </button>
             {agenticStatus && (
               <>
+                <button
+                  disabled={connection === "closed" || sendingArchiveSummaryPrompt}
+                  type="button"
+                  onClick={() => void sendArchiveSummaryInstructions()}
+                >
+                  {sendingArchiveSummaryPrompt ? "Invio richiesta…" : "Prepara riepilogo archivio"}
+                </button>
                 <button
                   disabled={connection === "closed" || compacting || clearing}
                   type="button"

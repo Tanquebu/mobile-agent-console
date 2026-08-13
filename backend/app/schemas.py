@@ -262,12 +262,53 @@ class ArchivedSessionView(BaseModel):
     name: str
     directory: str
     profile: Literal["shell", "codex", "claude", "antigravity", "opencode"]
+    agent_session_name: str | None = None
+    summary: str | None = None
     archived_by: str
     archived_at: datetime
 
 
 class ArchiveList(BaseModel):
     archives: list[ArchivedSessionView]
+
+
+def _optional_archive_text(
+    value: str | None, *, max_length: int, multiline: bool
+) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError("Invalid archive metadata")
+    normalized = normalize("NFC", value).strip()
+    if not normalized:
+        return None
+    allowed_controls = {"\n", "\t"} if multiline else set()
+    if len(normalized) > max_length or any(
+        (ord(character) < 32 and character not in allowed_controls) or ord(character) == 127
+        for character in normalized
+    ):
+        raise ValueError("Invalid archive metadata")
+    return normalized
+
+
+class ArchiveSessionInput(BaseModel):
+    confirmed: bool = False
+    agent_session_name: str | None = Field(default=None, max_length=128)
+    summary: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("agent_session_name", mode="before")
+    @classmethod
+    def normalize_agent_session_name(cls, value: str | None) -> str | None:
+        return _optional_archive_text(value, max_length=128, multiline=False)
+
+    @field_validator("summary", mode="before")
+    @classmethod
+    def normalize_summary(cls, value: str | None) -> str | None:
+        return _optional_archive_text(value, max_length=2000, multiline=True)
+
+
+class ArchiveDraftView(BaseModel):
+    summary: str | None = None
 
 
 class AuditEventView(BaseModel):

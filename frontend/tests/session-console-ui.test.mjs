@@ -35,3 +35,22 @@ test("Clear invia testo ed Enter come operazioni distinte solo nei controlli age
 test("il selettore Allega abilita gli MP3", () => {
   assert.match(consoleView, /accept="[^"]*\.mp3[^"]*audio\/mpeg/);
 });
+
+test("il riepilogo archivio è richiesto all'agente con un'azione esplicita", () => {
+  assert.match(consoleView, /await sendArchiveSummaryPrompt\(session\.id, paneId \|\| undefined\)/);
+  assert.match(consoleView, /Prepara riepilogo archivio/);
+  assert.match(consoleView, /\{agenticStatus && \([\s\S]*sendArchiveSummaryInstructions/);
+});
+
+test("la modale archivio precompila una bozza revisionabile e persiste i campi espliciti", () => {
+  const archiveCreate = app.slice(
+    app.indexOf("function ArchiveSessionModal("),
+    app.indexOf("function ArchiveModal("),
+  );
+  assert.match(archiveCreate, /fetchArchiveDraft\(session\.id\)/);
+  assert.match(archiveCreate, /setSummary\(draft\.summary \?\? ""\)/);
+  assert.match(archiveCreate, /await archiveSession\(session\.id, agentSessionName, summary\)/);
+  assert.match(archiveCreate, /maxLength=\{128\}/);
+  assert.match(archiveCreate, /maxLength=\{2000\}/);
+  assert.match(app, /item\.agent_session_name,[\s\S]*item\.summary,[\s\S]*item\.directory/);
+});

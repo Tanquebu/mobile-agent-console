@@ -324,6 +324,17 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .snapshot-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .snapshot-actions button { min-height: 38px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .78rem; font-weight: 700; }
 .snapshot-actions button.danger { border-color: #704039; color: #ffaaa0; }
+.archive-create { display: grid; gap: 14px; margin-top: 16px; }
+.archive-create > label { display: grid; gap: 6px; color: #d7e5dc; font-size: .82rem; font-weight: 700; }
+.archive-create > label small { color: #91a397; font-weight: 500; }
+.archive-create input, .archive-create textarea, .archive-search { width: 100%; border: 1px solid #344b3b; border-radius: 10px; padding: 9px 10px; background: #18231c; color: white; font: inherit; }
+.archive-create input, .archive-search { min-height: 42px; }
+.archive-create textarea { resize: vertical; line-height: 1.45; }
+.archive-counter { justify-self: end; }
+.archive-privacy-note { margin: 0; color: #d8bd7c; font-size: .74rem; line-height: 1.45; }
+.archive-search { margin-bottom: 10px; }
+.archive-agent-name { margin: 3px 0 0; color: #d7e5dc; font-size: .95rem; }
+.archive-summary { margin: 7px 0; color: #b8c8bd; font-size: .78rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .backup-create { width: 100%; min-height: 42px; margin-top: 12px; }
 .backup-download { display: grid; place-items: center; min-height: 38px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .78rem; font-weight: 700; text-decoration: none; }
 .snapshot-report { margin-top: 14px; border: 1px solid #41664d; border-radius: 12px; padding: 12px; background: #17261c; }
