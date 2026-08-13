@@ -617,7 +617,7 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
   .agent-legend { grid-template-columns: minmax(0, .8fr) minmax(0, 1.5fr); }
 }
 
-/* Anteprima inline di immagini e video nel browser di directory: la finestra e'
+/* Anteprima inline dei media nel browser di directory: la finestra e'
    la stessa del file di testo, quindi il media non deve poterla far crescere. */
 .file-media {
   display: block;

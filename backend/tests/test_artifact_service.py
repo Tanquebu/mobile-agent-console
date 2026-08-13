@@ -3,6 +3,7 @@ from app.services.artifact_service import ArtifactError, ArtifactService
 PNG_HEADER = b"\x89PNG\r\n\x1a\nrest-of-file"
 PDF_HEADER = b"%PDF-1.4\nrest-of-file"
 MP4_HEADER = b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00" + b"rest-of-file"
+M4A_HEADER = b"\x00\x00\x00\x20ftypM4A \x00\x00\x02\x00" + b"rest-of-file"
 MOV_HEADER = b"\x00\x00\x00\x14ftypqt  \x00\x00\x02\x00" + b"rest-of-file"
 MP3_ID3_HEADER = b"ID3\x04\x00\x00\x00\x00\x00\x00rest-of-file"
 MP3_FRAME_HEADER = b"\xff\xfb\x90\x64rest-of-file"
@@ -45,6 +46,7 @@ def test_list_returns_only_recognized_files_within_size_limit(tmp_path) -> None:
     (session_dir / "empty.txt").write_bytes(b"")
     (session_dir / "clip.mp4").write_bytes(MP4_HEADER)
     (session_dir / "recording.mp3").write_bytes(MP3_ID3_HEADER)
+    (session_dir / "memo.m4a").write_bytes(M4A_HEADER)
     sub_dir = session_dir / "screenshot"
     sub_dir.mkdir()
     (sub_dir / "shot.png").write_bytes(PNG_HEADER)
@@ -56,6 +58,7 @@ def test_list_returns_only_recognized_files_within_size_limit(tmp_path) -> None:
         "screenshot/shot.png",
         "clip.mp4",
         "recording.mp3",
+        "memo.m4a",
     }
     assert artifacts["photo.png"].media_type == "image/png"
     assert artifacts["note.txt"].media_type == "text/plain"
@@ -63,6 +66,7 @@ def test_list_returns_only_recognized_files_within_size_limit(tmp_path) -> None:
     assert artifacts["clip.mp4"].media_type == "video/mp4"
     assert artifacts["clip.mp4"].size == len(MP4_HEADER)
     assert artifacts["recording.mp3"].media_type == "audio/mpeg"
+    assert artifacts["memo.m4a"].media_type == "audio/mp4"
 
 
 def test_list_returns_empty_for_missing_session_dir(tmp_path) -> None:
@@ -91,6 +95,16 @@ def test_list_and_get_recognize_mp4_ftyp_box(tmp_path) -> None:
     artifact = service.get("1", "clip.mp4")
     assert artifact.media_type == "video/mp4"
     assert artifact.size == len(MP4_HEADER)
+
+
+def test_list_and_get_recognize_m4a_ftyp_box(tmp_path) -> None:
+    service = make_service(tmp_path)
+    session_dir = service.ensure_session_dir("1")
+    (session_dir / "memo.m4a").write_bytes(M4A_HEADER)
+
+    artifacts = {item.name: item for item in service.list("1")}
+    assert artifacts["memo.m4a"].media_type == "audio/mp4"
+    assert service.get("1", "memo.m4a").media_type == "audio/mp4"
 
 
 def test_sniff_rejects_iso_bmff_brands_outside_mp4_whitelist(tmp_path) -> None:

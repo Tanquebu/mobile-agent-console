@@ -137,9 +137,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Monitor degli scope tmux orfani",
+  title: "Anteprima audio M4A",
   description:
-    "La vista Host ora segnala i processi sopravvissuti alla chiusura del proprio pane tmux, con RAM, swap, picco ed età, senza terminarli automaticamente.",
+    "Directory e Artefatti ora riproducono i file audio M4A direttamente in anteprima, mantenendo disponibile anche il download.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -481,20 +481,22 @@ function joinPath(base: string, name: string): string {
   return base.endsWith("/") ? `${base}${name}` : `${base}/${name}`;
 }
 
-const DOWNLOADABLE_FILE = /\.(?:bmp|docx?|gif|jpe?g|mp3|pdf|png|tiff?|webp)$/i;
+const DOWNLOADABLE_FILE = /\.(?:bmp|docx?|gif|jpe?g|m4a|mp3|pdf|png|tiff?|webp)$/i;
 
 function isDownloadable(name: string): boolean {
   return DOWNLOADABLE_FILE.test(name);
 }
 
 // L'estensione qui decide solo *quale elemento montare*: il tipo vero lo stabilisce
-// il backend leggendo i byte, e rifiuta con 400 tutto cio' che non e' immagine o mp4.
+// il backend leggendo i byte, e rifiuta con 400 tutto cio' che non e' un media ammesso.
 const PREVIEWABLE_VIDEO = /\.mp4$/i;
 const PREVIEWABLE_IMAGE = /\.(?:jpe?g|png|webp)$/i;
+const PREVIEWABLE_AUDIO = /\.m4a$/i;
 
-function mediaPreviewKind(name: string): "video" | "image" | null {
+function mediaPreviewKind(name: string): "video" | "image" | "audio" | null {
   if (PREVIEWABLE_VIDEO.test(name)) return "video";
   if (PREVIEWABLE_IMAGE.test(name)) return "image";
+  if (PREVIEWABLE_AUDIO.test(name)) return "audio";
   return null;
 }
 
@@ -585,6 +587,14 @@ function FileModal({
       )}
       {mediaKind === "image" && (
         <img className="file-media" src={filePreviewUrl(sessionId, path)} alt={path} />
+      )}
+      {mediaKind === "audio" && (
+        <audio
+          className="file-media"
+          src={filePreviewUrl(sessionId, path)}
+          controls
+          preload="metadata"
+        />
       )}
       {loading && <p className="empty">{t.loading}</p>}
       {error && <p className="error">{error}</p>}
@@ -927,7 +937,7 @@ function isPreviewableVideo(mediaType: string): boolean {
 }
 
 function isPreviewableAudio(mediaType: string): boolean {
-  return mediaType === "audio/mpeg";
+  return mediaType === "audio/mpeg" || mediaType === "audio/mp4";
 }
 
 function isPreviewableArtifact(mediaType: string): boolean {

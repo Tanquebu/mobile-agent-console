@@ -20,6 +20,11 @@ MP4_MAJOR_BRANDS = frozenset(
     }
 )
 
+# M4A con un major brand esplicito: non basta l'estensione, perché artefatti e
+# browser di directory espongono file prodotti da processi esterni. Tenere il
+# riconoscimento separato evita anche di classificare come video un audio MP4.
+M4A_MAJOR_BRANDS = frozenset({b"M4A "})
+
 
 def sniff_media_type(path: Path) -> str | None:
     """Tipo di media dedotto dal contenuto, non dall'estensione.
@@ -38,8 +43,11 @@ def sniff_media_type(path: Path) -> str | None:
             return media_type
     if len(prefix) >= 12 and prefix[:4] == b"RIFF" and prefix[8:12] == b"WEBP":
         return "image/webp"
-    if len(prefix) >= 12 and prefix[4:8] == b"ftyp" and prefix[8:12] in MP4_MAJOR_BRANDS:
-        return "video/mp4"
+    if len(prefix) >= 12 and prefix[4:8] == b"ftyp":
+        if prefix[8:12] in MP4_MAJOR_BRANDS:
+            return "video/mp4"
+        if prefix[8:12] in M4A_MAJOR_BRANDS:
+            return "audio/mp4"
     if path.suffix.lower() == ".mp3" and is_mp3(prefix):
         return "audio/mpeg"
     suffix = path.suffix.lower()

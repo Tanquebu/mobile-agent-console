@@ -153,6 +153,7 @@ DOWNLOADABLE_EXTENSIONS = {
     ".gif",
     ".jpeg",
     ".jpg",
+    ".m4a",
     ".mp3",
     ".pdf",
     ".png",
@@ -168,6 +169,7 @@ INLINE_PREVIEW_MEDIA_TYPES = {
     "image/jpeg",
     "image/png",
     "image/webp",
+    "audio/mp4",
     "video/mp4",
 }
 SNAPSHOT_RESUME_COMMANDS = {
@@ -1649,7 +1651,7 @@ def create_app(
         session_id: str,
         path: Annotated[str, Query(min_length=1, max_length=4096)],
     ) -> FileResponse:
-        """Serve immagini e video *dentro* la pagina, come gia' fa la cartella artefatti.
+        """Serve immagini, video e audio *dentro* la pagina, come gli artefatti.
 
         L'anteprima testuale (`/file`) rifiuta qualunque file con un byte nullo, quindi
         un mp4 nel browser di directory finiva in "Binary file, no preview available"

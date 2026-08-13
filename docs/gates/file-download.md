@@ -2,9 +2,10 @@
 
 ## Copertura
 
-- download autenticato di immagini, PDF, documenti Word e audio MP3;
-- elenco, download e anteprima audio degli MP3 nella cartella Artefatti, con
-  validazione della firma ID3 o del frame MPEG;
+- download autenticato di immagini, PDF, documenti Word e audio MP3/M4A;
+- elenco, download e anteprima audio degli MP3 e M4A nella cartella Artefatti,
+  con validazione della firma ID3/frame MPEG o del major brand M4A;
+- anteprima audio M4A nel browser della directory;
 - selezione e upload degli MP3 dal pulsante Allega, con la stessa validazione
   del contenuto lato backend;
 - risoluzione del path entro `MAC_ALLOWED_ROOTS`;

@@ -271,7 +271,7 @@ pattern non devono mai essere inclusi nei log insieme alle righe corrispondenti.
 Gli artefatti prodotti dall'agente sono serviti solo da dentro
 `MAC_ARTIFACTS_ROOT/<session_id>/`: il backend non si fida di alcun path
 stampato nel terminale né apre altre directory, e la lista/il download
-rivalidano nome file e tipo by-signature (immagini, PDF, testo, MP4 e MP3) a
+rivalidano nome file e tipo by-signature (immagini, PDF, testo, MP4, MP3 e M4A) a
 ogni accesso, indipendentemente da cosa sia stato scritto lì. Il
 rischio residuo è che l'agente (se istruito, deliberatamente o per prompt
 injection) copi lì un file non voluto — stesso modello di fiducia già accettato

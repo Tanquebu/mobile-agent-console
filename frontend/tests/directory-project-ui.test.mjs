@@ -39,6 +39,13 @@ test("i file MP3 sono scaricabili dal browser directory", () => {
   assert.match(app, /<audio controls src=\{artifactDownloadUrl/);
 });
 
+test("i file M4A aprono il player audio in directory e artefatti", () => {
+  assert.match(app, /PREVIEWABLE_AUDIO = \/\\\.m4a/);
+  assert.match(app, /mediaKind === "audio"/);
+  assert.match(app, /mediaType === "audio\/mp4"/);
+  assert.match(app, /<audio[\s\S]*filePreviewUrl/);
+});
+
 test("la chiusura dell'anteprima conserva scroll, path e filtri della directory", () => {
   assert.match(directoryModal, /savedScrollTopRef\.current = modalRef\.current\?\.scrollTop \?\? 0/);
   assert.match(directoryModal, /modalRef\.current\.scrollTop = savedScrollTopRef\.current/);

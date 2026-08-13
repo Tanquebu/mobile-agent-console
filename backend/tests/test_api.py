@@ -1206,6 +1206,7 @@ def test_session_file_truncation_does_not_split_utf8_character(tmp_path) -> None
         ("report.pdf", b"%PDF-1.7\nfake"),
         ("notes.doc", b"legacy-word"),
         ("notes.docx", b"zip-like-word"),
+        ("memo.m4a", b"\x00\x00\x00\x18ftypM4A " + b"\x00" * 32),
         ("recording.mp3", b"ID3\x04\x00\x00\x00\x00\x00\x00fake"),
     ],
 )
@@ -1545,12 +1546,14 @@ def test_list_and_download_artifacts(tmp_path) -> None:
     session_dir.mkdir(parents=True)
     (session_dir / "report.pdf").write_bytes(b"%PDF-1.4\nhello")
     (session_dir / "recording.mp3").write_bytes(b"ID3\x04\x00\x00\x00\x00\x00\x00hello")
+    (session_dir / "memo.m4a").write_bytes(b"\x00\x00\x00\x18ftypM4A " + b"\x00" * 32)
     (session_dir / "unrecognized.bin").write_bytes(b"\x01\x02\x03")
 
     listed = client.get("/api/v1/sessions/1/artifacts").json()
-    assert [item["name"] for item in listed] == ["recording.mp3", "report.pdf"]
-    assert listed[0]["media_type"] == "audio/mpeg"
-    assert listed[1]["media_type"] == "application/pdf"
+    assert [item["name"] for item in listed] == ["memo.m4a", "recording.mp3", "report.pdf"]
+    assert listed[0]["media_type"] == "audio/mp4"
+    assert listed[1]["media_type"] == "audio/mpeg"
+    assert listed[2]["media_type"] == "application/pdf"
 
     downloaded = client.get("/api/v1/sessions/1/artifacts/report.pdf")
     assert downloaded.status_code == 200
@@ -1560,6 +1563,10 @@ def test_list_and_download_artifacts(tmp_path) -> None:
     downloaded_mp3 = client.get("/api/v1/sessions/1/artifacts/recording.mp3")
     assert downloaded_mp3.status_code == 200
     assert downloaded_mp3.headers["content-type"] == "audio/mpeg"
+
+    downloaded_m4a = client.get("/api/v1/sessions/1/artifacts/memo.m4a")
+    assert downloaded_m4a.status_code == 200
+    assert downloaded_m4a.headers["content-type"] == "audio/mp4"
 
     assert client.get("/api/v1/sessions/1/artifacts/unrecognized.bin").status_code == 404
     assert client.get("/api/v1/sessions/1/artifacts/missing.pdf").status_code == 404
@@ -1901,6 +1908,7 @@ def test_push_service_notify_removes_stale_subscriptions(tmp_path, monkeypatch) 
 
 
 MP4_BYTES = b"\x00\x00\x00\x18ftypisom" + b"\x00" * 32
+M4A_BYTES = b"\x00\x00\x00\x18ftypM4A " + b"\x00" * 32
 
 
 def _preview_client(tmp_path):
@@ -1930,6 +1938,23 @@ def test_session_file_preview_serves_mp4_inline(tmp_path) -> None:
     assert response.headers["content-disposition"].startswith("inline")
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.content == MP4_BYTES
+
+
+def test_session_file_preview_serves_m4a_inline(tmp_path) -> None:
+    audio = tmp_path / "memo.m4a"
+    audio.write_bytes(M4A_BYTES)
+    client = _preview_client(tmp_path)
+    login(client)
+
+    response = client.get(
+        "/api/v1/sessions/1/file/preview", params={"path": str(audio)}
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/mp4")
+    assert response.headers["content-disposition"].startswith("inline")
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.content == M4A_BYTES
 
 
 def test_session_file_preview_serves_image_inline(tmp_path) -> None:
