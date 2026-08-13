@@ -17,9 +17,12 @@
 
 Verifica del 13 agosto 2026:
 
-- 372 test backend passati e controlli Ruff superati;
-- build frontend completata;
+- 376 test backend passati e controlli Ruff superati;
+- tutti i test UI e la build frontend completati, incluso il caso M4A per
+  Directory e Artefatti;
 - deploy mirato di `backend` e `web`, senza ricreare `tmux-runtime`;
 - health applicazione/tmux operativo;
 - download MP3 autenticato confermato sull'istanza pubblicata sia dalla
   directory sia dagli Artefatti, con contenuto integro e media type atteso.
+- probe M4A AAC reale eseguito sul backend pubblicato e riconosciuto come
+  `audio/mp4`; bundle frontend HTTPS verificato con player e release note M4A.
