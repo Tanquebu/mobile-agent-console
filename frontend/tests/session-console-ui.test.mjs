@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const consoleView = app.slice(app.indexOf("function Console("), app.indexOf("export default function App()"));
 const rootApp = app.slice(app.indexOf("export default function App()"));
 
@@ -53,4 +54,12 @@ test("la modale archivio precompila una bozza revisionabile e persiste i campi e
   assert.match(archiveCreate, /maxLength=\{128\}/);
   assert.match(archiveCreate, /maxLength=\{2000\}/);
   assert.match(app, /item\.agent_session_name,[\s\S]*item\.summary,[\s\S]*item\.directory/);
+});
+
+test("le modali restano sopra la barra azioni della dashboard", () => {
+  const dashboardLayer = Number(styles.match(/\.dashboard-actions-wrap \{[^}]*z-index: (\d+)/)?.[1]);
+  const modalLayer = Number(styles.match(/\.modal-backdrop \{[^}]*z-index: (\d+)/)?.[1]);
+  assert.ok(Number.isFinite(dashboardLayer));
+  assert.ok(Number.isFinite(modalLayer));
+  assert.ok(modalLayer > dashboardLayer);
 });
