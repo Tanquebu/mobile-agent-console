@@ -107,6 +107,20 @@ def base_config_v2(**overrides):
     return payload
 
 
+def base_config_v3(**overrides):
+    payload = base_config_v2()
+    payload["schema_version"] = 3
+    payload["tmux_orphans"] = {
+        "state_file": "/run/tmux-orphan-state.json",
+        "max_age_seconds": 120,
+        "grace_seconds": 300,
+        "critical_memory_bytes": 1_073_741_824,
+        "critical_swap_bytes": 536_870_912,
+    }
+    payload.update(overrides)
+    return payload
+
+
 def process_stat(pid: int, name: str, start_ticks: int, rss_pages: int) -> str:
     fields = ["0"] * 22
     fields[0] = "S"
@@ -658,13 +672,13 @@ class HostObservabilityCollectorTest(unittest.TestCase):
         self.assertNotEqual(snapshot["status"], "critical")
         self.assertIn("docker_unavailable", snapshot["reasons"])
 
-    def test_checked_in_v2_example_is_valid_and_contains_only_synthetic_values(self) -> None:
+    def test_checked_in_v3_example_is_valid_and_contains_only_synthetic_values(self) -> None:
         example_path = SCRIPT.with_name("host-observability.example.json")
         payload = json.loads(example_path.read_text(encoding="utf-8"))
 
         config = collector.parse_config(payload)
 
-        self.assertEqual(config.schema_version, 2)
+        self.assertEqual(config.schema_version, 3)
         self.assertEqual(config.expected_listeners[0].port, 4242)
         self.assertTrue(all("example" in path.label.lower() for path in config.filesystems))
 
@@ -1655,6 +1669,46 @@ class HostObservabilityCollectorTest(unittest.TestCase):
             address[index : index + 4][::-1] for index in range(0, 16, 4)
         ).hex().upper()
         self.assertEqual(collector.address_scope(proc_encoded), "tailscale")
+
+    def test_v3_tmux_orphan_state_applies_grace_and_resource_thresholds(self) -> None:
+        with TemporaryDirectory() as temporary:
+            state_path = Path(temporary) / "tmux-orphans.json"
+            state_path.write_text(
+                json.dumps({
+                    "schema_version": 1,
+                    "collected_at": "2026-08-13T05:00:00+00:00",
+                    "available": True,
+                    "scanned_scopes": 3,
+                    "orphans": [
+                        {"pane_pid": 101, "age_seconds": 299, "tasks": 1, "memory_bytes": 9, "memory_peak_bytes": 10, "swap_bytes": 0},
+                        {"pane_pid": 202, "age_seconds": 301, "tasks": 4, "memory_bytes": 100, "memory_peak_bytes": 200, "swap_bytes": 60},
+                    ],
+                    "truncated": False,
+                }),
+                encoding="utf-8",
+            )
+            config = collector.parse_config(base_config_v3(tmux_orphans={
+                "state_file": str(state_path),
+                "max_age_seconds": 120,
+                "grace_seconds": 300,
+                "critical_memory_bytes": 100,
+                "critical_swap_bytes": 50,
+            })).tmux_orphans
+            with patch.object(collector, "datetime") as mocked_datetime:
+                mocked_datetime.now.return_value = datetime(2026, 8, 13, 5, 0, 30, tzinfo=UTC)
+                mocked_datetime.fromisoformat.side_effect = datetime.fromisoformat
+                result = collector.read_tmux_orphans(config)
+
+        self.assertEqual(result["status"], "critical")
+        self.assertEqual([item["pane_pid"] for item in result["items"]], [202])
+        self.assertIn("tmux_orphan_memory_critical", result["reasons"])
+        self.assertIn("tmux_orphan_swap_critical", result["reasons"])
+
+    def test_v3_requires_tmux_orphan_configuration(self) -> None:
+        payload = base_config_v3()
+        del payload["tmux_orphans"]
+        with self.assertRaises(collector.CollectorConfigError):
+            collector.parse_config(payload)
 
 
 if __name__ == "__main__":

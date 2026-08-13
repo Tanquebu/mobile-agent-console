@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from itertools import islice
 from pathlib import Path
 
-SUPPORTED_CONFIG_SCHEMA_VERSIONS = {1, 2}
+SUPPORTED_CONFIG_SCHEMA_VERSIONS = {1, 2, 3}
 MAX_CONFIG_BYTES = 64 * 1024
 MAX_RESPONSE_BYTES = 128 * 1024
 MAX_FILESYSTEMS = 16
@@ -29,6 +29,8 @@ MAX_LISTENERS = 50
 MAX_LISTENERS_SCANNED = 1000
 MAX_DOCKER_OUTPUT_BYTES = 64 * 1024
 MAX_SERVICE_STATE_BYTES = 256 * 1024
+MAX_TMUX_ORPHAN_STATE_BYTES = 256 * 1024
+MAX_TMUX_ORPHANS = 50
 DOCKER_TIMEOUT_SECONDS = 2
 DOCKER_BINARY = "/usr/bin/docker"
 SAFE_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.+-]{0,63}$")
@@ -133,6 +135,15 @@ class ServicesConfig:
 
 
 @dataclass(frozen=True)
+class TmuxOrphansConfig:
+    state_file: str | None = None
+    max_age_seconds: int = 120
+    grace_seconds: int = 300
+    critical_memory_bytes: int = 1_073_741_824
+    critical_swap_bytes: int = 536_870_912
+
+
+@dataclass(frozen=True)
 class CollectorConfig:
     schema_version: int = 1
     thresholds: Thresholds = Thresholds()
@@ -143,6 +154,7 @@ class CollectorConfig:
     process_policies: dict[str, ProcessPolicy] = field(default_factory=dict)
     docker: DockerConfig = DockerConfig()
     services: ServicesConfig = ServicesConfig()
+    tmux_orphans: TmuxOrphansConfig = TmuxOrphansConfig()
 
 
 @dataclass(frozen=True)
@@ -188,6 +200,26 @@ class ServiceState:
     # Quali supervisori hanno risposto: da questo dipende se una policy assente
     # dall'elenco significa "servizio sparito" o "non accertato".
     supervisors: dict[str, bool] = field(default_factory=dict)
+    reason: str | None = None
+    age_seconds: int | None = None
+    truncated: bool = False
+
+
+@dataclass(frozen=True)
+class TmuxOrphanRow:
+    pane_pid: int
+    age_seconds: int
+    tasks: int | None
+    memory_bytes: int | None
+    memory_peak_bytes: int | None
+    swap_bytes: int | None
+
+
+@dataclass(frozen=True)
+class TmuxOrphanState:
+    available: bool
+    rows: list[TmuxOrphanRow] = field(default_factory=list)
+    scanned_scopes: int = 0
     reason: str | None = None
     age_seconds: int | None = None
     truncated: bool = False
@@ -256,7 +288,7 @@ def parse_thresholds(value: object, schema_version: int) -> Thresholds:
         return Thresholds()
     raw = require_mapping(value, "thresholds")
     fields = set(Thresholds.__dataclass_fields__)
-    if schema_version == 2:
+    if schema_version >= 2:
         fields -= {
             "swap_used_critical_percent",
             "process_group_warning_count",
@@ -428,6 +460,46 @@ def parse_services(value: object) -> ServicesConfig:
     return ServicesConfig(state_file, max_age_seconds, policies)
 
 
+def parse_tmux_orphans(value: object) -> TmuxOrphansConfig:
+    raw = require_mapping(value, "tmux_orphans")
+    require_keys(
+        raw,
+        {
+            "state_file",
+            "max_age_seconds",
+            "grace_seconds",
+            "critical_memory_bytes",
+            "critical_swap_bytes",
+        },
+        "tmux_orphans",
+    )
+    state_file = raw.get("state_file")
+    if (
+        not isinstance(state_file, str)
+        or len(state_file) > 4096
+        or not Path(state_file).is_absolute()
+        or "\x00" in state_file
+    ):
+        raise CollectorConfigError("tmux orphan state file is invalid")
+    return TmuxOrphansConfig(
+        state_file=state_file,
+        max_age_seconds=integer(raw.get("max_age_seconds", 120), "tmux orphan max age", 1, 3600),
+        grace_seconds=integer(raw.get("grace_seconds", 300), "tmux orphan grace", 0, 86400),
+        critical_memory_bytes=integer(
+            raw.get("critical_memory_bytes", 1_073_741_824),
+            "tmux orphan critical memory",
+            1,
+            2**63 - 1,
+        ),
+        critical_swap_bytes=integer(
+            raw.get("critical_swap_bytes", 536_870_912),
+            "tmux orphan critical swap",
+            1,
+            2**63 - 1,
+        ),
+    )
+
+
 def parse_config(payload: object) -> CollectorConfig:
     raw = require_mapping(payload, "config")
     schema_version = raw.get("schema_version")
@@ -442,6 +514,8 @@ def parse_config(payload: object) -> CollectorConfig:
         if schema_version == 1
         else {"tcp_listener_policies", "process_policies", "swap_io_sample", "services"}
     )
+    if schema_version == 3:
+        version_fields.add("tmux_orphans")
     require_keys(
         raw,
         {
@@ -522,7 +596,7 @@ def parse_config(payload: object) -> CollectorConfig:
 
     raw_docker = require_mapping(raw.get("docker", {}), "docker")
     docker_fields = {"enabled"}
-    if schema_version == 2:
+    if schema_version >= 2:
         docker_fields |= {"container_policies", "state_file", "max_age_seconds"}
     else:
         docker_fields |= {"container_labels"}
@@ -547,7 +621,7 @@ def parse_config(payload: object) -> CollectorConfig:
         raise CollectorConfigError("docker max age is invalid")
     # v1 elenca solo le label, come per i processi; la v2 usa policy esplicite
     # che portano label e priorita', nella stessa forma di `process_policies`.
-    container_key = "container_policies" if schema_version == 2 else "container_labels"
+    container_key = "container_policies" if schema_version >= 2 else "container_labels"
     raw_containers = require_mapping(raw_docker.get(container_key, {}), container_key)
     if len(raw_containers) > MAX_CONTAINER_LABELS:
         raise CollectorConfigError("container policies exceeds limit")
@@ -572,7 +646,7 @@ def parse_config(payload: object) -> CollectorConfig:
         thresholds=parse_thresholds(raw.get("thresholds"), schema_version),
         swap_io_sample=(
             parse_swap_io_sample(raw.get("swap_io_sample"))
-            if schema_version == 2
+            if schema_version >= 2
             else SwapIoSampleConfig()
         ),
         filesystems=tuple(filesystems),
@@ -581,7 +655,12 @@ def parse_config(payload: object) -> CollectorConfig:
         process_policies=process_policies,
         docker=DockerConfig(enabled, container_policies, state_file, max_age_seconds),
         services=(
-            parse_services(raw.get("services")) if schema_version == 2 else ServicesConfig()
+            parse_services(raw.get("services")) if schema_version >= 2 else ServicesConfig()
+        ),
+        tmux_orphans=(
+            parse_tmux_orphans(raw.get("tmux_orphans"))
+            if schema_version == 3
+            else TmuxOrphansConfig()
         ),
     )
 
@@ -1003,7 +1082,7 @@ def read_processes(
     truncated = len(pid_paths) > MAX_PROCESSES_SCANNED
     # La swap per processo esiste solo nel contratto v2: sotto v1 il file
     # `status` non viene nemmeno aperto, cosi' la raccolta resta invariata.
-    collect_swap = config.schema_version == 2
+    collect_swap = config.schema_version >= 2
     for path in pid_paths[:MAX_PROCESSES_SCANNED]:
         try:
             stat_fields = (path / "stat").read_text(encoding="ascii").rstrip()
@@ -1098,7 +1177,7 @@ def read_processes(
         )
         top_groups = [item[2] for item in evaluated[:MAX_PROCESS_GROUPS]]
         reasons = fixed_reason(*reasons)
-    if inaccessible or (config.schema_version == 2 and truncated):
+    if inaccessible or (config.schema_version >= 2 and truncated):
         reasons = [*reasons, "processes_partial"]
         if status == "ok":
             status = "unknown"
@@ -1294,7 +1373,7 @@ def read_listeners(
         unique.values(),
         key=lambda item: (int(item["port"]), str(item[scope_field])),
     )
-    if partial or (config.schema_version == 2 and ownership_partial):
+    if partial or (config.schema_version >= 2 and ownership_partial):
         reasons.append("listeners_partial")
         if status == "ok":
             status = "unknown"
@@ -1527,7 +1606,7 @@ def read_docker(
     state = provider()
     # La memoria per container esiste solo nel contratto v2: sotto v1 l'output
     # resta identico a prima, campo per campo.
-    detailed = schema_version == 2
+    detailed = schema_version >= 2
     if not state.available:
         unavailable: dict[str, object] = {
             "status": "unknown",
@@ -1780,6 +1859,112 @@ def read_services(config: ServicesConfig, provider: ServiceStateProvider) -> dic
     }
 
 
+def read_tmux_orphan_state_file(
+    path: Path, max_age_seconds: int, *, now: datetime | None = None
+) -> TmuxOrphanState:
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return TmuxOrphanState(available=False, reason="tmux_orphans_unavailable")
+    if len(raw) > MAX_TMUX_ORPHAN_STATE_BYTES:
+        return TmuxOrphanState(available=False, reason="tmux_orphans_unavailable")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return TmuxOrphanState(available=False, reason="tmux_orphans_unavailable")
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        return TmuxOrphanState(available=False, reason="tmux_orphans_unavailable")
+    collected_at = payload.get("collected_at")
+    try:
+        written = datetime.fromisoformat(collected_at) if isinstance(collected_at, str) else None
+    except ValueError:
+        written = None
+    if written is None or written.tzinfo is None:
+        return TmuxOrphanState(available=False, reason="tmux_orphans_unavailable")
+    age = int(((now or datetime.now(UTC)) - written).total_seconds())
+    if age < 0 or age > max_age_seconds:
+        return TmuxOrphanState(
+            available=False,
+            reason="tmux_orphans_state_stale",
+            age_seconds=bounded_age(age),
+        )
+    rows_value = payload.get("orphans")
+    scanned = payload.get("scanned_scopes")
+    if (
+        payload.get("available") is not True
+        or not isinstance(rows_value, list)
+        or len(rows_value) > 1000
+        or isinstance(scanned, bool)
+        or not isinstance(scanned, int)
+        or not 0 <= scanned <= 1000
+    ):
+        return TmuxOrphanState(
+            available=False,
+            reason="tmux_orphans_unavailable",
+            age_seconds=bounded_age(age),
+        )
+    rows: list[TmuxOrphanRow] = []
+    for item in rows_value:
+        if not isinstance(item, dict) or set(item) != {
+            "pane_pid", "age_seconds", "tasks", "memory_bytes", "memory_peak_bytes", "swap_bytes"
+        }:
+            return TmuxOrphanState(available=False, reason="tmux_orphans_unavailable")
+        values = [item.get(name) for name in ("tasks", "memory_bytes", "memory_peak_bytes", "swap_bytes")]
+        if (
+            isinstance(item.get("pane_pid"), bool)
+            or not isinstance(item.get("pane_pid"), int)
+            or not 1 <= item["pane_pid"] <= 2**31 - 1
+            or isinstance(item.get("age_seconds"), bool)
+            or not isinstance(item.get("age_seconds"), int)
+            or not 0 <= item["age_seconds"] <= 2**31 - 1
+            or any(value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0) for value in values)
+            or (item.get("tasks") is not None and item["tasks"] > 4096)
+        ):
+            return TmuxOrphanState(available=False, reason="tmux_orphans_unavailable")
+        rows.append(TmuxOrphanRow(**item))
+    return TmuxOrphanState(
+        available=True,
+        rows=rows,
+        scanned_scopes=scanned,
+        age_seconds=bounded_age(age),
+        truncated=payload.get("truncated") is True,
+    )
+
+
+def read_tmux_orphans(config: TmuxOrphansConfig) -> dict[str, object]:
+    state = read_tmux_orphan_state_file(Path(config.state_file or ""), config.max_age_seconds)
+    if not state.available:
+        return {
+            "status": "unknown",
+            "reasons": [state.reason or "tmux_orphans_unavailable"],
+            "available": False,
+            "items": [],
+            "scanned_scopes": 0,
+            "truncated": False,
+            "state_age_seconds": state.age_seconds,
+        }
+    rows = [row for row in state.rows if row.age_seconds >= config.grace_seconds]
+    memory_critical = any((row.memory_bytes or 0) >= config.critical_memory_bytes for row in rows)
+    swap_critical = any((row.swap_bytes or 0) >= config.critical_swap_bytes for row in rows)
+    reasons: list[str] = []
+    if rows:
+        reasons.append("tmux_orphan_detected")
+    if memory_critical:
+        reasons.append("tmux_orphan_memory_critical")
+    if swap_critical:
+        reasons.append("tmux_orphan_swap_critical")
+    status = "critical" if memory_critical or swap_critical else "warning" if rows else "ok"
+    return {
+        "status": status,
+        "reasons": reasons,
+        "available": True,
+        "items": [row.__dict__ for row in rows[:MAX_TMUX_ORPHANS]],
+        "scanned_scopes": state.scanned_scopes,
+        "truncated": state.truncated or len(rows) > MAX_TMUX_ORPHANS,
+        "state_age_seconds": state.age_seconds,
+    }
+
+
 def collect_snapshot(
     config: CollectorConfig,
     *,
@@ -1796,7 +1981,7 @@ def collect_snapshot(
     memory = read_memory(
         proc_root,
         config.thresholds,
-        swap_io_config=config.swap_io_sample if config.schema_version == 2 else None,
+        swap_io_config=config.swap_io_sample if config.schema_version >= 2 else None,
         sleep=sleep,
         monotonic=monotonic,
     )
@@ -1830,6 +2015,11 @@ def collect_snapshot(
     )
     if services is not None:
         components.append(services)
+    tmux_orphans = (
+        read_tmux_orphans(config.tmux_orphans) if config.schema_version == 3 else None
+    )
+    if tmux_orphans is not None:
+        components.append(tmux_orphans)
     reasons = fixed_reason(
         *(reason for component in components for reason in component.get("reasons", []))
     )
@@ -1848,6 +2038,7 @@ def collect_snapshot(
         # Emesso solo se configurato: un host senza `services.state_file` non
         # deve vedere una scheda vuota che somiglia a "nessun servizio giu'".
         **({"services": services} if services is not None else {}),
+        **({"tmux_orphans": tmux_orphans} if tmux_orphans is not None else {}),
     }
 
 

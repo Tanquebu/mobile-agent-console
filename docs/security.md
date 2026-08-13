@@ -201,13 +201,20 @@ La risposta è limitata a 128 KiB e la unit a cinque secondi. Un errore parziale
 produce `unknown` nel solo componente coinvolto e non viene trasformato in
 `ok`; il contratto completo e i limiti sono in
 `docs/contracts/host-observability-v1.md` e
-`docs/contracts/host-observability-v2.md`. La v2 aggiunge un campione locale e
+`docs/contracts/host-observability-v2.md` e
+`docs/contracts/host-observability-v3.md`. La v2 aggiunge un campione locale e
 limitato dei contatori swap e policy private per porta/scope e aggregati
 count/RSS. Il payload espone solo delta, esito policy e scope normalizzati:
 nessuna soglia privata, attestazione firewall, raggiungibilità presunta, sonda
 esterna, API cloud o credenziale attraversa il boundary. Backend e frontend
-accettano v1/v2 durante il rollout; versioni future, forme miste e campi extra
+accettano v1/v2/v3 durante il rollout; versioni future, forme miste e campi extra
 falliscono chiuso senza essere loggati.
+
+La v3 riceve da un helper host i soli contatori aggregati degli scope tmux il
+cui PID pane non compare più fra i pane attivi. Il file intermedio è `0600`,
+atomico e soggetto a scadenza; UUID scope, nomi sessione, command line,
+environment e cwd restano sull'host. La unit usa esclusivamente argv fissi con
+`shell=False`, timeout e output limitato e non possiede alcuna azione di kill.
 
 Il collector dello stato sessioni legge processi e transcript esclusivamente
 sull'host. Il file atomico risultante contiene solo identificatore numerico

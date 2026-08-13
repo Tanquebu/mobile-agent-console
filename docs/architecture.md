@@ -217,6 +217,13 @@ separata. Il backend valida nuovamente l'intero contratto Pydantic e non persist
 audita o logga la fotografia. Il client config espone il flag soltanto agli
 admin, così i ruoli non autorizzati non preparano la futura vista.
 
+Il contratto v3 aggiunge il rilevamento degli scope tmux sopravvissuti al pane
+che li ha originati (ADR 013). Un helper host su timer confronta PID pane e
+scope systemd e scrive un file atomico `0600`; il collector on-demand conserva
+il proprio hardening e legge soltanto questa evidenza a vita breve. Attraversano
+il boundary PID pane, età e contatori cgroup aggregati, mai nomi di sessione,
+UUID scope, command line o cwd. Il monitor non termina processi.
+
 HO-04 consuma l'endpoint in una vista mobile separata, montata soltanto quando
 ruolo e flag sono entrambi validi. La fotografia viene richiesta una volta
 all'apertura e soltanto con refresh manuale; mentre la vista è aperta vengono

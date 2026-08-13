@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "thresholds": {
     "memory_available_warning_percent": 20,
     "memory_available_critical_percent": 10,
@@ -64,5 +64,12 @@
       "systemd_system:example-proxy.service": { "label": "Example proxy", "priority": "essential" },
       "pm2:example-frontend": { "label": "Example frontend", "priority": "optional" }
     }
+  },
+  "tmux_orphans": {
+    "state_file": "/srv/example-workspace/.mobile-agent-console/tmux-orphan-state.json",
+    "max_age_seconds": 120,
+    "grace_seconds": 300,
+    "critical_memory_bytes": 1073741824,
+    "critical_swap_bytes": 536870912
   }
 }

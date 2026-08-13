@@ -10,14 +10,16 @@ Installare `setfacl` (pacchetto `acl` nelle distribuzioni Debian/Ubuntu). Le ACL
 nominali autorizzano soltanto l'UID host effettivo del backend; il gruppo
 proprietario e `other` restano senza accesso.
 
-Installare lo script e le tre unit user:
+Installare lo script, le tre unit della socket e il timer degli scope tmux:
 
 ```bash
 install -m 0644 deploy/systemd/mobile-agent-console-host-observability.socket ~/.config/systemd/user/
 install -m 0644 deploy/systemd/mobile-agent-console-host-observability@.service ~/.config/systemd/user/
 install -m 0644 deploy/systemd/mobile-agent-console-host-observability-prepare.service ~/.config/systemd/user/
+install -m 0644 deploy/systemd/mobile-agent-console-tmux-orphan-state.service ~/.config/systemd/user/
+install -m 0644 deploy/systemd/mobile-agent-console-tmux-orphan-state.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemd-analyze --user verify deploy/systemd/mobile-agent-console-host-observability-prepare.service deploy/systemd/mobile-agent-console-host-observability.socket deploy/systemd/mobile-agent-console-host-observability@.service
+systemd-analyze --user verify deploy/systemd/mobile-agent-console-host-observability-prepare.service deploy/systemd/mobile-agent-console-host-observability.socket deploy/systemd/mobile-agent-console-host-observability@.service deploy/systemd/mobile-agent-console-tmux-orphan-state.service deploy/systemd/mobile-agent-console-tmux-orphan-state.timer
 ```
 
 `systemd-analyze` deve terminare con exit `0` e senza `ordering cycle`. Il flag
@@ -73,9 +75,17 @@ preparazione e socket dopo ogni modifica del mapping:
 
 ```bash
 systemctl --user enable --now mobile-agent-console-host-observability.socket
+systemctl --user enable --now mobile-agent-console-tmux-orphan-state.timer
+systemctl --user start mobile-agent-console-tmux-orphan-state.service
 systemctl --user restart mobile-agent-console-host-observability-prepare.service
 systemctl --user restart mobile-agent-console-host-observability.socket
 ```
+
+Con una fixture orfana intenzionale, il file
+`${MAC_WORKSPACE_ROOT}/.mobile-agent-console/tmux-orphan-state.json` deve
+contenere un solo record senza command line o cwd; dopo la grace period lo
+snapshot v3 deve mostrarlo in `tmux_orphans.items`. Non terminare la fixture:
+il monitor è soltanto osservativo.
 
 ## Check comuni
 

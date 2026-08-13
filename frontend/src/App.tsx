@@ -137,9 +137,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "MP3 in download e negli allegati",
+  title: "Monitor degli scope tmux orfani",
   description:
-    "I file audio MP3 si possono scaricare dalla directory e dagli Artefatti, riprodurre in anteprima e allegare ai prompt.",
+    "La vista Host ora segnala i processi sopravvissuti alla chiusura del proprio pane tmux, con RAM, swap, picco ed età, senza terminarli automaticamente.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1981,6 +1981,11 @@ const HOST_REASON_LABEL: Record<string, string> = {
   services_output_invalid: "Stato dei servizi non valido",
   essential_service_down: "Servizio strategico non attivo",
   supervisor_unavailable: "Supervisore non raggiunto",
+  tmux_orphans_unavailable: "Monitor scope tmux non disponibile",
+  tmux_orphans_state_stale: "Monitor scope tmux non aggiornato",
+  tmux_orphan_detected: "Processo orfano di una sessione tmux",
+  tmux_orphan_memory_critical: "Processo tmux orfano con memoria critica",
+  tmux_orphan_swap_critical: "Processo tmux orfano con swap critica",
 };
 
 const HOST_PROCESS_POLICY_LABEL = {
@@ -2045,6 +2050,11 @@ const HOST_REASON_HINT: Record<string, string> = {
   services_output_invalid: "Stato dei servizi non interpretabile: nessun servizio è accertato.",
   essential_service_down: "Un servizio dichiarato strategico non è in esecuzione: va rimesso in piedi, non rimandato.",
   supervisor_unavailable: "Un supervisore non ha risposto: i suoi servizi non sono accertati, il che non vuol dire che siano caduti.",
+  tmux_orphans_unavailable: "Il confronto tra pane tmux e scope systemd non è disponibile: gli orfani non sono accertati.",
+  tmux_orphans_state_stale: "Il timer del monitor tmux si è fermato: il dato vecchio viene scartato.",
+  tmux_orphan_detected: "Uno scope avviato da tmux è ancora attivo, ma il pane che lo possedeva non esiste più.",
+  tmux_orphan_memory_critical: "Uno scope tmux orfano ha superato la soglia di memoria corrente configurata.",
+  tmux_orphan_swap_critical: "Uno scope tmux orfano ha superato la soglia di swap configurata.",
 };
 
 // `info` non è uno stato del collector: è una riga che esiste perché l'utente
@@ -2102,7 +2112,7 @@ function hostReasonSeverity(reason: string, fallback: HostComponent["status"]): 
 }
 
 function hostSwapIdle(snapshot: HostObservabilitySnapshot): boolean {
-  if (snapshot.schema_version !== 2) return false;
+  if (snapshot.schema_version === 1) return false;
   const sample = snapshot.memory.swap_io_sample;
   return sample.available && sample.pages_in_delta === 0 && sample.pages_out_delta === 0;
 }
@@ -2115,8 +2125,11 @@ function buildHostIssues(snapshot: HostObservabilitySnapshot): HostIssue[] {
     ["processi", snapshot.processes],
     ["porte", snapshot.listeners],
     ["docker", snapshot.docker],
-    ...(snapshot.schema_version === 2 && snapshot.services
+    ...(snapshot.schema_version !== 1 && snapshot.services
       ? ([["servizi", snapshot.services]] as Array<[string, HostComponent]>)
+      : []),
+    ...(snapshot.schema_version === 3
+      ? ([["orfani tmux", snapshot.tmux_orphans]] as Array<[string, HostComponent]>)
       : []),
   ];
   const issues: HostIssue[] = [];
@@ -2135,7 +2148,7 @@ function buildHostIssues(snapshot: HostObservabilitySnapshot): HostIssue[] {
   }
   // I servizi non critici fermi non producono un reason: il collector non li
   // giudica. Restano però una decisione da prendere, quindi vanno visti.
-  if (snapshot.schema_version === 2) {
+  if (snapshot.schema_version !== 1) {
     for (const container of snapshot.docker.containers ?? []) {
       if (container.priority !== "optional" || container.state === "running") continue;
       issues.push({
@@ -2192,7 +2205,7 @@ function hostIssueHint(reason: string, snapshot: HostObservabilitySnapshot): str
   }
   if (reason === "essential_service_down" || reason === "supervisor_unavailable") {
     const wanted = reason === "supervisor_unavailable" ? "unknown" : null;
-    const services = (snapshot.schema_version === 2 ? snapshot.services?.items ?? [] : [])
+    const services = (snapshot.schema_version !== 1 ? snapshot.services?.items ?? [] : [])
       .filter((service) => (
         wanted === null
           ? service.priority === "essential" && service.state !== "running" && service.state !== "starting" && service.state !== "unknown"
@@ -2225,7 +2238,7 @@ function hostVerdictHeadline(snapshot: HostObservabilitySnapshot, issues: HostIs
 
 function hostVerdictDetail(snapshot: HostObservabilitySnapshot, issues: HostIssue[]): string {
   const swapHigh = snapshot.memory.reasons.some((reason) => reason.startsWith("swap_used"));
-  if (swapHigh && hostSwapIdle(snapshot) && snapshot.schema_version === 2) {
+  if (swapHigh && hostSwapIdle(snapshot) && snapshot.schema_version !== 1) {
     const sample = snapshot.memory.swap_io_sample;
     return (
       `La swap è occupata (${formatSize(snapshot.memory.swap_used_bytes)} di `
@@ -2358,7 +2371,7 @@ function HostKpiRow({ snapshot, swapHistory }: { snapshot: HostObservabilitySnap
         ? "warning"
         : "ok";
   const idle = hostSwapIdle(snapshot);
-  const swapNote = snapshot.schema_version !== 2
+  const swapNote = snapshot.schema_version === 1
     ? "Attività non campionata su snapshot v1"
     : snapshot.memory.swap_io_sample.available
       ? idle
@@ -2428,7 +2441,7 @@ function HostKpiRow({ snapshot, swapHistory }: { snapshot: HostObservabilitySnap
 // L'unico dato della fotografia che non è istantaneo: l'età va detta, non
 // lasciata intendere.
 function HostContainersNote({ snapshot }: { snapshot: HostObservabilitySnapshot }) {
-  if (snapshot.schema_version !== 2) {
+  if (snapshot.schema_version === 1) {
     return <>Snapshot legacy v1: la memoria per container non è raccolta.</>;
   }
   const age = snapshot.docker.state_age_seconds;
@@ -2452,7 +2465,7 @@ function hostServiceStatus(service: HostServiceItem): HostComponent["status"] {
 }
 
 function HostServicesNote({ snapshot }: { snapshot: HostObservabilitySnapshot }) {
-  const services = snapshot.schema_version === 2 ? snapshot.services : null;
+  const services = snapshot.schema_version !== 1 ? snapshot.services : null;
   if (!services) return <>Raccolta dei servizi supervisionati non configurata.</>;
   const unmapped = services.unmapped_count;
   return (
@@ -2470,12 +2483,12 @@ type HostConsumerTab = "rss" | "swap" | "groups" | "containers" | "services";
 
 function HostConsumers({ snapshot }: { snapshot: HostObservabilitySnapshot }) {
   const [tab, setTab] = useState<HostConsumerTab>("rss");
-  const swapRanking = snapshot.schema_version === 2 ? snapshot.processes.top_swap ?? [] : [];
-  const swapAvailable = snapshot.schema_version === 2 && snapshot.processes.top_swap !== undefined;
-  const attributed = snapshot.schema_version === 2 ? snapshot.processes.swap_attributed_bytes ?? null : null;
-  const containers = snapshot.schema_version === 2 ? snapshot.docker.containers ?? [] : [];
-  const containersAvailable = snapshot.schema_version === 2 && snapshot.docker.containers !== undefined;
-  const services = snapshot.schema_version === 2 ? snapshot.services : null;
+  const swapRanking = snapshot.schema_version !== 1 ? snapshot.processes.top_swap ?? [] : [];
+  const swapAvailable = snapshot.schema_version !== 1 && snapshot.processes.top_swap !== undefined;
+  const attributed = snapshot.schema_version !== 1 ? snapshot.processes.swap_attributed_bytes ?? null : null;
+  const containers = snapshot.schema_version !== 1 ? snapshot.docker.containers ?? [] : [];
+  const containersAvailable = snapshot.schema_version !== 1 && snapshot.docker.containers !== undefined;
+  const services = snapshot.schema_version !== 1 ? snapshot.services : null;
   const tabs: Array<[HostConsumerTab, string]> = [
     ["rss", "Memoria"],
     ...(swapAvailable ? ([["swap", "Swap"]] as Array<[HostConsumerTab, string]>) : []),
@@ -2644,7 +2657,7 @@ function HostConsumers({ snapshot }: { snapshot: HostObservabilitySnapshot }) {
           <HostServicesNote snapshot={snapshot} />
         ) : tab === "containers" ? (
           <HostContainersNote snapshot={snapshot} />
-        ) : snapshot.schema_version !== 2 ? (
+        ) : snapshot.schema_version === 1 ? (
           "Snapshot legacy v1: la swap per processo non è raccolta, la colonna resta non accertata."
         ) : attributed === null ? (
           "Swap per processo non accertata in questa fotografia."
@@ -3566,7 +3579,7 @@ function HostView({ onBack }: { onBack: () => void }) {
   }, []);
 
   const displayedListeners = snapshot ? (
-    snapshot.schema_version === 2
+    snapshot.schema_version !== 1
       ? snapshot.listeners.items
       : snapshot.listeners.items.filter((item) => !item.expected)
   ) : [];
@@ -3653,7 +3666,7 @@ function HostView({ onBack }: { onBack: () => void }) {
           <div className="host-detail-heading">
             <span className="eyebrow">DETTAGLIO</span>
             <small>
-              Contratto {snapshot.schema_version === 1 ? "v1 legacy" : "v2"} · Raccolta in {snapshot.duration_ms} ms
+              Contratto {snapshot.schema_version === 1 ? "v1 legacy" : `v${snapshot.schema_version}`} · Raccolta in {snapshot.duration_ms} ms
             </small>
           </div>
 
@@ -3665,7 +3678,7 @@ function HostView({ onBack }: { onBack: () => void }) {
                 <HostMetric label="Swap usata" value={`${formatSize(snapshot.memory.swap_used_bytes)} · ${formatPercent(snapshot.memory.swap_used_percent)}`} />
                 <HostMetric label="Swap totale" value={formatSize(snapshot.memory.swap_total_bytes)} />
               </dl>
-              {snapshot.schema_version === 2 && (
+              {snapshot.schema_version !== 1 && (
                 <section className="host-sample" aria-label="Campione attività swap">
                   <h4>Campione attività swap</h4>
                   {snapshot.memory.swap_io_sample.available ? (
@@ -3718,7 +3731,7 @@ function HostView({ onBack }: { onBack: () => void }) {
                   <article key={group.name}>
                     <span><strong>{group.label ?? group.name}</strong><small>{group.label ? group.name : null}</small></span>
                     <span><strong>{group.count}×</strong><small>{formatSize(group.rss_bytes)} · più vecchio {formatAge(group.oldest_age_seconds)}</small></span>
-                    {snapshot.schema_version === 2 && group.policy_status && (
+                    {snapshot.schema_version !== 1 && group.policy_status && (
                       <p className={`host-policy policy-${group.policy_status}`}>
                         Valutazione policy: {HOST_PROCESS_POLICY_LABEL[group.policy_status]}
                       </p>
@@ -3730,12 +3743,12 @@ function HostView({ onBack }: { onBack: () => void }) {
           </HostCard>
 
           <HostCard
-            title={snapshot.schema_version === 2 ? "Listener TCP" : "Porte inattese"}
+            title={snapshot.schema_version !== 1 ? "Listener TCP" : "Porte inattese"}
             component={snapshot.listeners}
           >
             {displayedListeners.length === 0 ? (
               <p className="host-empty">
-                {snapshot.schema_version === 2 ? "Nessun listener TCP rilevato." : "Nessuna porta inattesa rilevata."}
+                {snapshot.schema_version !== 1 ? "Nessun listener TCP rilevato." : "Nessuna porta inattesa rilevata."}
               </p>
             ) : (
               <div className="host-item-grid">
@@ -3759,7 +3772,7 @@ function HostView({ onBack }: { onBack: () => void }) {
               </div>
             )}
             <p className="host-note">
-              {snapshot.schema_version === 2
+              {snapshot.schema_version !== 1
                 ? "La fotografia osserva il bind locale; non verifica la raggiungibilità dalla rete esterna."
                 : "Snapshot legacy v1: policy locale e raggiungibilità esterna non sono disponibili."}
             </p>
@@ -3784,12 +3797,12 @@ function HostView({ onBack }: { onBack: () => void }) {
             {snapshot.docker.unmapped_problematic_count > 0 && (
               <p className="host-note">Altri container problematici senza label: {snapshot.docker.unmapped_problematic_count}</p>
             )}
-            {snapshot.schema_version === 2 && (
+            {snapshot.schema_version !== 1 && (
               <p className="host-note"><HostContainersNote snapshot={snapshot} /></p>
             )}
           </HostCard>
 
-          {snapshot.schema_version === 2 && snapshot.services && (
+          {snapshot.schema_version !== 1 && snapshot.services && (
             <HostCard title="Servizi supervisionati" component={snapshot.services}>
               {!snapshot.services.available && <p className="host-empty">Stato dei servizi non disponibile.</p>}
               {snapshot.services.available && snapshot.services.items.length === 0 && (
@@ -3822,6 +3835,34 @@ function HostView({ onBack }: { onBack: () => void }) {
                 </div>
               )}
               <p className="host-note"><HostServicesNote snapshot={snapshot} /></p>
+            </HostCard>
+          )}
+
+          {snapshot.schema_version === 3 && (
+            <HostCard title="Scope tmux orfani" component={snapshot.tmux_orphans}>
+              {!snapshot.tmux_orphans.available && (
+                <p className="host-empty">Rilevamento degli orfani non disponibile.</p>
+              )}
+              {snapshot.tmux_orphans.available && snapshot.tmux_orphans.items.length === 0 && (
+                <p className="host-empty">Nessuno scope sopravvissuto al proprio pane oltre il periodo di tolleranza.</p>
+              )}
+              {snapshot.tmux_orphans.items.length > 0 && (
+                <div className="host-item-grid">
+                  {snapshot.tmux_orphans.items.map((orphan) => (
+                    <article key={orphan.pane_pid} className="host-item status-warning">
+                      <header><strong>Pane PID {orphan.pane_pid}</strong><HostStatusBadge status="warning" /></header>
+                      <span>{formatSize(orphan.memory_bytes)} RAM · {formatSize(orphan.swap_bytes)} swap</span>
+                      <small>
+                        Attivo da {formatAge(orphan.age_seconds)} · {orphan.tasks ?? "—"} processi
+                        {orphan.memory_peak_bytes === null ? "" : ` · picco ${formatSize(orphan.memory_peak_bytes)}`}
+                      </small>
+                    </article>
+                  ))}
+                </div>
+              )}
+              <p className="host-note">
+                {snapshot.tmux_orphans.scanned_scopes} scope tmux confrontati con i pane attivi; il monitor segnala soltanto e non termina processi.
+              </p>
             </HostCard>
           )}
 

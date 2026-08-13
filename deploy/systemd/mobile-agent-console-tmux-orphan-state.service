@@ -1,0 +1,17 @@
+[Unit]
+Description=Collect Mobile Agent Console orphan tmux scope state
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/mobile-agent-console/environment
+ExecStart=/usr/bin/python3 ${MAC_INSTALL_DIR}/deploy/tmux-orphan-state-collector.py --output ${MAC_WORKSPACE_ROOT}/.mobile-agent-console/tmux-orphan-state.json
+# Il socket tmux e il bus systemd utente non sono raggiungibili da una unit con
+# mount namespace su Ubuntu 24.04. Questa eccezione e' limitata a due comandi
+# argv fissi e alla scrittura atomica di un solo file 0600 (ADR 013).
+UMask=0077
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+LockPersonality=yes
+RuntimeMaxSec=20

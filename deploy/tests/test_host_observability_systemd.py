@@ -14,12 +14,15 @@ UNITS = [
     UNIT_DIRECTORY / "mobile-agent-console-docker-state.timer",
     UNIT_DIRECTORY / "mobile-agent-console-service-state.service",
     UNIT_DIRECTORY / "mobile-agent-console-service-state.timer",
+    UNIT_DIRECTORY / "mobile-agent-console-tmux-orphan-state.service",
+    UNIT_DIRECTORY / "mobile-agent-console-tmux-orphan-state.timer",
 ]
 # Le due unit di raccolta fuori banda condividono la stessa eccezione di
 # hardening e la stessa ragione: ADR 011 per Docker, ADR 012 per systemd e pm2.
 OUT_OF_BAND_UNITS = [
     ("mobile-agent-console-docker-state", "docker"),
     ("mobile-agent-console-service-state", "services"),
+    ("mobile-agent-console-tmux-orphan-state", "tmux_orphans"),
 ]
 # Ognuna di queste crea un mount namespace, e su Ubuntu 24.04 questo fa ricadere
 # il servizio nel profilo AppArmor `unprivileged_userns`, che nega la connect()

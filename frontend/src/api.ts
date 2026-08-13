@@ -366,6 +366,24 @@ export type HostObservabilitySnapshotV2 = HostObservabilitySnapshotBase & {
   }) | null;
 };
 
+export type HostObservabilitySnapshotV3 = Omit<HostObservabilitySnapshotV2, "schema_version"> & {
+  schema_version: 3;
+  tmux_orphans: HostComponent & {
+    available: boolean;
+    items: Array<{
+      pane_pid: number;
+      age_seconds: number;
+      tasks: number | null;
+      memory_bytes: number | null;
+      memory_peak_bytes: number | null;
+      swap_bytes: number | null;
+    }>;
+    scanned_scopes: number;
+    truncated: boolean;
+    state_age_seconds: number | null;
+  };
+};
+
 export type HostServiceItem = {
   label: string;
   supervisor: "systemd_system" | "systemd_user" | "pm2";
@@ -379,7 +397,8 @@ export type HostServiceItem = {
 
 export type HostObservabilitySnapshot =
   | HostObservabilitySnapshotV1
-  | HostObservabilitySnapshotV2;
+  | HostObservabilitySnapshotV2
+  | HostObservabilitySnapshotV3;
 
 export async function fetchHostObservability(): Promise<HostObservabilitySnapshot> {
   const response = await request("/api/v1/host-observability");

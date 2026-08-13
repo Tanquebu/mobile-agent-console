@@ -79,6 +79,14 @@ HostReasonV2 = Literal[
     "essential_service_down",
     "supervisor_unavailable",
 ]
+HostReasonV3 = Literal[
+    *HostReasonV2.__args__,
+    "tmux_orphans_unavailable",
+    "tmux_orphans_state_stale",
+    "tmux_orphan_detected",
+    "tmux_orphan_memory_critical",
+    "tmux_orphan_swap_critical",
+]
 
 
 class StrictModel(BaseModel):
@@ -374,8 +382,33 @@ class HostObservabilitySnapshotV2(TimestampedSnapshot):
     services: ServicesComponentV2 | None = None
 
 
+class TmuxOrphanItem(StrictModel):
+    pane_pid: int = Field(ge=1, le=2**31 - 1)
+    age_seconds: int = Field(ge=0, le=2**31 - 1)
+    tasks: int | None = Field(default=None, ge=0, le=4096)
+    memory_bytes: int | None = Field(default=None, ge=0)
+    memory_peak_bytes: int | None = Field(default=None, ge=0)
+    swap_bytes: int | None = Field(default=None, ge=0)
+
+
+class TmuxOrphansComponentV3(StrictModel):
+    status: HostStatus
+    reasons: list[HostReasonV3] = Field(max_length=8)
+    available: bool
+    items: list[TmuxOrphanItem] = Field(max_length=50)
+    scanned_scopes: int = Field(ge=0, le=1000)
+    truncated: bool
+    state_age_seconds: int | None = Field(default=None, ge=0, le=86400)
+
+
+class HostObservabilitySnapshotV3(HostObservabilitySnapshotV2):
+    schema_version: Literal[3]
+    reasons: list[HostReasonV3] = Field(max_length=8)
+    tmux_orphans: TmuxOrphansComponentV3
+
+
 HostObservabilitySnapshot = Annotated[
-    HostObservabilitySnapshotV1 | HostObservabilitySnapshotV2,
+    HostObservabilitySnapshotV1 | HostObservabilitySnapshotV2 | HostObservabilitySnapshotV3,
     Field(discriminator="schema_version"),
 ]
 HOST_OBSERVABILITY_SNAPSHOT_ADAPTER = TypeAdapter(HostObservabilitySnapshot)

@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh Mobile Agent Console orphan tmux scope state
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

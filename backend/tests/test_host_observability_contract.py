@@ -132,6 +132,29 @@ def valid_snapshot_v2() -> dict[str, object]:
     return payload
 
 
+def valid_snapshot_v3() -> dict[str, object]:
+    payload = valid_snapshot_v2()
+    payload["schema_version"] = 3
+    payload["reasons"] = ["tmux_orphan_detected"]
+    payload["tmux_orphans"] = {
+        "status": "warning",
+        "reasons": ["tmux_orphan_detected"],
+        "available": True,
+        "items": [{
+            "pane_pid": 202,
+            "age_seconds": 600,
+            "tasks": 4,
+            "memory_bytes": 100_000_000,
+            "memory_peak_bytes": 900_000_000,
+            "swap_bytes": 50_000_000,
+        }],
+        "scanned_scopes": 5,
+        "truncated": False,
+        "state_age_seconds": 12,
+    }
+    return payload
+
+
 def test_host_observability_contract_accepts_v1_snapshot() -> None:
     snapshot = validate_host_observability_snapshot(valid_snapshot())
 
@@ -150,6 +173,14 @@ def test_host_observability_contract_accepts_v2_snapshot() -> None:
     assert snapshot.listeners.items[0].external_reachability == "not_assessed"
 
 
+def test_host_observability_contract_accepts_v3_snapshot() -> None:
+    snapshot = validate_host_observability_snapshot(valid_snapshot_v3())
+
+    assert snapshot.schema_version == 3
+    assert snapshot.tmux_orphans.items[0].pane_pid == 202
+    assert snapshot.tmux_orphans.items[0].memory_peak_bytes == 900_000_000
+
+
 @pytest.mark.parametrize(
     ("filename", "schema_version"),
     [("host-observability-v1.json", 1), ("host-observability-v2.json", 2)],
@@ -165,7 +196,7 @@ def test_browser_fixtures_match_authoritative_contract(
 @pytest.mark.parametrize(
     ("path", "value"),
     [
-        (("schema_version",), 3),
+        (("schema_version",), 4),
         (("duration_ms",), "21"),
         (("collected_at",), "2026-08-01T12:00:00"),
         (("collected_at",), "2026-08-01T12:00:00+01:00"),

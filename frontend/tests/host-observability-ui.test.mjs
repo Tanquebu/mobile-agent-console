@@ -111,7 +111,7 @@ test("il verdetto riporta lo stato del collector senza riscriverlo", () => {
 test("swap occupata e swap attiva restano due cose distinte", () => {
   const idle = app.slice(app.indexOf("function hostSwapIdle("), app.indexOf("function buildHostIssues("));
   // senza campione non si può dedurre inattività: v1 e sample assente sono falsi
-  assert.match(idle, /if \(snapshot\.schema_version !== 2\) return false/);
+  assert.match(idle, /if \(snapshot\.schema_version === 1\) return false/);
   assert.match(idle, /sample\.available && sample\.pages_in_delta === 0 && sample\.pages_out_delta === 0/);
   assert.match(app, /memoria parcheggiata, non un collo di bottiglia/);
   assert.match(app, /tag=\{idle \? "Inattiva" : undefined\}/);
@@ -124,7 +124,7 @@ test("la classifica per swap non è derivata da quella per memoria", () => {
   assert.match(api, /top_swap\?: HostProcessItem\[\]/);
   assert.match(api, /swap_attributed_bytes\?: number \| null/);
   const consumers = app.slice(app.indexOf("function HostConsumers("), app.indexOf("function HostStatusBadge("));
-  assert.match(consumers, /snapshot\.schema_version === 2 \? snapshot\.processes\.top_swap \?\? \[\] : \[\]/);
+  assert.match(consumers, /snapshot\.schema_version !== 1 \? snapshot\.processes\.top_swap \?\? \[\] : \[\]/);
   assert.match(consumers, /tab === "rss" \? snapshot\.processes\.top : tab === "swap" \? swapRanking/);
   // swap non accertata non diventa mai zero
   assert.match(consumers, /swap_bytes === undefined \|\| \w+\.swap_bytes === null \? "n\/a"/);
@@ -137,7 +137,7 @@ test("la memoria per container è mostrata con la sua età", () => {
   assert.match(api, /containers\?: Array<\{\s*label: string;\s*memory_bytes: number \| null;/);
   assert.match(api, /state_age_seconds\?: number \| null/);
   const consumers = app.slice(app.indexOf("function HostConsumers("), app.indexOf("function HostStatusBadge("));
-  assert.match(consumers, /snapshot\.schema_version === 2 \? snapshot\.docker\.containers \?\? \[\] : \[\]/);
+  assert.match(consumers, /snapshot\.schema_version !== 1 \? snapshot\.docker\.containers \?\? \[\] : \[\]/);
   // container fermo: nessuna memoria campionata, mai zero
   assert.match(consumers, /container\.memory_bytes === null \? "—"/);
   assert.match(consumers, /!snapshot\.docker\.available \?/);
@@ -190,6 +190,15 @@ test("i servizi supervisionati distinguono fermo, sparito e non accertato", () =
   assert.match(note, /Raccolta dei servizi supervisionati non configurata/);
 });
 
+test("v3 mostra gli scope tmux orfani senza offrire azioni distruttive", () => {
+  assert.match(api, /tmux_orphans: HostComponent & \{/);
+  assert.match(api, /pane_pid: number;[\s\S]*memory_peak_bytes: number \| null;/);
+  assert.match(hostView, /title="Scope tmux orfani"/);
+  assert.match(hostView, /snapshot\.schema_version === 3/);
+  assert.match(hostView, /il monitor segnala soltanto e non termina processi/);
+  assert.doesNotMatch(hostView, /kill|terminaOrfano|deleteOrphan/i);
+});
+
 test("le tessere mostrano la misura leggibile, non tutti i valori grezzi", () => {
   const kpis = app.slice(app.indexOf("function HostKpiRow("), app.indexOf("type HostConsumerTab"));
   // il carico utile è quello normalizzato per CPU, non i tre load average
@@ -234,7 +243,7 @@ test("le sezioni Host partono chiuse e mostrano titolo e stato nel summary", () 
   assert.match(styles, /\.host-card-body \{[^}]*border-top:/);
 });
 
-test("v1 e v2 distinguono fatti locali, valutazione e dati non accertati", () => {
+test("v1, v2 e v3 distinguono fatti locali, valutazione e dati non accertati", () => {
   for (const text of [
     "Come leggere la fotografia",
     "Fatti locali",
@@ -246,9 +255,9 @@ test("v1 e v2 distinguono fatti locali, valutazione e dati non accertati", () =>
     "Policy locale violata",
     "Raggiungibilità esterna: non accertata",
   ]) assert.ok(app.includes(text), `testo v1/v2 mancante: ${text}`);
-  assert.match(hostView, /snapshot\.schema_version === 1 \? "v1 legacy" : "v2"/);
-  assert.match(hostView, /snapshot\.schema_version === 2[\s\S]*swap_io_sample/);
-  assert.match(hostView, /snapshot\.schema_version === 2[\s\S]*snapshot\.listeners\.items/);
+  assert.match(hostView, /snapshot\.schema_version === 1 \? "v1 legacy" : `v\$\{snapshot\.schema_version\}`/);
+  assert.match(hostView, /snapshot\.schema_version !== 1[\s\S]*swap_io_sample/);
+  assert.match(hostView, /snapshot\.schema_version !== 1[\s\S]*snapshot\.listeners\.items/);
   assert.doesNotMatch(hostView, /raggiungibil\w* (?:sicura|chiusa)|porta (?:sicura|chiusa)/i);
 });
 
@@ -270,7 +279,7 @@ test("v2 conserva ogni bind locale e separa l'esito della policy", () => {
   assert.match(hostView, /HOST_LISTENER_POLICY_LABEL\[listener\.policy_status\]/);
   assert.match(hostView, /HOST_PROCESS_POLICY_LABEL\[group\.policy_status\]/);
   assert.match(hostView, /non verifica la raggiungibilità dalla rete esterna/);
-  assert.match(hostView, /snapshot\.schema_version === 2\s*\? snapshot\.listeners\.items/);
+  assert.match(hostView, /snapshot\.schema_version !== 1\s*\? snapshot\.listeners\.items/);
 });
 
 test("l'export serializza esclusivamente l'ultimo snapshot valido senza fetch", () => {
