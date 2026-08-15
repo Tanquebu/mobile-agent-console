@@ -117,3 +117,20 @@ def test_opencode_service_missing_file_or_wrong_directory(tmp_path: Path) -> Non
     _create_sample_opencode_db(db_file, "/path/one")
     service2 = OpencodeService(str(db_file))
     assert service2.read_history("/different/path", "1") is None
+
+
+def test_opencode_service_min_timestamp_filter(tmp_path: Path) -> None:
+    from datetime import UTC, datetime
+    db_file = tmp_path / "opencode.db"
+    _create_sample_opencode_db(db_file, "/workspace")
+    service = OpencodeService(str(db_file))
+
+    # time_updated in sample db is 1700000050000 (1700000050 seconds)
+    before = datetime.fromtimestamp(1700000000, tz=UTC)
+    after = datetime.fromtimestamp(1700000100, tz=UTC)
+
+    # With min_timestamp before session updated, it matches
+    assert service.read_history("/workspace", "1", min_timestamp=before) is not None
+
+    # With min_timestamp after session updated, it ignores old session and returns None
+    assert service.read_history("/workspace", "1", min_timestamp=after) is None

@@ -109,6 +109,7 @@ class TmuxSession:
     windows: int
     current_command: str
     activity_at: datetime
+    created_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -139,14 +140,19 @@ class TmuxGateway(Protocol):
     ) -> str: ...
     async def send_text(self, session_id: str, text: str, pane_id: str | None = None) -> None: ...
     async def send_key(self, session_id: str, key: str, pane_id: str | None = None) -> None: ...
-    async def resize_pane(self, session_id: str, pane_id: str, columns: int, rows: int) -> None: ...
-    async def split_pane(
-        self, session_id: str, pane_id: str | None = None, direction: str = "horizontal"
-    ) -> TmuxPane: ...
-    async def kill_pane(self, session_id: str, pane_id: str) -> None: ...
-    async def terminate_session(self, session_id: str) -> None: ...
-    async def check_server(self) -> str | None: ...
+    async def resize_pane(
+        self, session_id: str, width: int, height: int, pane_id: str | None = None
+    ) -> None: ...
+    async def split_window(
+        self,
+        session_id: str,
+        directory: str,
+        pane_id: str | None = None,
+        profile: str = "shell",
+        resume: bool = False,
+    ) -> str: ...
     async def pane_path(self, session_id: str, pane_id: str | None = None) -> str: ...
+    async def terminate_session(self, session_id: str) -> None: ...
 
 
 class TmuxService:
@@ -237,7 +243,7 @@ class TmuxService:
     async def list_sessions(self) -> list[TmuxSession]:
         fmt = (
             "#{session_id}\t#{session_attached}\t#{session_windows}"
-            "\t#{pane_current_command}\t#{session_activity}\t#{session_name}"
+            "\t#{pane_current_command}\t#{session_activity}\t#{session_created}\t#{session_name}"
         )
         try:
             raw = await self._run("list-sessions", "-F", fmt)
@@ -245,12 +251,26 @@ class TmuxService:
             return []
         sessions = []
         for line in raw.decode(errors="replace").splitlines():
-            raw_id, attached, windows, command, activity, name = line.split("\t", 5)
+            parts = line.split("\t")
+            if len(parts) < 6:
+                continue
+            if len(parts) >= 7 and parts[5].isdigit():
+                raw_id, attached, windows, command, activity, created = parts[:6]
+                name = "\t".join(parts[6:])
+            else:
+                raw_id, attached, windows, command, activity = parts[:5]
+                name = "\t".join(parts[5:])
+                created = activity
             session_id = raw_id.removeprefix("$")
             if not TARGET_ID.fullmatch(session_id):
                 continue
             if name == self._reserved_session_name:
                 continue
+            created_at = (
+                datetime.fromtimestamp(int(created), tz=UTC)
+                if created and created.isdigit()
+                else datetime.fromtimestamp(int(activity), tz=UTC)
+            )
             sessions.append(
                 TmuxSession(
                     id=session_id,
@@ -259,6 +279,7 @@ class TmuxService:
                     windows=int(windows),
                     current_command=command,
                     activity_at=datetime.fromtimestamp(int(activity), tz=UTC),
+                    created_at=created_at,
                 )
             )
         return sessions

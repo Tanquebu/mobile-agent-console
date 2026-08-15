@@ -213,11 +213,11 @@ def test_opencode_history_api(tmp_path) -> None:
     login(disabled)
     assert disabled.get("/api/v1/config").json()["opencode_history_enabled"] is False
     assert disabled.get("/api/v1/sessions/1/opencode-history").status_code == 404
-
     enabled, fake = client_and_fake(
         opencode_history_enabled=True,
         opencode_db_path=str(db_path),
     )
+    from datetime import UTC, datetime
     current = fake.sessions["1"]
     fake.sessions["1"] = type(current)(
         current.id,
@@ -225,7 +225,8 @@ def test_opencode_history_api(tmp_path) -> None:
         current.attached,
         current.windows,
         "opencode",
-        current.activity_at,
+        datetime.fromtimestamp(1700000000, tz=UTC),
+        datetime.fromtimestamp(1700000000, tz=UTC),
     )
     login(enabled)
     response = enabled.get("/api/v1/sessions/1/opencode-history")

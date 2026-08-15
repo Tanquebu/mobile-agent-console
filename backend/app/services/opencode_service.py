@@ -60,7 +60,11 @@ class OpencodeService:
         self.db_path = Path(db_path)
 
     def read_history(
-        self, directory: str, session_id: str, max_blocks: int = 500
+        self,
+        directory: str,
+        session_id: str,
+        max_blocks: int = 500,
+        min_timestamp: datetime | None = None,
     ) -> OpencodeHistory | None:
         if not self.db_path.exists() or not self.db_path.is_file():
             return None
@@ -77,17 +81,21 @@ class OpencodeService:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
-            # Cerca la sessione OpenCode più recente per la directory specificata
-            session_row = cursor.execute(
-                """
+            query = """
                 SELECT id, title, directory, time_created, time_updated
                 FROM session
-                WHERE directory = ? OR directory = ?
-                ORDER BY time_updated DESC
-                LIMIT 1
-                """,
-                (directory, norm_dir),
-            ).fetchone()
+                WHERE (directory = ? OR directory = ?)
+            """
+            params: list[Any] = [directory, norm_dir]
+
+            if min_timestamp is not None:
+                min_ms = int(min_timestamp.timestamp() * 1000)
+                query += " AND (time_updated >= ? OR time_created >= ?)"
+                params.extend([min_ms, min_ms])
+
+            query += " ORDER BY time_updated DESC LIMIT 1"
+
+            session_row = cursor.execute(query, tuple(params)).fetchone()
 
             if not session_row:
                 conn.close()
