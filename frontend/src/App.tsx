@@ -141,9 +141,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Permessi totali anche per OpenCode",
+  title: "Sonda giornaliera reset anticipato quota Codex",
   description:
-    "Come per Antigravity, puoi avviare una sessione OpenCode con tutti i permessi attivi da subito: il profilo YOLO lancia opencode --auto e salta le conferme di modifica e comandi.",
+    "Un timer systemd alle 04:00 verifica se la quota Codex si è resettata prima della scadenza programmata. Se l'ultimo campione ha più di 60 minuti e la quota risulta esaurita, esegue una misura fresca e aggiorna snapshot e storico — senza chiamate non necessarie durante la notte.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
