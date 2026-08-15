@@ -141,9 +141,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Cronologia completa per OpenCode",
+  title: "Permessi totali anche per OpenCode",
   description:
-    "La vista Blocchi ora recupera lo storico completo dei messaggi e dei tool direttamente dal database locale di OpenCode, eliminando i troncamenti della TUI.",
+    "Come per Antigravity, puoi avviare una sessione OpenCode con tutti i permessi attivi da subito: il profilo YOLO lancia opencode --auto e salta le conferme di modifica e comandi.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -4388,7 +4388,7 @@ function SessionList({
   const [name, setName] = useState("");
   const [directory, setDirectory] = useState("");
   const [profile, setProfile] = useState<"shell" | "codex" | "claude" | "antigravity" | "opencode">("shell");
-  const [agyFullPermissions, setAgyFullPermissions] = useState(false);
+  const [fullPermissions, setFullPermissions] = useState(false);
   const [presets, setPresets] = useState<[string, string][]>([]);
   const [customDirectory, setCustomDirectory] = useState(false);
   const [projectQuery, setProjectQuery] = useState("");
@@ -4817,10 +4817,15 @@ function SessionList({
           return;
         }
         try {
-          const effectiveProfile: SessionProfile = profile === "antigravity" && agyFullPermissions ? "antigravity_yolo" : profile;
+          const effectiveProfile: SessionProfile =
+            (profile === "antigravity" && fullPermissions)
+              ? "antigravity_yolo"
+              : (profile === "opencode" && fullPermissions)
+                ? "opencode_yolo"
+                : profile;
           await createSession(normalizedName, directory, effectiveProfile);
           const updatedSessions = await listSessions();
-          setCreating(false); setName(""); setProfile("shell"); setAgyFullPermissions(false); setError("");
+          setCreating(false); setName(""); setProfile("shell"); setFullPermissions(false); setError("");
           setSessions(updatedSessions);
           const createdSession = updatedSessions.find((session) => session.name === normalizedName);
           if (createdSession) onOpen(createdSession);
@@ -4893,7 +4898,7 @@ function SessionList({
           value={profile}
           onChange={(event) => {
             setProfile(event.target.value as "shell" | "codex" | "claude" | "antigravity" | "opencode");
-            setAgyFullPermissions(false);
+            setFullPermissions(false);
           }}
         >
           <option value="shell">Shell</option>
@@ -4902,15 +4907,15 @@ function SessionList({
           <option value="antigravity">Antigravity (agy)</option>
           <option value="opencode">OpenCode</option>
         </select>
-        {profile === "antigravity" && (
-          <label className="agy-full-permissions">
+        {(profile === "antigravity" || profile === "opencode") && (
+          <label className="full-permissions">
             <input
               type="checkbox"
-              checked={agyFullPermissions}
-              onChange={(event) => setAgyFullPermissions(event.target.checked)}
+              checked={fullPermissions}
+              onChange={(event) => setFullPermissions(event.target.checked)}
             />
-            {t.agyFullPermissionsLabel}
-            <small>{t.agyFullPermissionsHint}</small>
+            {t.fullPermissionsLabel}
+            <small>{t.fullPermissionsHint}</small>
           </label>
         )}
         <button type="submit">{t.createSessionBtn}</button>

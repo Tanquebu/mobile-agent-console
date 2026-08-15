@@ -376,7 +376,15 @@ class UserStatusInput(BaseModel):
 class CreateSessionInput(BaseModel):
     name: str = Field(pattern=r"^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$", max_length=64)
     directory: str = Field(min_length=1, max_length=4096)
-    profile: Literal["shell", "codex", "claude", "antigravity", "antigravity_yolo", "opencode"] = "shell"
+    profile: Literal[
+        "shell",
+        "codex",
+        "claude",
+        "antigravity",
+        "antigravity_yolo",
+        "opencode",
+        "opencode_yolo",
+    ] = "shell"
 
     @field_validator("name", mode="before")
     @classmethod

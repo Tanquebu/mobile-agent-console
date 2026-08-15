@@ -235,6 +235,34 @@ def test_opencode_profile_ships_conservative_permission_policy(monkeypatch) -> N
     assert "-e" not in recorder.calls[0]
 
 
+def test_opencode_yolo_profile_uses_auto_and_no_conservative_policy(monkeypatch) -> None:
+    # Il profilo YOLO e' l'opt-in deliberato per il flag documentato `--auto`
+    # (controparte di `agy --dangerously-skip-permissions`): approva le
+    # richieste non esplicitamente negate. Non deve ricevere la policy
+    # conservativa di `opencode`, altrimenti il bypass dipenderebbe da una
+    # variabile non documentata (OPENCODE_CONFIG_CONTENT) oltre che dal flag.
+    recorder = Recorder(monkeypatch)
+    asyncio.run(TmuxService("test").create_session("demo", "/workspace", "opencode_yolo"))
+    fresh_call = recorder.calls[0]
+    assert fresh_call[-2] == "-c"
+    script = fresh_call[-1]
+    assert "command -v opencode" in script
+    assert "exec opencode --auto" in script
+    assert "-e" not in fresh_call
+
+    # Come `opencode`, anche il profilo YOLO riprende avviando OpenCode
+    # normalmente (niente `--continue`/`--session`), conservando `--auto`.
+    recorder.calls.clear()
+    asyncio.run(
+        TmuxService("test").create_session(
+            "demo", "/workspace", "opencode_yolo", resume=True
+        )
+    )
+    assert recorder.calls[0] == fresh_call
+    assert "--continue" not in recorder.calls[0]
+    assert "--session" not in recorder.calls[0]
+
+
 @pytest.mark.parametrize("binary", ["opencode-does-not-exist-xyz", "definitely-missing"])
 def test_missing_binary_script_reports_and_keeps_pane_alive(binary: str) -> None:
     # Verifica reale (non mockata) dello script usato da PROFILE_ARGV: senza

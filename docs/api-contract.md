@@ -23,11 +23,15 @@ Richiede CSRF. Body: `{"name":"demo","directory":"/workspace","profile":"shell"}
 Il nome viene normalizzato NFC, ha al massimo 64 caratteri e accetta lettere e
 numeri Unicode, `_`, `-` e spazi singoli tra le parole; la directory deve essere
 sotto una root configurata. I profili ammessi sono `shell`, `codex`, `claude`,
-`antigravity` e `opencode`; il server li risolve in argv costanti e il client
-non invia un comando eseguibile. Il profilo `opencode` riceve inoltre una
-policy di permessi conservativa (`{"permission":{"bash":"ask","edit":"ask"}}`)
-come variabile d'ambiente della sessione tmux, mai come input del client —
-vedi `docs/architecture.md`, sezione OpenCode.
+`antigravity`, `antigravity_yolo`, `opencode` e `opencode_yolo`; il server li
+risolve in argv costanti e il client non invia un comando eseguibile. I profili
+`antigravity_yolo` e `opencode_yolo` avviano l'agente con i permessi completi
+da subito (`agy --dangerously-skip-permissions` e `opencode --auto`): è una
+scelta di postura deliberata e opt-in, mai il default. Il profilo `opencode`
+riceve inoltre una policy di permessi conservativa
+(`{"permission":{"bash":"ask","edit":"ask"}}`) come variabile d'ambiente della
+sessione tmux, mai come input del client — vedi `docs/architecture.md`,
+sezione OpenCode.
 
 ## Archivio sessioni
 

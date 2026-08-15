@@ -158,7 +158,11 @@ Riferimento ufficiale:
 
 Il flag `--auto` non deve diventare il default del profilo: approverebbe
 automaticamente le richieste non negate e cambierebbe materialmente il modello
-di rischio. Le policy OpenCode dovrebbero essere esplicite, versionate solo se
+di rischio. Resta disponibile come **opt-in deliberato** nel profilo
+`opencode_yolo` (lancia `opencode --auto`), speculare ad
+`antigravity_yolo`: come per Antigravity, una sessione YOLO non viene mai
+persistita in modalità bypass e al ripristino torna al profilo conservativo.
+Le policy OpenCode dovrebbero essere esplicite, versionate solo se
 prive di segreti e conservative per le operazioni mutative o esterne.
 
 Le Web Push si attivano per OpenCode appena il classificatore produce

@@ -70,6 +70,7 @@ class FakeTmux:
                 "antigravity": "agy",
                 "antigravity_yolo": "agy",
                 "opencode": "opencode",
+                "opencode_yolo": "opencode",
             }[profile],
             datetime.now(UTC),
         )

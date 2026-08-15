@@ -895,7 +895,14 @@ export async function renameSession(id: string, name: string) {
   });
 }
 
-export type SessionProfile = "shell" | "codex" | "claude" | "antigravity" | "opencode" | "antigravity_yolo";
+export type SessionProfile =
+  | "shell"
+  | "codex"
+  | "claude"
+  | "antigravity"
+  | "antigravity_yolo"
+  | "opencode"
+  | "opencode_yolo";
 
 export async function createSession(name: string, directory: string, profile: SessionProfile) {
   await request("/api/v1/sessions", {

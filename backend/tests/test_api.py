@@ -904,6 +904,20 @@ def test_create_session_requires_allowed_directory() -> None:
     assert opencode.status_code == 201
     assert any(session.name == "OpenCode Agent" and session.current_command == "opencode"
                for session in fake.sessions.values())
+    opencode_yolo = client.post(
+        "/api/v1/sessions",
+        headers=headers,
+        json={
+            "name": "OpenCode Yolo Agent",
+            "directory": "/workspace",
+            "profile": "opencode_yolo",
+        },
+    )
+    assert opencode_yolo.status_code == 201
+    assert any(
+        session.name == "OpenCode Yolo Agent" and session.current_command == "opencode"
+        for session in fake.sessions.values()
+    )
     unsupported = client.post(
         "/api/v1/sessions",
         headers=headers,

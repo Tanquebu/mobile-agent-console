@@ -31,7 +31,7 @@ React PWA ── Nginx same-origin ── FastAPI
 Il browser non conosce comandi shell. Gli endpoint ricevono identificatori e
 operazioni tipizzate; directory e profili vengono risolti/validati server-side.
 L’endpoint di creazione espone i profili `shell`, `codex`, `claude`,
-`antigravity`, `antigravity_yolo` e `opencode`, risolti
+`antigravity`, `antigravity_yolo`, `opencode` e `opencode_yolo`, risolti
 in argv costanti server-side.
 
 ### OpenCode (profilo TUI)
@@ -96,6 +96,24 @@ e snapshot inferiscono il profilo dal nome del processo osservato nel pane
 ripristino la sessione torna sempre al profilo `antigravity` conservativo —
 un riavvio dell'host o un ripristino non può resuscitare in silenzio una
 sessione con permessi bypassati.
+
+### OpenCode YOLO (`opencode_yolo`)
+
+Il profilo `opencode_yolo` è identico a `opencode`, ma lancia
+`opencode --auto`: il flag approva automaticamente le richieste di permesso
+non esplicitamente negate, la controparte di `agy
+--dangerously-skip-permissions`. Come per ogni altro profilo, è un argv
+costante server-side scelto dal client solo tramite l'enum del profilo; il
+bypass è una scelta di postura deliberata e opt-in, mai il default del
+profilo `opencode` (`docs/opencode-integration.md`). A differenza del
+profilo conservativo, `opencode_yolo` non riceve la policy
+`OPENCODE_CONFIG_CONTENT`: il `--auto` è un flag documentato di OpenCode, e
+non deve dipendere da una variabile non documentata. Le `deny` esplicite
+configurate (per esempio quelle globali dell'utente host) restano attive.
+Non viene mai persistito in modalità "yolo": archiviazione e snapshot
+inferiscono il profilo dal nome del processo osservato nel pane
+(`opencode`), identico per `opencode` e `opencode_yolo`, quindi al ripristino
+la sessione torna sempre al profilo `opencode` conservativo.
 
 ## Container e persistenza
 

@@ -26,7 +26,7 @@ ALLOWED_KEYS = {
 
 
 
-def _missing_binary_shell_command(binary: str, message: str) -> str:
+def _missing_binary_shell_command(binary: str, message: str, *args: str) -> str:
     """Costruisce lo script argv (costante server-side, mai da input client)
     per un profilo il cui binario puo' mancare sull'host. Verifica la
     risoluzione nella stessa login shell che tmux userebbe (`command -v`,
@@ -37,10 +37,13 @@ def _missing_binary_shell_command(binary: str, message: str) -> str:
     l'avvio e tmux distrugge la sessione: dall'API la richiesta di
     creazione risulta comunque riuscita (201), e l'unico segnale e' la
     sessione che scompare dall'elenco pochi istanti dopo — verificato il
-    03/08/2026 con un binario fittizio al posto di `opencode`."""
+    03/08/2026 con un binario fittizio al posto di `opencode`. Gli `args`
+    aggiuntivi (flag costanti del profilo, come `--auto`) seguono il
+    binario nella stessa `exec`, con lo stesso quote di sicurezza."""
     quoted_binary = shlex.quote(binary)
+    extra = f" {' '.join(shlex.quote(argument) for argument in args)}" if args else ""
     return (
-        f"command -v {quoted_binary} >/dev/null 2>&1 && exec {quoted_binary} || "
+        f"command -v {quoted_binary} >/dev/null 2>&1 && exec {quoted_binary}{extra} || "
         f"{{ printf '%s\\n' {shlex.quote(message)}; exec bash -l; }}"
     )
 
@@ -62,6 +65,18 @@ _OPENCODE_LAUNCH = (
     "-c",
     _missing_binary_shell_command("opencode", OPENCODE_MISSING_BINARY_MESSAGE),
 )
+# Profilo YOLO: `--auto` approva automaticamente le richieste di permesso non
+# esplicitamente negate (le `deny` configurate restano attive). E' il flag
+# documentato da OpenCode, la controparte di `agy --dangerously-skip-
+# permissions`; il bypass e' deliberato e opt-in, mai il default del profilo
+# `opencode` (docs/opencode-integration.md). A differenza del profilo
+# conservativo non riceve alcuna policy via `PROFILE_ENV`.
+_OPENCODE_YOLO_LAUNCH = (
+    "bash",
+    "-l",
+    "-c",
+    _missing_binary_shell_command("opencode", OPENCODE_MISSING_BINARY_MESSAGE, "--auto"),
+)
 PROFILE_ARGV = {
     "shell": ("bash", "-l"),
     "codex": ("bash", "-l", "-c", "exec codex"),
@@ -69,6 +84,7 @@ PROFILE_ARGV = {
     "antigravity": ("bash", "-l", "-c", "exec agy"),
     "antigravity_yolo": ("bash", "-l", "-c", "exec agy --dangerously-skip-permissions"),
     "opencode": _OPENCODE_LAUNCH,
+    "opencode_yolo": _OPENCODE_YOLO_LAUNCH,
 }
 RESUME_PROFILE_ARGV = {
     "shell": PROFILE_ARGV["shell"],
@@ -82,6 +98,7 @@ RESUME_PROFILE_ARGV = {
     # OpenCode normalmente, come un avvio nuovo; l'aggancio alla
     # conversazione giusta e' materia di OC-02 (selettore nativo `/sessions`).
     "opencode": _OPENCODE_LAUNCH,
+    "opencode_yolo": _OPENCODE_YOLO_LAUNCH,
 }
 # Variabili d'ambiente per profilo, passate a `tmux new-session -e` come
 # costante server-side — mai una stringa di shell, mai un file da montare
