@@ -90,8 +90,8 @@ class OpencodeService:
 
             if min_timestamp is not None:
                 min_ms = int(min_timestamp.timestamp() * 1000)
-                query += " AND (time_updated >= ? OR time_created >= ?)"
-                params.extend([min_ms, min_ms])
+                query += " AND time_created >= ?"
+                params.append(min_ms)
 
             query += " ORDER BY time_updated DESC LIMIT 1"
 
@@ -99,7 +99,14 @@ class OpencodeService:
 
             if not session_row:
                 conn.close()
-                return None
+                return OpencodeHistory(
+                    session_id=session_id,
+                    opencode_session_id="",
+                    title=None,
+                    directory=norm_dir,
+                    collected_at=datetime.now(UTC),
+                    blocks=[],
+                )
 
             opencode_session_id = str(session_row["id"])
             title = session_row["title"]

@@ -116,7 +116,9 @@ def test_opencode_service_missing_file_or_wrong_directory(tmp_path: Path) -> Non
     db_file = tmp_path / "opencode.db"
     _create_sample_opencode_db(db_file, "/path/one")
     service2 = OpencodeService(str(db_file))
-    assert service2.read_history("/different/path", "1") is None
+    history = service2.read_history("/different/path", "1")
+    assert history is not None
+    assert history.blocks == []
 
 
 def test_opencode_service_min_timestamp_filter(tmp_path: Path) -> None:
@@ -125,12 +127,56 @@ def test_opencode_service_min_timestamp_filter(tmp_path: Path) -> None:
     _create_sample_opencode_db(db_file, "/workspace")
     service = OpencodeService(str(db_file))
 
-    # time_updated in sample db is 1700000050000 (1700000050 seconds)
+    # time_created in sample db is 1700000000000 (1700000000 seconds)
     before = datetime.fromtimestamp(1700000000, tz=UTC)
     after = datetime.fromtimestamp(1700000100, tz=UTC)
 
-    # With min_timestamp before session updated, it matches
+    # With min_timestamp before session creation, it matches
     assert service.read_history("/workspace", "1", min_timestamp=before) is not None
 
-    # With min_timestamp after session updated, it ignores old session and returns None
-    assert service.read_history("/workspace", "1", min_timestamp=after) is None
+    # With min_timestamp after session creation, the old session is excluded
+    # and the history is empty (new session not materialized yet)
+    history = service.read_history("/workspace", "1", min_timestamp=after)
+    assert history is not None
+    assert history.blocks == []
+
+
+def test_opencode_service_new_session_does_not_inherit_previous_blocks(tmp_path: Path) -> None:
+    from datetime import UTC, datetime
+    db_file = tmp_path / "opencode.db"
+    _create_sample_opencode_db(db_file, "/workspace")
+    service = OpencodeService(str(db_file))
+    tmux_start = datetime.fromtimestamp(1700000100, tz=UTC)
+
+    # Prima della materializzazione della nuova conversazione, con la sola
+    # sessione precedente (creata prima dell'avvio del pane) in archivio, la
+    # cronologia deve restare vuota e non ereditare i blocchi della vecchia.
+    history = service.read_history("/workspace", "1", min_timestamp=tmux_start)
+    assert history is not None
+    assert history.blocks == []
+
+    # Appena la nuova conversazione (creata dopo l'avvio del pane) compare,
+    # vince la correlazione e i blocchi sono quelli della nuova sessione.
+    conn = sqlite3.connect(db_file)
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
+        ("ses_new_123", "/workspace", "Nuova", 1700000120000, 1700000120000),
+    )
+    c.execute(
+        "INSERT INTO message VALUES (?, ?, ?, ?)",
+        ("msg_n1", "ses_new_123", 1700000121000, json.dumps({"role": "user"})),
+    )
+    c.execute(
+        "INSERT INTO part VALUES (?, ?, ?, ?, ?)",
+        ("prt_n1", "msg_n1", "ses_new_123", 1700000121100, json.dumps({"type": "text", "text": "Primo prompt della nuova sessione"})),
+    )
+    conn.commit()
+    conn.close()
+
+    history = service.read_history("/workspace", "1", min_timestamp=tmux_start)
+    assert history is not None
+    assert history.opencode_session_id == "ses_new_123"
+    assert len(history.blocks) == 1
+    assert history.blocks[0].kind == "user"
+    assert history.blocks[0].content == "Primo prompt della nuova sessione"

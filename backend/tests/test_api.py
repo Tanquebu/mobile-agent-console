@@ -241,6 +241,38 @@ def test_opencode_history_api(tmp_path) -> None:
     assert data["blocks"][2]["kind"] == "agent"
 
 
+def test_opencode_history_api_new_session_empty_until_first_prompt(tmp_path) -> None:
+    from datetime import UTC, datetime
+
+    from tests.test_opencode_service import _create_sample_opencode_db
+
+    db_path = tmp_path / "opencode.db"
+    _create_sample_opencode_db(db_path, "/workspace")
+
+    enabled, fake = client_and_fake(
+        opencode_history_enabled=True,
+        opencode_db_path=str(db_path),
+    )
+    current = fake.sessions["1"]
+    # Nuova sessione tmux creata dopo l'unica conversazione in archivio
+    # (sample: time_created 1700000000000): la vista non deve ereditare i
+    # blocchi della conversazione precedente finche' il primo prompt non
+    # materializza la nuova sessione.
+    fake.sessions["1"] = type(current)(
+        current.id,
+        current.name,
+        current.attached,
+        current.windows,
+        "opencode",
+        datetime.fromtimestamp(1700000100, tz=UTC),
+        datetime.fromtimestamp(1700000100, tz=UTC),
+    )
+    login(enabled)
+    response = enabled.get("/api/v1/sessions/1/opencode-history")
+    assert response.status_code == 200
+    assert response.json()["blocks"] == []
+
+
 def test_agent_statuses_include_only_agentic_sessions() -> None:
     client, fake = client_and_fake()
     login(client)

@@ -1178,12 +1178,9 @@ def create_app(
         except TmuxError as exc:
             raise HTTPException(503, "tmux unavailable") from exc
 
-        min_timestamp = live.created_at or live.activity_at
-        from datetime import timedelta
-        min_cutoff = min_timestamp - timedelta(seconds=60) if min_timestamp else None
-
+        min_timestamp = live.created_at
         history = await asyncio.to_thread(
-            opencode_service.read_history, directory, session_id, 500, min_cutoff
+            opencode_service.read_history, directory, session_id, 500, min_timestamp
         )
         if history is None:
             raise HTTPException(404, "OpenCode history not available")
