@@ -1,17 +1,16 @@
-# Progetto — Collector transcript OpenCode (vista Cronologia)
+# Progetto — OpenCode Transcript History (vista Blocchi)
 
-**Stato:** proposta di progetto (design), non implementata e non autorizzata.
-Non sostituisce `OC-04`/`OC-05` della roadmap (`docs/opencode-integration.md`):
-analizza il supporto per una *cronologia leggibile* delle sessioni OpenCode,
-come già fatto per Claude in ADR 007. Data di verifica sul campo: 07/08/2026,
-OpenCode `1.18.11`.
+**Stato:** implementato, verificato e rilasciato (15/08/2026, OpenCode `1.18.11`).
+Integra lo storico nativo delle conversazioni dal database SQLite locale
+di OpenCode (`opencode.db`) nella vista Blocchi, con rendering Markdown e
+collassamento dinamico.
 
 ## Contesto
 
 Come Claude, la TUI OpenCode usa lo schermo alternativo: `tmux capture-pane`
 espone soltanto il viewport corrente, non lo scrollback. La vista Terminale
-mostra quindi solo l'ultimo frame TUI e spesso non basta a rileggere
-l'output di un turno.
+mostra quindi solo l'ultimo frame TUI e non consente di rileggere l'intero
+storico di turni e output precedenti.
 
 La vista Blocchi (abilitata per OpenCode nel frontend) è una trasformazione
 client-side del solo frame visibile: utile per la conversazione corrente, ma

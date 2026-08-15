@@ -204,6 +204,45 @@ corrente è Claude e con un file collector recente. Restituisce:
 Con flag spento, file assente/stale/malformato, sessione non-Claude o id non
 valido risponde `404`. L'endpoint non cambia output o WebSocket.
 
+`GET /api/v1/sessions/{id}/opencode-history` è disponibile con
+`MAC_OPENCODE_HISTORY_ENABLED=true`, per una sessione tmux viva il cui comando
+corrente è OpenCode. Legge in sola lettura il database SQLite locale di OpenCode
+(`opencode.db`) correlando la sessione per directory e timestamp di avvio della
+sessione tmux (`created_at`). Restituisce:
+
+```json
+{
+  "session_id": "165",
+  "opencode_session_id": "ses_ffb4b44f5ffev8O9INmDYjScsw",
+  "title": "Titolo sessione",
+  "directory": "/workspace",
+  "collected_at": "2026-08-15T10:00:00Z",
+  "blocks": [
+    {
+      "id": "msg_1",
+      "kind": "user",
+      "content": "testo prompt",
+      "timestamp": "2026-08-15T09:59:00Z"
+    },
+    {
+      "id": "prt_2",
+      "kind": "activity",
+      "content": "$ bash command\noutput",
+      "timestamp": "2026-08-15T09:59:10Z"
+    },
+    {
+      "id": "prt_3",
+      "kind": "agent",
+      "content": "risposta markdown",
+      "timestamp": "2026-08-15T09:59:20Z"
+    }
+  ]
+}
+```
+
+Con flag spento, database assente, sessione non-OpenCode o se la sessione tmux non
+ha ancora prodotto conversazioni, risponde `404`.
+
 `POST /api/v1/sessions/{id}/panes/{pane_id}/resize` accetta
 `{"columns":100,"rows":30}` con limiti rispettivamente `20..500` e `5..300`.
 `POST /api/v1/sessions/{id}/panes/split?pane_id=N&direction=horizontal`

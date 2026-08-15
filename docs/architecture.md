@@ -73,6 +73,16 @@ quella verificata. L'argv del profilo verifica quindi la risoluzione con
 messaggio comprensibile nel pane e lascia la sessione viva in una shell di
 login invece di farla sparire.
 
+**Storico conversazioni e vista Blocchi.** La TUI OpenCode gira in *alternate
+screen buffer* di tmux, rendendo parziale il testo catturato via `capture-pane`.
+Quando `MAC_OPENCODE_HISTORY_ENABLED=true`, `OpencodeService` legge in sola
+lettura il database locale di OpenCode (`opencode.db`) tramite bind-mount `:ro`.
+La correlazione corretta è garantita dal matching del percorso del repository e
+dal vincolo temporale sulla creazione della sessione tmux (`created_at`),
+evitando che sessioni passate compaiano in nuove sessioni vuote. Nel frontend,
+i messaggi utente e assistente vengono renderizzati con formattazione Markdown
+e blocchi collassabili oltre i 500 caratteri.
+
 ### Antigravity YOLO (`antigravity_yolo`)
 
 Il profilo `antigravity_yolo` è identico ad `antigravity`, ma lancia `agy`
