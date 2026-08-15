@@ -139,9 +139,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Archivio sessioni riconoscibile",
+  title: "Artefatti preservati nell'archivio",
   description:
-    "Prima di archiviare puoi aggiungere il nome della conversazione e revisionare un riepilogo preparato dall’agente; l’archivio è ora ricercabile.",
+    "Gli artefatti della sessione vengono ora conservati durante l'archiviazione e ripristinati automaticamente insieme alla sessione.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {

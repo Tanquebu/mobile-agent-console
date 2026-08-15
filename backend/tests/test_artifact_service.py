@@ -158,3 +158,77 @@ def test_delete_all_for_session_removes_directory(tmp_path) -> None:
 def test_delete_all_for_session_is_noop_when_missing(tmp_path) -> None:
     service = make_service(tmp_path)
     assert service.delete_all_for_session("does-not-exist") == 0
+
+
+def test_archive_for_session_moves_directory(tmp_path) -> None:
+    service = make_service(tmp_path)
+    session_dir = service.ensure_session_dir("1")
+    (session_dir / "photo.png").write_bytes(PNG_HEADER)
+    (session_dir / "note.txt").write_text("hello", encoding="utf-8")
+
+    count = service.archive_for_session("1", "archive-uuid-1")
+    assert count == 2
+    assert not session_dir.exists()
+    archive_dir = service.storage_root / "_archived" / "archive-uuid-1"
+    assert archive_dir.is_dir()
+    assert (archive_dir / "photo.png").read_bytes() == PNG_HEADER
+    assert (archive_dir / "note.txt").read_text(encoding="utf-8") == "hello"
+
+
+def test_archive_for_session_is_noop_when_missing(tmp_path) -> None:
+    service = make_service(tmp_path)
+    assert service.archive_for_session("does-not-exist", "archive-uuid-2") == 0
+
+
+def test_restore_from_archive_moves_back(tmp_path) -> None:
+    service = make_service(tmp_path)
+    session_dir = service.ensure_session_dir("1")
+    (session_dir / "photo.png").write_bytes(PNG_HEADER)
+    service.archive_for_session("1", "archive-uuid-3")
+    assert not session_dir.exists()
+
+    service.restore_from_archive("archive-uuid-3", "2")
+    new_dir = service.storage_root / "2"
+    assert new_dir.is_dir()
+    assert (new_dir / "photo.png").read_bytes() == PNG_HEADER
+    assert not (service.storage_root / "_archived" / "archive-uuid-3").exists()
+
+
+def test_restore_from_archive_is_noop_when_missing(tmp_path) -> None:
+    service = make_service(tmp_path)
+    service.restore_from_archive("nonexistent", "5")
+    assert not (service.storage_root / "5").exists()
+
+
+def test_delete_archived_removes_directory(tmp_path) -> None:
+    service = make_service(tmp_path)
+    session_dir = service.ensure_session_dir("1")
+    (session_dir / "photo.png").write_bytes(PNG_HEADER)
+    service.archive_for_session("1", "archive-uuid-4")
+    archive_dir = service.storage_root / "_archived" / "archive-uuid-4"
+    assert archive_dir.is_dir()
+
+    service.delete_archived("archive-uuid-4")
+    assert not archive_dir.exists()
+
+
+def test_delete_archived_is_noop_when_missing(tmp_path) -> None:
+    service = make_service(tmp_path)
+    service.delete_archived("nonexistent")  # should not raise
+
+
+def test_archive_restore_roundtrip_preserves_nested_files(tmp_path) -> None:
+    service = make_service(tmp_path)
+    session_dir = service.ensure_session_dir("1")
+    sub = session_dir / "subdir"
+    sub.mkdir()
+    (session_dir / "root.png").write_bytes(PNG_HEADER)
+    (sub / "nested.txt").write_text("nested content", encoding="utf-8")
+
+    count = service.archive_for_session("1", "archive-uuid-5")
+    assert count == 2
+
+    service.restore_from_archive("archive-uuid-5", "99")
+    restored = service.storage_root / "99"
+    assert (restored / "root.png").read_bytes() == PNG_HEADER
+    assert (restored / "subdir" / "nested.txt").read_text(encoding="utf-8") == "nested content"

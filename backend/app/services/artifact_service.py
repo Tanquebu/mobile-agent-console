@@ -202,3 +202,38 @@ class ArtifactService:
         removed = sum(1 for entry in session_dir.iterdir() if entry.is_file())
         shutil.rmtree(session_dir, ignore_errors=True)
         return removed
+
+    def archive_for_session(self, session_id: str, archive_id: str) -> int:
+        """Sposta la cartella artefatti nell'area di archivio."""
+        session_dir = self.storage_root / session_id
+        if not session_dir.is_dir():
+            return 0
+        archive_dir = self.storage_root / "_archived" / archive_id
+        archive_dir.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        count = sum(1 for entry in session_dir.rglob("*") if entry.is_file())
+        session_dir.rename(archive_dir)
+        return count
+
+    def restore_from_archive(self, archive_id: str, session_id: str) -> None:
+        """Ripristina gli artefatti archiviati nella cartella della nuova sessione."""
+        archive_dir = self.storage_root / "_archived" / archive_id
+        if not archive_dir.is_dir():
+            return
+        target = self.storage_root / session_id
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        archive_dir.rename(target)
+        # Rimuovi la directory _archived se vuota
+        try:
+            archive_dir.parent.rmdir()
+        except OSError:
+            pass
+
+    def delete_archived(self, archive_id: str) -> None:
+        """Cancella artefatti archiviati (su eliminazione archivio)."""
+        archive_dir = self.storage_root / "_archived" / archive_id
+        shutil.rmtree(archive_dir, ignore_errors=True)
+        try:
+            archive_dir.parent.rmdir()
+        except OSError:
+            pass
+

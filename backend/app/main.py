@@ -506,7 +506,11 @@ def create_app(
             raise HTTPException(503, "Web Push requires the metadata database")
         return push
 
-    async def _cleanup_session_files(session_id: str) -> None:
+    async def _cleanup_session_files(
+        session_id: str,
+        *,
+        archive_id: str | None = None,
+    ) -> None:
         # Best-effort: terminare/archiviare la sessione non deve fallire per un
         # problema di pulizia di allegati/artefatti, che gli allegati restano
         # comunque soggetti al TTL.
@@ -516,7 +520,10 @@ def create_app(
             except Exception:
                 logger.exception("Unable to clean up attachments for session %s", session_id)
         try:
-            await asyncio.to_thread(artifacts.delete_all_for_session, session_id)
+            if archive_id:
+                await asyncio.to_thread(artifacts.archive_for_session, session_id, archive_id)
+            else:
+                await asyncio.to_thread(artifacts.delete_all_for_session, session_id)
         except Exception:
             logger.exception("Unable to clean up artifacts for session %s", session_id)
 
@@ -1283,7 +1290,7 @@ def create_app(
         except (ValueError, SessionNotFound, TmuxError) as exc:
             await asyncio.to_thread(service.delete, item.id)
             raise HTTPException(409, "Unable to archive session") from exc
-        await _cleanup_session_files(session_id)
+        await _cleanup_session_files(session_id, archive_id=item.id)
         return ArchivedSessionView.model_validate(item, from_attributes=True)
 
     @app.get(
@@ -1334,6 +1341,18 @@ def create_app(
         except TmuxError as exc:
             detail = _tmux_mutation_error(exc, "Unable to restore archive")
             raise HTTPException(409, detail) from exc
+        # Ripristina artefatti dalla cartella archiviata alla nuova sessione
+        try:
+            new_sessions = await gateway.list_sessions()
+            new_session = next(
+                (s for s in new_sessions if s.name == item.name), None
+            )
+            if new_session:
+                await asyncio.to_thread(
+                    artifacts.restore_from_archive, archive_id, new_session.id
+                )
+        except Exception:
+            logger.exception("Unable to restore artifacts for archive %s", archive_id)
         await asyncio.to_thread(service.delete, archive_id)
         return Accepted()
 
@@ -1348,6 +1367,7 @@ def create_app(
         deleted = await asyncio.to_thread(archive_service().delete, archive_id)
         if not deleted:
             raise HTTPException(404, "Archive not found")
+        await asyncio.to_thread(artifacts.delete_archived, archive_id)
         return Response(status_code=204)
 
     @app.post(
