@@ -4557,3 +4557,65 @@ journalctl --user -u mobile-agent-console-codex-quota-probe.service --since toda
 # Prossimo trigger
 systemctl --user list-timers mobile-agent-console-codex-quota-probe.timer
 ```
+
+## Round 2026-08-16 — Percentuale di contesto per le sessioni OpenCode
+
+**Commit:** `e90e112`
+
+### Problema
+
+Le sessioni OpenCode non esponevano la percentuale di contesto usata, a
+differenza di Codex, Claude e Antigravity: il collector
+`deploy/provider-session-state-collector.py` ignorava i pane OpenCode, quindi
+`context_used_percent` restava `None` pur essendo già presentato dal backend e
+dalla UI per gli altri provider.
+
+### Soluzione
+
+Il collector ora riconosce i pane `opencode` e, per ciascuno, legge
+`--opencode-db` (`~/.local/share/opencode/opencode.db`) e
+`--opencode-models-cache` (`~/.cache/opencode/models.json`, cache di models.dev
+rigenerata ogni ora) replicando la finestra Context della TUI OpenCode:
+
+- conversazione = sessione di `opencode.db` con `directory` uguale alla cwd del
+  pane, nata dopo l'avvio del processo del pane (stessa correlazione temporale
+  di `OpencodeService.read_history`);
+- ultimo messaggio `role: assistant` con `tokens.output > 0`, senza presupporre
+  che coincida con l'ultimo turno;
+- uso = `input + output + reasoning + cache.read + cache.write`;
+- limite = `limit.context` del modello `providerID`/`modelID` del messaggio dal
+  catalogo models.dev; percentuale arrotondata a un decimale e clampata a 100.
+
+Se il file DB o il catalogo mancano, o il modello non è noto, la percentuale
+non viene esposta (`None`) come fa la TUI per i limiti sconosciuti. Lo stato
+permessi resta conservativo `ask`/"Chiede conferma" (la TUI OpenCode non
+espone la modalità e la classificazione backend esistente è già `ask`).
+
+### Verifiche
+
+- `deploy/tests/test_provider_session_state_collector.py`: **21/21** (8 nuovi)
+  con DB SQLite e catalogo models sintetici; suite completa `deploy/tests/`
+  verde (l'unico errore di `test_host_observability_collector.py` è preesistente
+  e flaky, non correlato).
+- `docker compose config --quiet`: ✅. Il round non tocca `web`/`backend`:
+  nessun rebuild di immagini né ricreazione di container, `tmux-runtime`
+  preservata.
+- Unit copiata in `~/.config/systemd/user/`, `systemctl --user daemon-reload`,
+  `systemd-analyze --user verify` ✅ e oneshot eseguito.
+- Output reale su host:
+  `provider-session-states.json` con `opencode 186 → 21.5%` e
+  `opencode 184 → 34.5%`, riletto dal container backend (merge in
+  `main.py`, il collector prevale quando l'entry esiste). La conferma visiva
+  del riquadro Context resta all'operatore (API dietro login).
+- `LATEST_RELEASE` (frontend) aggiornato a "Percentuale di contesto per le
+  sessioni OpenCode".
+
+### Monitoraggio post-deploy
+
+```bash
+# Output corrente degli stati sessione per provider
+python3 -c "import json;d=json.load(open('$MAC_WORKSPACE_ROOT/.mobile-agent-console/provider-session-states.json'));print([ (s['provider'],s['session_id'],s['context_used_percent']) for s in d['sessions']])"
+
+# Ultima esecuzione del collector
+systemctl --user status mobile-agent-console-provider-session-states.service
+```
