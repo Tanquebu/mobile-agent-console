@@ -417,15 +417,17 @@ type InlineToken =
 
 function parseInlineTokens(text: string): InlineToken[] {
   const tokens: InlineToken[] = [];
-  const regex = /(`[^`\n]+`)|(\[[^\]\n]+\]\([^)\n]+\))|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(https?:\/\/[^\s<>"']+)/g;
+  const regex = /(```[^`\n]+```)|(`[^`\n]+`)|(\[[^\]\n]+\]\([^)\n]+\))|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(https?:\/\/[^\s<>"')]+)/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(text)) !== null) {
     if (match.index > lastIndex) {
       tokens.push({ type: "text", value: text.slice(lastIndex, match.index) });
     }
-    const [full, code, link, bold, italic, url] = match;
-    if (code) {
+    const [full, tripleCode, code, link, bold, italic, url] = match;
+    if (tripleCode) {
+      tokens.push({ type: "code", value: tripleCode.slice(3, -3) });
+    } else if (code) {
       tokens.push({ type: "code", value: code.slice(1, -1) });
     } else if (link) {
       const linkMatch = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(link);
@@ -514,16 +516,20 @@ function parseMarkdownBlocks(text: string): MarkdownBlockItem[] {
   while (i < lines.length) {
     const line = lines[i];
 
-    if (/^\s*```/.test(line)) {
-      const match = line.match(/^\s*```(\w+)?/);
-      const lang = match ? match[1] || "" : "";
+    // Fenced code block: deve essere esattamente ``` con linguaggio opzionale sulla stessa riga
+    const fenceMatch = line.match(/^\s*```([a-zA-Z0-9_-]+)?\s*$/);
+    if (fenceMatch) {
+      const lang = fenceMatch[1] || "";
       const codeLines: string[] = [];
       i += 1;
-      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) {
+      while (i < lines.length) {
+        if (/^\s*```\s*$/.test(lines[i])) {
+          i += 1;
+          break;
+        }
         codeLines.push(lines[i]);
         i += 1;
       }
-      i += 1;
       blocks.push({ type: "code_block", lang, code: codeLines.join("\n") });
       continue;
     }
@@ -535,21 +541,47 @@ function parseMarkdownBlocks(text: string): MarkdownBlockItem[] {
       continue;
     }
 
-    if (/^\s*[-*]\s+/.test(line)) {
+    // Elenco puntato (-, *, •)
+    if (/^\s*[-*•]\s+/.test(line)) {
       const items: string[] = [];
-      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*[-*]\s+/, ""));
+      while (i < lines.length && /^\s*[-*•]\s+/.test(lines[i])) {
+        let itemText = lines[i].replace(/^\s*[-*•]\s+/, "");
         i += 1;
+        while (
+          i < lines.length &&
+          lines[i].trim() &&
+          !/^\s*[-*•]\s+/.test(lines[i]) &&
+          !/^\s*\d+\.\s+/.test(lines[i]) &&
+          !/^(#{1,4})\s+/.test(lines[i]) &&
+          !/^\s*```([a-zA-Z0-9_-]+)?\s*$/.test(lines[i])
+        ) {
+          itemText += ` ${lines[i].trim()}`;
+          i += 1;
+        }
+        items.push(itemText);
       }
       blocks.push({ type: "ul", items });
       continue;
     }
 
+    // Elenco numerato (1., 2., ecc.)
     if (/^\s*\d+\.\s+/.test(line)) {
       const items: string[] = [];
       while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*\d+\.\s+/, ""));
+        let itemText = lines[i].replace(/^\s*\d+\.\s+/, "");
         i += 1;
+        while (
+          i < lines.length &&
+          lines[i].trim() &&
+          !/^\s*[-*•]\s+/.test(lines[i]) &&
+          !/^\s*\d+\.\s+/.test(lines[i]) &&
+          !/^(#{1,4})\s+/.test(lines[i]) &&
+          !/^\s*```([a-zA-Z0-9_-]+)?\s*$/.test(lines[i])
+        ) {
+          itemText += ` ${lines[i].trim()}`;
+          i += 1;
+        }
+        items.push(itemText);
       }
       blocks.push({ type: "ol", items });
       continue;
@@ -574,9 +606,9 @@ function parseMarkdownBlocks(text: string): MarkdownBlockItem[] {
     while (
       i < lines.length &&
       lines[i].trim() &&
-      !/^\s*```/.test(lines[i]) &&
+      !/^\s*```([a-zA-Z0-9_-]+)?\s*$/.test(lines[i]) &&
       !/^(#{1,4})\s+/.test(lines[i]) &&
-      !/^\s*[-*]\s+/.test(lines[i]) &&
+      !/^\s*[-*•]\s+/.test(lines[i]) &&
       !/^\s*\d+\.\s+/.test(lines[i]) &&
       !/^\s*>\s*/.test(lines[i])
     ) {
