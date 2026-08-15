@@ -125,3 +125,53 @@ test("la vista Blocchi usa lo storico OpenCode persistito quando disponibile", (
   assert.match(consoleView, /opencode && opencodeHistory && opencodeHistory\.blocks\.length > 0/);
 });
 
+test("il parser Markdown inline riconosce testo formattato, link e codice", () => {
+  const inlineFn = extractFunction(app, "parseInlineTokens");
+  const { outputText } = tsModule.transpileModule(`${inlineFn}\nmodule.exports = { parseInlineTokens };\n`, {
+    compilerOptions: { module: tsModule.ModuleKind.CommonJS, target: tsModule.ScriptTarget.ES2022 },
+  });
+  const module = { exports: {} };
+  // eslint-disable-next-line no-new-func
+  new Function("module", "exports", outputText)(module, module.exports);
+  const tokens = module.exports.parseInlineTokens("Test **grassetto**, *corsivo*, `codice` e [sito](https://example.com)");
+  assert.equal(tokens.length, 8);
+  assert.equal(tokens[1].type, "bold");
+  assert.equal(tokens[1].value, "grassetto");
+  assert.equal(tokens[3].type, "italic");
+  assert.equal(tokens[3].value, "corsivo");
+  assert.equal(tokens[5].type, "code");
+  assert.equal(tokens[5].value, "codice");
+  assert.equal(tokens[7].type, "link");
+  assert.equal(tokens[7].text, "sito");
+  assert.equal(tokens[7].href, "https://example.com");
+});
+
+test("il parser Markdown a blocchi separa code fence, elenchi e titoli", () => {
+  const blockFn = extractFunction(app, "parseMarkdownBlocks");
+  const { outputText } = tsModule.transpileModule(`${blockFn}\nmodule.exports = { parseMarkdownBlocks };\n`, {
+    compilerOptions: { module: tsModule.ModuleKind.CommonJS, target: tsModule.ScriptTarget.ES2022 },
+  });
+  const module = { exports: {} };
+  // eslint-disable-next-line no-new-func
+  new Function("module", "exports", outputText)(module, module.exports);
+  const text = `# Titolo
+Paragrafo introduttivo
+
+- Punto A
+- Punto B
+
+\`\`\`bash
+echo 123
+\`\`\`
+`;
+  const blocks = module.exports.parseMarkdownBlocks(text);
+  assert.equal(blocks[0].type, "heading");
+  assert.equal(blocks[0].text, "Titolo");
+  assert.equal(blocks[1].type, "paragraph");
+  assert.equal(blocks[2].type, "ul");
+  assert.deepEqual(blocks[2].items, ["Punto A", "Punto B"]);
+  assert.equal(blocks[3].type, "code_block");
+  assert.equal(blocks[3].lang, "bash");
+  assert.equal(blocks[3].code, "echo 123");
+});
+

@@ -407,6 +407,237 @@ function chatBlocks(content: string, provider: string): ChatBlock[] {
   return blocks.filter((block) => block.content.trim());
 }
 
+type InlineToken =
+  | { type: "text"; value: string }
+  | { type: "bold"; value: string }
+  | { type: "italic"; value: string }
+  | { type: "code"; value: string }
+  | { type: "link"; text: string; href: string }
+  | { type: "url"; href: string };
+
+function parseInlineTokens(text: string): InlineToken[] {
+  const tokens: InlineToken[] = [];
+  const regex = /(`[^`\n]+`)|(\[[^\]\n]+\]\([^)\n]+\))|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(https?:\/\/[^\s<>"']+)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      tokens.push({ type: "text", value: text.slice(lastIndex, match.index) });
+    }
+    const [full, code, link, bold, italic, url] = match;
+    if (code) {
+      tokens.push({ type: "code", value: code.slice(1, -1) });
+    } else if (link) {
+      const linkMatch = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(link);
+      if (linkMatch && (linkMatch[2].startsWith("http://") || linkMatch[2].startsWith("https://") || linkMatch[2].startsWith("/"))) {
+        tokens.push({ type: "link", text: linkMatch[1], href: linkMatch[2] });
+      } else {
+        tokens.push({ type: "text", value: link });
+      }
+    } else if (bold) {
+      tokens.push({ type: "bold", value: bold.slice(2, -2) });
+    } else if (italic) {
+      tokens.push({ type: "italic", value: italic.slice(1, -1) });
+    } else if (url) {
+      tokens.push({ type: "url", href: url });
+    }
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    tokens.push({ type: "text", value: text.slice(lastIndex) });
+  }
+  return tokens;
+}
+
+function MarkdownInline({ text }: { text: string }) {
+  const tokens = parseInlineTokens(text);
+  return (
+    <>
+      {tokens.map((token, idx) => {
+        if (token.type === "code") return <code key={idx}>{token.value}</code>;
+        if (token.type === "bold") return <strong key={idx}>{token.value}</strong>;
+        if (token.type === "italic") return <em key={idx}>{token.value}</em>;
+        if (token.type === "link") {
+          return (
+            <a key={idx} href={token.href} target="_blank" rel="noopener noreferrer">
+              {token.text}
+            </a>
+          );
+        }
+        if (token.type === "url") {
+          return (
+            <a key={idx} href={token.href} target="_blank" rel="noopener noreferrer">
+              {token.href}
+            </a>
+          );
+        }
+        return <span key={idx}>{token.value}</span>;
+      })}
+    </>
+  );
+}
+
+function MarkdownCodeBlock({ code, lang }: { code: string; lang: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    if (await copyToClipboard(code)) {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    }
+  };
+  return (
+    <div className="chat-code-block">
+      <div className="chat-code-header">
+        <span>{lang || "code"}</span>
+        <button type="button" className="chat-code-copy" onClick={handleCopy}>
+          {copied ? "Copiato" : "Copia"}
+        </button>
+      </div>
+      <pre><code>{code}</code></pre>
+    </div>
+  );
+}
+
+type MarkdownBlockItem =
+  | { type: "code_block"; lang: string; code: string }
+  | { type: "heading"; level: number; text: string }
+  | { type: "ul"; items: string[] }
+  | { type: "ol"; items: string[] }
+  | { type: "quote"; text: string }
+  | { type: "paragraph"; text: string };
+
+function parseMarkdownBlocks(text: string): MarkdownBlockItem[] {
+  const blocks: MarkdownBlockItem[] = [];
+  const lines = text.split("\n");
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (/^\s*```/.test(line)) {
+      const match = line.match(/^\s*```(\w+)?/);
+      const lang = match ? match[1] || "" : "";
+      const codeLines: string[] = [];
+      i += 1;
+      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) {
+        codeLines.push(lines[i]);
+        i += 1;
+      }
+      i += 1;
+      blocks.push({ type: "code_block", lang, code: codeLines.join("\n") });
+      continue;
+    }
+
+    const headingMatch = line.match(/^(#{1,4})\s+(.+)$/);
+    if (headingMatch) {
+      blocks.push({ type: "heading", level: headingMatch[1].length, text: headingMatch[2] });
+      i += 1;
+      continue;
+    }
+
+    if (/^\s*[-*]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*[-*]\s+/, ""));
+        i += 1;
+      }
+      blocks.push({ type: "ul", items });
+      continue;
+    }
+
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*\d+\.\s+/, ""));
+        i += 1;
+      }
+      blocks.push({ type: "ol", items });
+      continue;
+    }
+
+    if (/^\s*>\s*/.test(line)) {
+      const quoteLines: string[] = [];
+      while (i < lines.length && /^\s*>\s*/.test(lines[i])) {
+        quoteLines.push(lines[i].replace(/^\s*>\s*/, ""));
+        i += 1;
+      }
+      blocks.push({ type: "quote", text: quoteLines.join("\n") });
+      continue;
+    }
+
+    if (!line.trim()) {
+      i += 1;
+      continue;
+    }
+
+    const pLines: string[] = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !/^\s*```/.test(lines[i]) &&
+      !/^(#{1,4})\s+/.test(lines[i]) &&
+      !/^\s*[-*]\s+/.test(lines[i]) &&
+      !/^\s*\d+\.\s+/.test(lines[i]) &&
+      !/^\s*>\s*/.test(lines[i])
+    ) {
+      pLines.push(lines[i]);
+      i += 1;
+    }
+    blocks.push({ type: "paragraph", text: pLines.join("\n") });
+  }
+
+  return blocks;
+}
+
+function MarkdownContent({ content }: { content: string }) {
+  const blocks = parseMarkdownBlocks(content);
+  return (
+    <>
+      {blocks.map((block, idx) => {
+        if (block.type === "code_block") {
+          return <MarkdownCodeBlock key={idx} code={block.code} lang={block.lang} />;
+        }
+        if (block.type === "heading") {
+          if (block.level === 1 || block.level === 2) {
+            return <h4 key={idx}><MarkdownInline text={block.text} /></h4>;
+          }
+          return <h5 key={idx}><MarkdownInline text={block.text} /></h5>;
+        }
+        if (block.type === "ul") {
+          return (
+            <ul key={idx}>
+              {block.items.map((item, itemIdx) => (
+                <li key={itemIdx}><MarkdownInline text={item} /></li>
+              ))}
+            </ul>
+          );
+        }
+        if (block.type === "ol") {
+          return (
+            <ol key={idx}>
+              {block.items.map((item, itemIdx) => (
+                <li key={itemIdx}><MarkdownInline text={item} /></li>
+              ))}
+            </ol>
+          );
+        }
+        if (block.type === "quote") {
+          return (
+            <blockquote key={idx}>
+              <MarkdownInline text={block.text} />
+            </blockquote>
+          );
+        }
+        return (
+          <p key={idx}>
+            <MarkdownInline text={block.text} />
+          </p>
+        );
+      })}
+    </>
+  );
+}
+
 // Componente per un singolo blocco chat con stato espanso/collassato
 function ChatBlockItem({
   block,
@@ -456,7 +687,13 @@ function ChatBlockItem({
           </button>
         )}
       </div>
-      <pre>{block.content}</pre>
+      {block.kind === "activity" ? (
+        <pre>{block.content}</pre>
+      ) : (
+        <div className="chat-markdown">
+          <MarkdownContent content={block.content} />
+        </div>
+      )}
     </article>
   );
 }
