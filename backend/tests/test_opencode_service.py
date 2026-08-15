@@ -180,3 +180,52 @@ def test_opencode_service_new_session_does_not_inherit_previous_blocks(tmp_path:
     assert len(history.blocks) == 1
     assert history.blocks[0].kind == "user"
     assert history.blocks[0].content == "Primo prompt della nuova sessione"
+
+
+def test_opencode_service_picks_conversation_born_after_pane_start_not_most_recently_updated(
+    tmp_path: Path,
+) -> None:
+    from datetime import UTC, datetime
+    db_file = tmp_path / "opencode.db"
+    _create_sample_opencode_db(db_file, "/workspace")
+    service = OpencodeService(str(db_file))
+    # Il pane tmux avviato a 1700000100 ha prodotto due conversazioni nella
+    # stessa directory: una nata subito (1700000120) e una successiva
+    # (1700000130) che apparteneva a un'altra sessione tmux, poi chiusa.
+    # La seconda ha time_updated piu' recente: con la vecchia selezione
+    # (time_updated DESC) avrebbe vinto lei, mostrando blocchi altrui.
+    conn = sqlite3.connect(db_file)
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
+        ("ses_born_first", "/workspace", "Nata per prima", 1700000120000, 1700000120000),
+    )
+    c.execute(
+        "INSERT INTO message VALUES (?, ?, ?, ?)",
+        ("msg_b1", "ses_born_first", 1700000121000, json.dumps({"role": "user"})),
+    )
+    c.execute(
+        "INSERT INTO part VALUES (?, ?, ?, ?, ?)",
+        ("prt_b1", "msg_b1", "ses_born_first", 1700000121100, json.dumps({"type": "text", "text": "Blocco della conversazione corretta"})),
+    )
+    c.execute(
+        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
+        ("ses_born_later", "/workspace", "Altra sessione", 1700000130000, 1700000140000),
+    )
+    c.execute(
+        "INSERT INTO message VALUES (?, ?, ?, ?)",
+        ("msg_b2", "ses_born_later", 1700000131000, json.dumps({"role": "user"})),
+    )
+    c.execute(
+        "INSERT INTO part VALUES (?, ?, ?, ?, ?)",
+        ("prt_b2", "msg_b2", "ses_born_later", 1700000131100, json.dumps({"type": "text", "text": "Blocco di una sessione chiusa"})),
+    )
+    conn.commit()
+    conn.close()
+
+    tmux_start = datetime.fromtimestamp(1700000100, tz=UTC)
+    history = service.read_history("/workspace", "1", min_timestamp=tmux_start)
+    assert history is not None
+    assert history.opencode_session_id == "ses_born_first"
+    assert len(history.blocks) == 1
+    assert history.blocks[0].content == "Blocco della conversazione corretta"

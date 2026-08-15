@@ -51,23 +51,25 @@ Il DB contiene anche credenziali (`account.access_token`,
 ## Correlazione pane tmux → sessione OpenCode
 
 OpenCode non espone un riferimento al pane tmux (a differenza della cache
-context di Claude). Il collector usa la stessa primitiva di
-`provider-session-state-collector.py` (`tmux list-panes -a -F ...` con
-`#{pane_current_path}`), filtrando i pane il cui comando contiene
-`opencode`, e poi:
+context di Claude). Il backend (modalità host-tmux) apre il DB in sola
+lettura e, per la sessione tmux viva richiesta, filtra le conversazioni:
 
 1. `session.directory == pane.cwd` (confronto esatto, path normalizzati);
-2. `parent_id IS NULL` (solo sessioni top-level: i subagent restano fuori);
-3. `time_archived IS NULL` (sessioni attive);
-4. a parità di directory, scegliere la sessione con `time_updated` massimo.
+2. `time_created >= created_at` della sessione tmux (il primo prompt del
+   processo OpenCode del pane materializza la conversazione soltanto dopo
+   l'avvio del pane, quindi le conversazioni storiche restano fuori);
+3. a parità di directory, scegliere la conversazione con `time_created`
+   minimo tra quelle nate dopo l'avvio del pane.
 
-La sessione attiva è quella che il processo TUI sta aggiornando, quindi ha il
-`time_updated` più recente tra quelle della stessa directory: la scelta resta
-stabile anche con più sessioni storiche nello stesso progetto. **Limite noto e
-dichiarato:** se due sessioni diverse della stessa directory vengono entrambe
-toccate di recente (poco probabile in un solo processo), la correlazione può
-attribuire quella sbagliata. Il raffinamento (statusline hook, evento del
-server OpenCode) è materia di `OC-04` e non è necessario per il primo rilascio.
+La conversazione appartiene al pane tmux che era attivo alla sua nascita:
+scegliere la prima nata dopo l'avvio del pane evita che una conversazione di
+un'altra sessione tmux — anche già chiusa, ma con `time_updated` più recente
+della propria in stato idle — rubi la correlazione e mostri blocchi altrui.
+**Limite noto e dichiarato:** se un pane resta idle per molto tempo prima del
+primo prompt mentre un'altra sessione della stessa directory viene usata, la
+prima conversazione nata in quel lasso può essere attribuita al pane sbagliato.
+Il raffinamento (statusline hook, evento/adapter sul server OpenCode) è
+materia di `OC-04` e non è necessario per il rilascio corrente.
 
 ## Normalizzazione
 

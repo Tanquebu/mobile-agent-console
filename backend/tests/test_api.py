@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 import time
 from datetime import UTC, datetime
 from io import BytesIO
@@ -271,6 +272,66 @@ def test_opencode_history_api_new_session_empty_until_first_prompt(tmp_path) -> 
     response = enabled.get("/api/v1/sessions/1/opencode-history")
     assert response.status_code == 200
     assert response.json()["blocks"] == []
+
+
+def test_opencode_history_api_picks_conversation_born_after_pane_start(tmp_path) -> None:
+    from datetime import UTC, datetime
+
+    from tests.test_opencode_service import _create_sample_opencode_db
+
+    db_path = tmp_path / "opencode.db"
+    _create_sample_opencode_db(db_path, "/workspace")
+
+    conn = sqlite3.connect(db_path)
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
+        ("ses_born_first", "/workspace", "Nata per prima", 1700000120000, 1700000120000),
+    )
+    c.execute(
+        "INSERT INTO message VALUES (?, ?, ?, ?)",
+        ("msg_b1", "ses_born_first", 1700000121000, json.dumps({"role": "user"})),
+    )
+    c.execute(
+        "INSERT INTO part VALUES (?, ?, ?, ?, ?)",
+        ("prt_b1", "msg_b1", "ses_born_first", 1700000121100, json.dumps({"type": "text", "text": "Blocco della conversazione corretta"})),
+    )
+    c.execute(
+        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
+        ("ses_born_later", "/workspace", "Altra sessione", 1700000130000, 1700000140000),
+    )
+    c.execute(
+        "INSERT INTO message VALUES (?, ?, ?, ?)",
+        ("msg_b2", "ses_born_later", 1700000131000, json.dumps({"role": "user"})),
+    )
+    c.execute(
+        "INSERT INTO part VALUES (?, ?, ?, ?, ?)",
+        ("prt_b2", "msg_b2", "ses_born_later", 1700000131100, json.dumps({"type": "text", "text": "Blocco di una sessione chiusa"})),
+    )
+    conn.commit()
+    conn.close()
+
+    enabled, fake = client_and_fake(
+        opencode_history_enabled=True,
+        opencode_db_path=str(db_path),
+    )
+    current = fake.sessions["1"]
+    fake.sessions["1"] = type(current)(
+        current.id,
+        current.name,
+        current.attached,
+        current.windows,
+        "opencode",
+        datetime.fromtimestamp(1700000100, tz=UTC),
+        datetime.fromtimestamp(1700000100, tz=UTC),
+    )
+    login(enabled)
+    response = enabled.get("/api/v1/sessions/1/opencode-history")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["opencode_session_id"] == "ses_born_first"
+    assert len(data["blocks"]) == 1
+    assert data["blocks"][0]["content"] == "Blocco della conversazione corretta"
 
 
 def test_agent_statuses_include_only_agentic_sessions() -> None:

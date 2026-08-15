@@ -93,7 +93,11 @@ class OpencodeService:
                 query += " AND time_created >= ?"
                 params.append(min_ms)
 
-            query += " ORDER BY time_updated DESC LIMIT 1"
+            # A parita' di directory, la conversazione appartiene al pane tmux
+            # che era attivo alla sua nascita: scegliere la prima nata dopo
+            # l'avvio del pane e non quella con time_updated piu' recente, che
+            # potrebbe appartenere a una sessione diversa (anche gia' chiusa).
+            query += " ORDER BY time_created ASC LIMIT 1"
 
             session_row = cursor.execute(query, tuple(params)).fetchone()
 
