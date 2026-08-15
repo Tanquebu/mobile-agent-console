@@ -36,9 +36,12 @@ services:
       MAC_ORCHESTRATOR_STATE_PATH: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.mobile-agent-console/orchestrator-state.json
       MAC_CLAUDE_HISTORY_ENABLED: ${MAC_CLAUDE_HISTORY_ENABLED:-false}
       MAC_CLAUDE_HISTORY_PATH: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.mobile-agent-console/claude-history.json
+      MAC_OPENCODE_HISTORY_ENABLED: ${MAC_OPENCODE_HISTORY_ENABLED:-false}
+      MAC_OPENCODE_DB_PATH: /opencode/opencode.db
       MAC_DATABASE_PATH: ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}/.mobile-agent-console/app.db
     volumes:
       # Montare la DIRECTORY del socket, non il file: se il server tmux
       # riparte ricrea il socket e un bind sul file resterebbe su un inode morto.
       - ${MAC_TMUX_SOCKET_DIR:?set MAC_TMUX_SOCKET_DIR in .env}:${MAC_TMUX_SOCKET_DIR}
       - ${MAC_WORKSPACE_ROOT:?set MAC_WORKSPACE_ROOT in .env}:${MAC_WORKSPACE_ROOT}
+      - ${MAC_OPENCODE_DIR:-/home/max/.local/share/opencode}:/opencode:ro

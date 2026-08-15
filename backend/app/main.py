@@ -55,6 +55,8 @@ from .schemas import (
     KeyInput,
     LoginInput,
     LoginResult,
+    OpencodeHistoryBlockView,
+    OpencodeHistoryView,
     OutputView,
     PaneList,
     PaneTargetInput,
@@ -99,6 +101,7 @@ from .services.host_observability_service import (
     HostObservabilityUnavailable,
 )
 from .services.host_observability_socket_client import HostObservabilitySocketClient
+from .services.opencode_service import OpencodeService
 from .services.orchestrator_state_service import OrchestratorState, OrchestratorStateService
 from .services.output_delta import line_delta
 from .services.provider_session_state_service import ProviderSessionStateService
@@ -311,6 +314,7 @@ def create_app(
         settings.claude_history_path,
         settings.claude_history_max_age_seconds,
     )
+    opencode_service = OpencodeService(settings.opencode_db_path)
     agent_statuses = AgentStatusService(settings.agent_active_window_seconds)
     database = Database(settings.database_path) if settings.database_auth_enabled else None
     users = UserService(database.engine) if database else None
@@ -840,6 +844,7 @@ def create_app(
             session_usage_enabled=settings.session_usage_enabled,
             session_timeline_enabled=settings.session_timeline_enabled
             and (user is None or user.role == "admin"),
+            opencode_history_enabled=settings.opencode_history_enabled,
             optional_features=(
                 _optional_feature_flags(settings)
                 if user is None or user.role == "admin"
@@ -1146,6 +1151,52 @@ def create_app(
             messages=[
                 ClaudeHistoryMessageView(**message.__dict__)
                 for message in history.messages
+            ],
+        )
+
+    @app.get(
+        "/api/v1/sessions/{session_id}/opencode-history",
+        response_model=OpencodeHistoryView,
+        dependencies=[Depends(require_active_session)],
+    )
+    async def get_opencode_history(session_id: str) -> OpencodeHistoryView:
+        if not settings.opencode_history_enabled:
+            raise HTTPException(404, "OpenCode history is disabled")
+        if not session_id.isdigit() or len(session_id) > 10:
+            raise HTTPException(404, "OpenCode history not available")
+        try:
+            live = next(
+                (item for item in await gateway.list_sessions() if item.id == session_id),
+                None,
+            )
+        except TmuxError as exc:
+            raise HTTPException(503, "tmux unavailable") from exc
+        if live is None or "opencode" not in live.current_command.lower():
+            raise HTTPException(404, "OpenCode history not available")
+        try:
+            directory = await gateway.pane_path(session_id)
+        except TmuxError as exc:
+            raise HTTPException(503, "tmux unavailable") from exc
+
+        history = await asyncio.to_thread(
+            opencode_service.read_history, directory, session_id
+        )
+        if history is None:
+            raise HTTPException(404, "OpenCode history not available")
+        return OpencodeHistoryView(
+            session_id=session_id,
+            opencode_session_id=history.opencode_session_id,
+            title=history.title,
+            directory=history.directory,
+            collected_at=history.collected_at,
+            blocks=[
+                OpencodeHistoryBlockView(
+                    id=block.id,
+                    kind=block.kind,
+                    content=block.content,
+                    timestamp=block.timestamp,
+                )
+                for block in history.blocks
             ],
         )
 

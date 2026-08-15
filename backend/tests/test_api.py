@@ -57,6 +57,10 @@ def client_and_fake(
     claude_history_path: str = (
         "/workspace/.mobile-agent-console/claude-history.json"
     ),
+    opencode_history_enabled: bool = False,
+    opencode_db_path: str = (
+        "/workspace/.local/share/opencode/opencode.db"
+    ),
 ) -> tuple[TestClient, FakeTmux]:
     fake = FakeTmux()
     settings = Settings(
@@ -69,6 +73,8 @@ def client_and_fake(
         orchestrator_state_path=orchestrator_state_path,
         claude_history_enabled=claude_history_enabled,
         claude_history_path=claude_history_path,
+        opencode_history_enabled=opencode_history_enabled,
+        opencode_db_path=opencode_db_path,
     )
     return TestClient(create_app(settings, fake)), fake
 
@@ -191,6 +197,47 @@ def test_claude_history_rejects_non_claude_and_missing_data(tmp_path) -> None:
     )
     login(client)
     assert client.get("/api/v1/sessions/1/claude-history").status_code == 404
+
+
+def test_opencode_history_api(tmp_path) -> None:
+    from tests.test_opencode_service import _create_sample_opencode_db
+
+    db_path = tmp_path / "opencode.db"
+    _create_sample_opencode_db(db_path, "/workspace")
+
+    disabled, _ = client_and_fake(
+        opencode_history_enabled=False,
+        opencode_db_path=str(db_path),
+    )
+    assert disabled.get("/api/v1/sessions/1/opencode-history").status_code == 401
+    login(disabled)
+    assert disabled.get("/api/v1/config").json()["opencode_history_enabled"] is False
+    assert disabled.get("/api/v1/sessions/1/opencode-history").status_code == 404
+
+    enabled, fake = client_and_fake(
+        opencode_history_enabled=True,
+        opencode_db_path=str(db_path),
+    )
+    current = fake.sessions["1"]
+    fake.sessions["1"] = type(current)(
+        current.id,
+        current.name,
+        current.attached,
+        current.windows,
+        "opencode",
+        current.activity_at,
+    )
+    login(enabled)
+    response = enabled.get("/api/v1/sessions/1/opencode-history")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["session_id"] == "1"
+    assert data["opencode_session_id"] == "ses_test_123"
+    assert len(data["blocks"]) == 3
+    assert data["blocks"][0]["kind"] == "user"
+    assert data["blocks"][0]["content"] == "Ciao, puoi creare un file?"
+    assert data["blocks"][1]["kind"] == "activity"
+    assert data["blocks"][2]["kind"] == "agent"
 
 
 def test_agent_statuses_include_only_agentic_sessions() -> None:

@@ -30,6 +30,7 @@ import {
   DirectoryListing,
   fetchConfig,
   fetchClaudeHistory,
+  fetchOpencodeHistory,
   fetchDirectory,
   uploadDirectoryFile,
   fetchFile,
@@ -60,6 +61,7 @@ import {
   listPanes,
   listSnapshots,
   listUsers,
+  OpencodeHistory,
   Pane,
   OrchestratorState,
   ProviderRateLimitWindow,
@@ -139,9 +141,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Artefatti preservati nell'archivio",
+  title: "Cronologia completa per OpenCode",
   description:
-    "Gli artefatti della sessione vengono ora conservati durante l'archiviazione e ripristinati automaticamente insieme alla sessione.",
+    "La vista Blocchi ora recupera lo storico completo dei messaggi e dei tool direttamente dal database locale di OpenCode, eliminando i troncamenti della TUI.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -247,7 +249,10 @@ type ChatBlockKind = "user" | "agent" | "activity";
 type ChatBlock = {
   kind: ChatBlockKind;
   content: string;
+  collapsed?: boolean;
 };
+
+const BLOCK_COLLAPSE_THRESHOLD = 500;
 
 const ANSI_SEQUENCE = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/g;
 
@@ -306,10 +311,13 @@ function opencodeChatBlocks(content: string): ChatBlock[] {
   let boxTexts: string[] | null = null;
   const append = (kind: ChatBlockKind, text: string) => {
     if (!current || kind !== current.kind) {
-      current = { kind, content: text };
+      current = { kind, content: text, collapsed: text.length > BLOCK_COLLAPSE_THRESHOLD };
       blocks.push(current);
     } else {
       current.content += `\n${text}`;
+      if (!current.collapsed && current.content.length > BLOCK_COLLAPSE_THRESHOLD) {
+        current.collapsed = true;
+      }
     }
   };
   // La TUI OpenCode incornicia sia i messaggi utente sia le esecuzioni di tool
@@ -359,6 +367,17 @@ function chatBlocks(content: string, provider: string): ChatBlock[] {
   let current: ChatBlock | undefined;
   let afterUserBreak = false;
   const codex = /codex/i.test(provider);
+  const append = (kind: ChatBlockKind, text: string) => {
+    if (!current || kind !== current.kind) {
+      current = { kind, content: text, collapsed: text.length > BLOCK_COLLAPSE_THRESHOLD };
+      blocks.push(current);
+    } else {
+      current.content += `${current.content ? "\n" : ""}${text}`;
+      if (!current.collapsed && current.content.length > BLOCK_COLLAPSE_THRESHOLD) {
+        current.collapsed = true;
+      }
+    }
+  };
   for (const line of chatLines(content, provider)) {
     const visible = line.replace(ANSI_SEQUENCE, "");
     let kind = current?.kind ?? "activity";
@@ -374,14 +393,72 @@ function chatBlocks(content: string, provider: string): ChatBlock[] {
     else if (afterUserBreak && line.trim()) kind = "agent";
 
     if (!current || (line.trim() && kind !== current.kind)) {
-      current = { kind, content: line };
-      blocks.push(current);
+      append(kind, line);
     } else {
       current.content += `${current.content ? "\n" : ""}${line}`;
+      if (!current.collapsed && current.content.length > BLOCK_COLLAPSE_THRESHOLD) {
+        current.collapsed = true;
+      }
     }
-    afterUserBreak = current.kind === "user" && !line.trim();
+    if (current) {
+      afterUserBreak = current.kind === "user" && !line.trim();
+    }
   }
   return blocks.filter((block) => block.content.trim());
+}
+
+// Componente per un singolo blocco chat con stato espanso/collassato
+function ChatBlockItem({
+  block,
+  index,
+  provider,
+  onCopy,
+  copiedKey,
+}: {
+  block: ChatBlock;
+  index: number;
+  provider: string;
+  onCopy: (key: string, text: string) => void;
+  copiedKey: string;
+}) {
+  const blockKey = `${index}-${block.content.slice(0, 20)}`;
+  const isCollapsible = Boolean(block.collapsed ?? (block.content.length > BLOCK_COLLAPSE_THRESHOLD));
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <article className={`chat-block ${block.kind} ${isCollapsible && !isExpanded ? "collapsed" : ""}`} key={blockKey}>
+      <div className="chat-block-header">
+        <small>
+          {block.kind === "user"
+            ? "Tu"
+            : block.kind === "agent"
+              ? provider
+              : "Attività"}
+        </small>
+        {block.kind === "agent" && (
+          <button
+            type="button"
+            className="chat-copy"
+            onClick={() => void onCopy(blockKey, block.content)}
+          >
+            {copiedKey === blockKey ? "Copiato" : "Copia pulito"}
+          </button>
+        )}
+        {isCollapsible && (
+          <button
+            type="button"
+            className="chat-toggle"
+            onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+            aria-expanded={isExpanded}
+            aria-label={isExpanded ? "Comprimi" : "Espandi"}
+          >
+            {isExpanded ? "▲ Mostra meno" : "▼ Mostra tutto"}
+          </button>
+        )}
+      </div>
+      <pre>{block.content}</pre>
+    </article>
+  );
 }
 
 function formatSize(size: number | null): string {
@@ -5063,6 +5140,52 @@ function Console({
     };
   }, [historyEnabled, outputMode, session.id]);
 
+  const [opencodeHistory, setOpencodeHistory] = useState<OpencodeHistory | null>(null);
+  const [opencodeHistoryEnabled, setOpencodeHistoryEnabled] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!opencode) return;
+    fetchConfig()
+      .then((config) => {
+        if (!cancelled && config.opencode_history_enabled !== undefined) {
+          setOpencodeHistoryEnabled(config.opencode_history_enabled);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setOpencodeHistoryEnabled(false);
+      });
+    return () => { cancelled = true; };
+  }, [opencode]);
+
+  useEffect(() => {
+    if (!opencode || outputMode !== "blocks" || !opencodeHistoryEnabled) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    const refresh = () => {
+      fetchOpencodeHistory(session.id)
+        .then((result) => {
+          if (cancelled) return;
+          setOpencodeHistory(result);
+        })
+        .catch((value) => {
+          if (cancelled) return;
+          if (value instanceof ApiError && value.status === 404) {
+            setOpencodeHistoryEnabled(false);
+            return;
+          }
+        })
+        .finally(() => {
+          if (!cancelled) timer = window.setTimeout(refresh, 3000);
+        });
+    };
+    refresh();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [opencode, opencodeHistoryEnabled, outputMode, session.id]);
+
   useEffect(() => {
     let cancelled = false;
     listPanes(session.id)
@@ -5312,7 +5435,7 @@ function Console({
     if (followingOutput && outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
-  }, [content, history, followingOutput, outputMode]);
+  }, [content, history, opencodeHistory, followingOutput, outputMode]);
 
   function updateScrollMode() {
     const output = outputRef.current;
@@ -5729,32 +5852,33 @@ function Console({
             className="output chat-blocks"
             onScroll={updateScrollMode}
           >
-            {content ? chatBlocks(content, session.current_command).map((block, index) => {
-              const blockKey = `${index}-${block.content.slice(0, 20)}`;
-              return (
-                <article className={`chat-block ${block.kind}`} key={blockKey}>
-                  <div className="chat-block-header">
-                    <small>
-                      {block.kind === "user"
-                        ? "Tu"
-                        : block.kind === "agent"
-                          ? session.current_command
-                          : "Attività"}
-                    </small>
-                    {block.kind === "agent" && (
-                      <button
-                        type="button"
-                        className="chat-copy"
-                        onClick={() => void copyAgentBlock(blockKey, block.content)}
-                      >
-                        {copiedAgentBlock === blockKey ? "Copiato" : "Copia pulito"}
-                      </button>
-                    )}
-                  </div>
-                  <pre>{block.content}</pre>
-                </article>
-              );
-            }) : (
+            {opencode && opencodeHistory && opencodeHistory.blocks.length > 0 ? (
+              opencodeHistory.blocks.map((block, index) => (
+                <ChatBlockItem
+                  key={block.id || `${index}-${block.content.slice(0, 20)}`}
+                  block={{
+                    kind: block.kind,
+                    content: block.content,
+                    collapsed: block.content.length > BLOCK_COLLAPSE_THRESHOLD,
+                  }}
+                  index={index}
+                  provider={session.current_command}
+                  onCopy={copyAgentBlock}
+                  copiedKey={copiedAgentBlock}
+                />
+              ))
+            ) : content ? (
+              chatBlocks(content, session.current_command).map((block, index) => (
+                <ChatBlockItem
+                  key={`${index}-${block.content.slice(0, 20)}`}
+                  block={block}
+                  index={index}
+                  provider={session.current_command}
+                  onCopy={copyAgentBlock}
+                  copiedKey={copiedAgentBlock}
+                />
+              ))
+            ) : (
               <p className="output-waiting">In attesa dell'output…</p>
             )}
           </div>

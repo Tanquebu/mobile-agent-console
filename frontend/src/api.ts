@@ -226,6 +226,7 @@ export type AppConfig = {
   host_observability_enabled: boolean;
   rate_limit_fresh_enabled: boolean;
   session_usage_enabled: boolean;
+  opencode_history_enabled?: boolean;
   // Drill-down "fase C" (BH-04): flag dedicato e indipendente da
   // claude_history_enabled/session_usage_enabled (GATE-BH-04). `false` per i
   // ruoli non-admin, come host_observability_enabled.
@@ -668,6 +669,29 @@ export type ClaudeHistory = {
 export async function fetchClaudeHistory(id: string): Promise<ClaudeHistory> {
   const response = await request(
     `/api/v1/sessions/${encodeURIComponent(id)}/claude-history`,
+  );
+  return response.json();
+}
+
+export type OpencodeHistoryBlock = {
+  id: string;
+  kind: "user" | "agent" | "activity";
+  content: string;
+  timestamp: string;
+};
+
+export type OpencodeHistory = {
+  session_id: string;
+  opencode_session_id: string;
+  title: string | null;
+  directory: string;
+  collected_at: string;
+  blocks: OpencodeHistoryBlock[];
+};
+
+export async function fetchOpencodeHistory(id: string): Promise<OpencodeHistory> {
+  const response = await request(
+    `/api/v1/sessions/${encodeURIComponent(id)}/opencode-history`,
   );
   return response.json();
 }

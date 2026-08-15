@@ -115,6 +115,10 @@ class Settings(BaseSettings):
         "/workspace/.mobile-agent-console/claude-history.json"
     )
     claude_history_max_age_seconds: int = Field(default=30, ge=5, le=3600)
+    opencode_history_enabled: bool = False
+    opencode_db_path: str = (
+        "/workspace/.local/share/opencode/opencode.db"
+    )
     database_path: str = "/workspace/.mobile-agent-console/app.db"
     database_auth_enabled: bool = False
     bootstrap_username: str = Field(default="admin", pattern=r"^[A-Za-z0-9_-]{1,64}$")

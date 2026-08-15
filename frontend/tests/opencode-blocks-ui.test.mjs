@@ -36,9 +36,13 @@ function loadOpenCodeBlocks() {
   const ansiStart = app.indexOf(ansiMarker);
   assert.ok(ansiStart >= 0, "costante ANSI_SEQUENCE non trovata nel sorgente");
   const ansi = app.slice(ansiStart, app.indexOf("\n", ansiStart));
+  const thresholdMarker = "const BLOCK_COLLAPSE_THRESHOLD =";
+  const thresholdStart = app.indexOf(thresholdMarker);
+  assert.ok(thresholdStart >= 0, "costante BLOCK_COLLAPSE_THRESHOLD non trovata nel sorgente");
+  const threshold = app.slice(thresholdStart, app.indexOf("\n", thresholdStart));
   const chrome = extractFunction(app, "opencodeChrome");
   const blocks = extractFunction(app, "opencodeChatBlocks");
-  const snippet = `${ansi}\n\n${chrome}\n\n${blocks}\n\nmodule.exports = { opencodeChrome, opencodeChatBlocks };\n`;
+  const snippet = `${ansi}\n${threshold}\n\n${chrome}\n\n${blocks}\n\nmodule.exports = { opencodeChrome, opencodeChatBlocks };\n`;
   const { outputText } = tsModule.transpileModule(snippet, {
     compilerOptions: { module: tsModule.ModuleKind.CommonJS, target: tsModule.ScriptTarget.ES2022 },
   });
@@ -115,3 +119,9 @@ test("il chrome della TUI è riconosciuto esplicitamente", () => {
   assert.ok(!opencode.opencodeChrome("Quante righe ha dati.txt? Rispondi in una riga."));
   assert.ok(!opencode.opencodeChrome("2 righe."));
 });
+
+test("la vista Blocchi usa lo storico OpenCode persistito quando disponibile", () => {
+  assert.match(consoleView, /fetchOpencodeHistory\(session\.id\)/);
+  assert.match(consoleView, /opencode && opencodeHistory && opencodeHistory\.blocks\.length > 0/);
+});
+

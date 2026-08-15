@@ -16,6 +16,7 @@ class ConfigView(BaseModel):
     rate_limit_fresh_enabled: bool = False
     session_usage_enabled: bool = False
     session_timeline_enabled: bool = False
+    opencode_history_enabled: bool = False
     # Enunciazione di fatto per la vista admin ("Audit"): quali funzioni
     # opzionali sono accese ora, mai un confronto con un'attesa. `None` per
     # i ruoli non-admin (nessuna esposizione), mai un dizionario parziale.
@@ -88,6 +89,22 @@ class ClaudeHistoryView(BaseModel):
     source_updated_at: datetime
     truncated: bool
     messages: list[ClaudeHistoryMessageView]
+
+
+class OpencodeHistoryBlockView(BaseModel):
+    id: str
+    kind: Literal["user", "agent", "activity"]
+    content: str
+    timestamp: datetime
+
+
+class OpencodeHistoryView(BaseModel):
+    session_id: str
+    opencode_session_id: str
+    title: str | None = None
+    directory: str
+    collected_at: datetime
+    blocks: list[OpencodeHistoryBlockView]
 
 
 class PaneView(BaseModel):
