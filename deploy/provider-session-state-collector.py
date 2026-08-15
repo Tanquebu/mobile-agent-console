@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import sqlite3
 import subprocess
 import time
 from datetime import UTC, datetime
@@ -231,6 +232,110 @@ def antigravity_context_cache(path: str | None) -> dict[str, tuple[str, float]]:
     return _pane_context_cache(path)
 
 
+def _opencode_model_context_limit(models_cache: str, provider_id: str, model_id: str) -> float | None:
+    """Capienza (`limit.context`) del modello OpenCode dal cache di models.dev.
+
+    Il file è quello usato da OpenCode stesso (`~/.cache/opencode/models.json`,
+    rigenerato ogni ora): `{providerID: {models: {modelID: {limit: {context}}}}}`.
+    `None` se il file manca o il modello non è nel catalogo: la percentuale non
+    viene esposta, come fa la TUI per i limiti sconosciuti.
+    """
+    if not models_cache:
+        return None
+    path = Path(models_cache)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    provider = data.get(provider_id) if isinstance(data, dict) else None
+    models = provider.get("models") if isinstance(provider, dict) else None
+    model = models.get(model_id) if isinstance(models, dict) else None
+    limit = model.get("limit") if isinstance(model, dict) else None
+    context = limit.get("context") if isinstance(limit, dict) else None
+    if isinstance(context, (int, float)) and context > 0:
+        return float(context)
+    return None
+
+
+def opencode_context_percent(db_path: str, models_cache: str, cwd: str, pid: str) -> float | None:
+    """Percentuale di contesto usata dal pane OpenCode, come la mostra la TUI.
+
+    Replica la finestra del widget Context di OpenCode: l'ultimo messaggio
+    assistant con `tokens.output > 0`, con token pari a input + output +
+    reasoning + cache read/write, diviso `limit.context` del modello usato.
+    La percentuale viene dall'ultimo turno e non dai totali cumulativi della
+    sessione, che non azzerano alla compattazione e sovrastimerebbero il
+    contesto dopo un `/compact`. La conversazione è quella nata dopo l'avvio
+    del processo del pane, come in `OpencodeService.read_history`.
+    """
+    db = Path(db_path)
+    if not db.is_file():
+        return None
+    norm_dir = str(Path(cwd).resolve())
+    min_ms = int((process_started_at(pid) - 5) * 1000)
+    try:
+        conn = sqlite3.connect(f"file:{db.resolve()}?mode=ro", uri=True, timeout=2.0)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        session_row = cursor.execute(
+            """
+            SELECT id
+            FROM session
+            WHERE (directory = ? OR directory = ?) AND time_created >= ?
+            ORDER BY time_created ASC LIMIT 1
+            """,
+            (norm_dir, cwd, min_ms),
+        ).fetchone()
+        if session_row is None:
+            conn.close()
+            return None
+        message = None
+        for row in cursor.execute(
+            """
+            SELECT data
+            FROM message
+            WHERE session_id = ?
+            ORDER BY time_created DESC
+            LIMIT 1000
+            """,
+            (str(session_row["id"]),),
+        ):
+            try:
+                data = json.loads(row["data"])
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(data, dict) or data.get("role") != "assistant":
+                continue
+            tokens = data.get("tokens")
+            if not isinstance(tokens, dict) or tokens.get("output", 0) <= 0:
+                continue
+            message = data
+            break
+        conn.close()
+    except sqlite3.Error:
+        return None
+    if message is None:
+        return None
+    tokens = message.get("tokens")
+    cache = tokens.get("cache") if isinstance(tokens, dict) else None
+    if not isinstance(cache, dict):
+        cache = {}
+    used = sum(float(tokens.get(key, 0) or 0) for key in ("input", "output", "reasoning"))
+    used += float(cache.get("read", 0) or 0) + float(cache.get("write", 0) or 0)
+    if used <= 0:
+        return None
+    limit = _opencode_model_context_limit(
+        models_cache,
+        str(message.get("providerID", "")),
+        str(message.get("modelID", "")),
+    )
+    if limit is None:
+        return None
+    return round(max(0.0, min(100.0, used / limit * 100)), 1)
+
+
 def collect(args: argparse.Namespace) -> dict[str, object]:
     sessions = []
     codex_root = Path(args.codex_sessions_root)
@@ -266,6 +371,21 @@ def collect(args: argparse.Namespace) -> dict[str, object]:
             cached_context = antigravity_context.get(pane["pane_id"])
             if cached_context is not None:
                 _antigravity_session_id, context_used_percent = cached_context
+        elif "opencode" in pane["command"]:
+            # La TUI OpenCode non espone un indicatore di modalità permessi
+            # nella status bar: il profilo è conservativo e il classificatore
+            # backend restituisce sempre "ask". Si emette lo stesso valore
+            # per non degradare lo stato permessi già mostrato (main.py
+            # lascia prevalere il collector quando l'entry esiste).
+            provider = "opencode"
+            normalized = ("ask", "Chiede conferma")
+            if args.opencode_db:
+                context_used_percent = opencode_context_percent(
+                    args.opencode_db,
+                    args.opencode_models_cache,
+                    pane["cwd"],
+                    pane["pid"],
+                )
         if provider is None:
             continue
         state, detail = normalized or ("unknown", "Livello permessi non rilevato")
@@ -292,6 +412,8 @@ def main() -> None:
     parser.add_argument("--claude-projects-root", required=True)
     parser.add_argument("--claude-context-cache")
     parser.add_argument("--antigravity-context-cache")
+    parser.add_argument("--opencode-db")
+    parser.add_argument("--opencode-models-cache")
     args = parser.parse_args()
     output = Path(args.output).resolve()
     output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
