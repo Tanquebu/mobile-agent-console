@@ -4500,3 +4500,60 @@ la elenca; `DELETE /api/v1/sessions/0` risponde `409`
 (`"Refusing to terminate the reserved keepalive session"`) e la sessione
 resta viva su host dopo il tentativo. Entrambi i comportamenti confermano
 quanto già coperto dai test automatici.
+
+---
+
+## Round 2026-08-15/16 — Sonda giornaliera reset anticipato quota Codex
+
+**Piano:** `docs/codex-early-reset-probe-plan.md`
+**Commit:** `c1645af` (probe + test), `2a7042e` (LATEST_RELEASE)
+
+### Problema
+
+Il collector `rate-limit-collector.py` gira ogni 30 minuti e aggiorna lo
+snapshot quota. Quando Codex resetta la quota in anticipo rispetto alla
+scadenza prevista (`resets_at`), il sistema continua a mostrare la finestra
+come esaurita fino al campione successivo — fino a 30 minuti di indisponibilità
+percepita inutile. Il piano documentava gate, contratto di output e proprietà
+di sicurezza da rispettare.
+
+### Soluzione
+
+`deploy/codex-quota-probe.py`: sonda giornaliera (timer `04:00 Europe/Rome`,
+`Persistent=true`) che esegue una misura fresca solo se:
+- almeno una finestra quota è >= soglia effettiva (minimo tra i task sospesi
+  in `paused_provider`, default 100%);
+- l'ultimo campione ha più di 60 minuti.
+
+Il runner usa `start_new_session=True` per ottenere un PGID dedicato e
+garantire `SIGTERM → grace → SIGKILL → reap` anche in caso di processo
+figlio bloccato. I file (`provider-rate-limits.json`,
+`provider-rate-limits-history.jsonl`) vengono scritti atomicamente (`.part`
+→ `os.replace`) con permessi `0600`. Il lock è non bloccante: un'istanza
+concorrente esce immediatamente con `skipped_already_running`.
+
+La riconciliazione task (`resume`/`reschedule`/no-op) calcola soglia
+effettiva per task, paragona con la finestra fresca e produce mutazioni
+tipizzate per l'orchestratore.
+
+### Verifiche
+
+- `docker compose run --rm backend-test`: **449/449** (60 nuovi) + ruff clean.
+- `docker compose run --rm frontend-build`: ✅
+- `docker compose config --quiet`: ✅
+- Dry-run tutti e tre i gate sull'host: `skipped_budget_available` (99%),
+  `probe_started` (100% stantio), `skipped_recent_sample` (100% recente).
+- Sonda live su host (99%): exit 0, nessuna chiamata a Codex.
+- `systemctl --user status mobile-agent-console-codex-quota-probe.timer`:
+  `active (waiting)`, trigger `2026-08-16 04:00:00 CEST`.
+- `docker compose up -d --no-deps web`: `web` ricreato, stack sano.
+
+### Monitoraggio post-deploy
+
+```bash
+# Esito del trigger delle 04:00
+journalctl --user -u mobile-agent-console-codex-quota-probe.service --since today
+
+# Prossimo trigger
+systemctl --user list-timers mobile-agent-console-codex-quota-probe.timer
+```
