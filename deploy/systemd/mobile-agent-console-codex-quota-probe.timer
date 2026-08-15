@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Codex quota reset probe
+
+[Timer]
+OnCalendar=*-*-* 04:00:00 Europe/Rome
+AccuracySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

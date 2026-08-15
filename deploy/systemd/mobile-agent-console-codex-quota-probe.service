@@ -1,0 +1,37 @@
+[Unit]
+Description=Codex early quota reset probe
+Documentation=https://github.com/Tanquebu/mobile-agent-console
+# La sonda non richiede rete: legge soltanto lo snapshot locale
+# e invoca lo script quota dell'utente che gestisce la propria connessione.
+
+[Service]
+Type=oneshot
+Environment=MAC_INSTALL_DIR=%h/.local/share/mobile-agent-console
+EnvironmentFile=%h/.config/mobile-agent-console/environment
+ExecStart=/usr/bin/python3 ${MAC_INSTALL_DIR}/deploy/codex-quota-probe.py \
+  --snapshot-path ${MAC_WORKSPACE_ROOT}/.mobile-agent-console/provider-rate-limits.json \
+  --history-path ${MAC_WORKSPACE_ROOT}/.mobile-agent-console/provider-rate-limits-history.jsonl \
+  --codex-script %h/.codex/rate-limit.sh \
+  --lock-path %t/mobile-agent-console/codex-quota-probe.lock
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+# ProtectSystem=full: la sonda scrive snapshot e storico sotto
+# MAC_WORKSPACE_ROOT. ReadWritePaths non espande variabili di EnvironmentFile,
+# quindi si usa full come nelle altre unit che scrivono in home.
+ProtectSystem=full
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+# AF_INET/AF_INET6: lo script ~/.codex/rate-limit.sh interroga l'API remota.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RemoveIPC=yes
+SystemCallArchitectures=native
+LockPersonality=yes
+# Timeout generoso (subprocess ha timeout interno di args.timeout, default 90s)
+# piu' il grace period SIGTERM->SIGKILL.
+RuntimeMaxSec=180
+TimeoutStopSec=15
+KillMode=control-group
