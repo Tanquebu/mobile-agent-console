@@ -154,9 +154,6 @@ export const translations = {
     permissions: "permessi",
     fullPermissionsLabel: "Tutti i permessi da subito (bypassa le conferme)",
     fullPermissionsHint: "L'agente non chiederà conferma per modifiche o comandi eseguiti.",
-    splitHorizontal: "Dividi orizzontale",
-    splitVertical: "Dividi verticale",
-    splitting: "Divisione…",
     closePane: "Chiudi pane",
     closingPane: "Chiusura…",
     // Toolbar & Session actions
@@ -348,9 +345,6 @@ export const translations = {
     permissions: "permissions",
     fullPermissionsLabel: "Grant all permissions upfront (skip confirmations)",
     fullPermissionsHint: "The agent will not ask for confirmation before making changes or running commands.",
-    splitHorizontal: "Split horizontal",
-    splitVertical: "Split vertical",
-    splitting: "Splitting…",
     closePane: "Close pane",
     closingPane: "Closing…",
     // Toolbar & Session actions
