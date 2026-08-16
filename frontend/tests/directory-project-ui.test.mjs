@@ -67,6 +67,13 @@ test("il selettore progetto mostra ricerca, ordinamento e risultati accessibili"
   assert.match(sessionList, /aria-selected=\{directory === path\}/);
 });
 
+test("il progetto master è fissato in cima alla lista alfabetica dei preset, senza preselezione", () => {
+  assert.match(sessionList, /masterPreset = presets\.find\(\(\[label\]\) => label\.localeCompare\("master"/);
+  assert.match(sessionList, /\[masterPreset, \.\.\.filteredAndSorted\.filter\(\(preset\) => preset !== masterPreset\)\]/);
+  assert.match(sessionList, /setDirectory\(\(value\) => value \|\| entries\[0\]\?\.\[1\]/);
+  assert.match(sessionList, /setDirectory\(\(value\) => value \|\| entries\[0\]\?\.\[1\] \|\| config\.allowed_roots\[0\] \|\| ""/);
+});
+
 test("la modale artefatti mostra e copia il percorso fornito dal backend", () => {
   assert.match(artifactsModal, /fetchArtifactDirectory\(sessionId\)/);
   assert.match(artifactsModal, /artifactFolderLabel/);

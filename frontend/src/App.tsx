@@ -140,9 +140,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Icone SVG ufficiali per tipo di sessione",
+  title: "Progetto master in cima alla lista progetti",
   description:
-    "Il riquadro a sinistra di ogni sessione mostra ora i loghi ufficiali SVG (Simple Icons) del provider in esecuzione: Anthropic per Claude, OpenAI per Codex, OpenCode, Python, Node.js, Neovim per vim/nvim, Git. AGY e SSH mantengono un'icona testuale dedicata; le sessioni generiche mostrano >_.",
+    "Nel form di creazione di una nuova sessione il progetto «master» è mostrato sempre per primo nella lista dei preset, che restano ordinati alfabeticamente, così da poterlo selezionare al volo senza doverlo cercare nella lista.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -4625,12 +4625,17 @@ function SessionList({
 
   const compactDashboard = dashboardDensity === "compact";
   const normalizedProjectQuery = projectQuery.trim().toLocaleLowerCase();
-  const displayedPresets = [...presets]
+  const masterPreset = presets.find(([label]) => label.localeCompare("master", undefined, { sensitivity: "base" }) === 0);
+  const filteredAndSorted = [...presets]
     .filter(([label, path]) => `${label} ${path}`.toLocaleLowerCase().includes(normalizedProjectQuery))
     .sort(([aLabel, aPath], [bLabel, bPath]) => {
       const order = aLabel.localeCompare(bLabel) || aPath.localeCompare(bPath);
       return projectSort === "name-asc" ? order : -order;
     });
+  const displayedPresets =
+    masterPreset && filteredAndSorted.includes(masterPreset)
+      ? [masterPreset, ...filteredAndSorted.filter((preset) => preset !== masterPreset)]
+      : filteredAndSorted;
 
   const dashboardSessions = useMemo(() => sessions.filter((session) => !session.hidden), [sessions]);
   const hiddenSessions = useMemo(() => sessions.filter((session) => session.hidden), [sessions]);
