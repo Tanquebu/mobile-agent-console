@@ -5667,7 +5667,11 @@ function Console({
   }, [claude]);
 
   useEffect(() => {
-    if (outputMode !== "history" || !historyEnabled) return;
+    // ADR 007 addendum "Blocchi usa la cronologia nativa quando disponibile":
+    // la stessa cronologia serve sia il tab Cronologia sia, quando c'è testo
+    // reale, il tab Blocchi al posto dello stream tmux (schermo alternativo,
+    // poche righe). Terminale resta sempre e solo sullo stream tmux.
+    if ((outputMode !== "history" && outputMode !== "blocks") || !historyEnabled) return;
     let cancelled = false;
     let timer: number | undefined;
     const refresh = () => {
@@ -6418,6 +6422,29 @@ function Console({
                     kind: block.kind,
                     content: block.content,
                     collapsed: block.content.length > BLOCK_COLLAPSE_THRESHOLD,
+                  }}
+                  index={index}
+                  provider={session.current_command}
+                  onCopy={copyAgentBlock}
+                  copiedKey={copiedAgentBlock}
+                />
+              ))
+            ) : claude && historyEnabled && history && history.messages.length > 0 ? (
+              // ADR 007 addendum: storico reale (JSONL nativo) al posto dello
+              // stream tmux, che a schermo alternativo mostra solo le poche
+              // righe visibili. Compromesso accettato: niente tool
+              // input/output (esclusi dal collector, ADR 007 punto 3), solo
+              // il nome del tool per le voci "activity" — meno dettaglio
+              // dello stream live, molto più storico.
+              history.messages.map((message, index) => (
+                <ChatBlockItem
+                  key={message.id}
+                  block={{
+                    kind: message.kind === "activity" ? "activity" : message.role === "user" ? "user" : "agent",
+                    content: message.kind === "activity"
+                      ? `${message.pending ? "⏳ " : "🔧 "}${message.content}${message.pending ? " (in corso o in attesa di conferma)" : ""}`
+                      : message.content,
+                    collapsed: message.content.length > BLOCK_COLLAPSE_THRESHOLD,
                   }}
                   index={index}
                   provider={session.current_command}
