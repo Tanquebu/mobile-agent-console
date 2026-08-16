@@ -76,6 +76,7 @@ import {
   restoreSnapshot,
   Role,
   resizePane,
+  scrollPane,
   sendEnter,
   sendArtifactPrompt,
   sendArchiveSummaryPrompt,
@@ -135,6 +136,14 @@ const MIN_PANE_COLUMNS = 120;
 // (vedi main.py, stream()).
 const MAX_TERMINAL_LINES = 2000;
 const LOAD_MORE_STEP_LINES = 500;
+// Swipe naturale -> scroll-wheel remoto sul pane (POST .../scroll, vedi
+// api.ts#scrollPane): ogni SWIPE_PX_PER_TICK px trascinati equivalgono a un
+// "tick" di rotellina inviato al processo nel pane (es. il pager interno di
+// Claude Code), non al buffer locale di xterm.js. Cap basso per chiamata
+// (SWIPE_MAX_TICKS_PER_REQUEST) perché l'accumulo viene svuotato più volte
+// durante un drag continuo, non tutto insieme al rilascio del dito.
+const SWIPE_PX_PER_TICK = 32;
+const SWIPE_MAX_TICKS_PER_REQUEST = 5;
 const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
@@ -5991,6 +6000,118 @@ function Console({
       setLoadingMoreHistory(false);
     });
   }, [content, contentRevision, outputMode]);
+
+  // Swipe naturale in vista Terminale -> scroll-wheel remoto sul pane
+  // (POST .../scroll). Non tocca il buffer locale di xterm.js né la
+  // scrollback di tmux: manda eventi di rotellina al processo nel pane
+  // (es. il pager interno di Claude Code), che li interpreta e ridisegna la
+  // propria schermata; il nuovo contenuto arriva al prossimo snapshot via
+  // WebSocket, esattamente come per il resto di questa vista.
+  //
+  // È un meccanismo AGGIUNTIVO rispetto al load-more esistente sopra
+  // (terminal.onScroll/historyExhaustedRef, righe ~5943-5960), non un suo
+  // sostituto: quello resta il modo per rivedere storico locale già
+  // scaricato ma non ancora visibile. Per evitare che i due si pestino i
+  // piedi durante un drag touch, usiamo lo spazio di scroll nativo residuo
+  // di `.xterm-viewport` come discriminante: se c'è ancora storico locale
+  // da rivelare in quella direzione lasciamo fare lo scroll nativo (che
+  // alimenta il meccanismo esistente) e non chiamiamo l'endpoint; solo
+  // quando il buffer locale non ha più margine (tipicamente un pane in
+  // alt-screen come Claude Code, dove non esiste scrollback tmux e
+  // historyExhaustedRef è già true) il drag pilota il pane remoto, con
+  // preventDefault per bloccare anche il bounce/pull-to-refresh nativo
+  // della pagina durante il gesto.
+  useEffect(() => {
+    if (outputMode !== "terminal") return;
+    const container = terminalContainerRef.current;
+    if (!container) return;
+
+    let dragging = false;
+    let lastY = 0;
+    // Pixel di drag accumulati da inizio gesto (o dall'ultimo invio):
+    // positivo = dito trascinato verso il basso. Si svuota a soglie di
+    // SWIPE_PX_PER_TICK, non tutto insieme al rilascio del dito.
+    let accumPx = 0;
+
+    // deltaSign>0 = drag verso il basso (rivelerebbe contenuto sopra, come
+    // uno scroll-up nativo): c'è ancora spazio locale se .xterm-viewport
+    // non è già in cima e lo storico caricato non è esaurito. deltaSign<0 =
+    // drag verso l'alto: c'è spazio se il viewport non è già in fondo.
+    const hasLocalScrollRoom = (deltaSign: number): boolean => {
+      const viewport = container.querySelector<HTMLElement>(".xterm-viewport");
+      if (!viewport) return false;
+      if (deltaSign > 0) return !historyExhaustedRef.current && viewport.scrollTop > 0;
+      return viewport.scrollTop + viewport.clientHeight < viewport.scrollHeight - 1;
+    };
+
+    const flushTicks = () => {
+      const ticks = Math.trunc(Math.abs(accumPx) / SWIPE_PX_PER_TICK);
+      if (ticks <= 0) return;
+      const direction: "up" | "down" = accumPx > 0 ? "up" : "down";
+      const sentTicks = Math.min(SWIPE_MAX_TICKS_PER_REQUEST, ticks);
+      accumPx -= Math.sign(accumPx) * sentTicks * SWIPE_PX_PER_TICK;
+      scrollPane(session.id, direction, sentTicks, paneId || undefined).catch((value) => {
+        setControlError(errorMessage(value));
+      });
+    };
+
+    const onTouchStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1) return;
+      dragging = true;
+      lastY = event.touches[0].clientY;
+      accumPx = 0;
+    };
+
+    const onTouchMove = (event: TouchEvent) => {
+      if (!dragging || event.touches.length !== 1) return;
+      const y = event.touches[0].clientY;
+      const delta = y - lastY;
+      lastY = y;
+      if (delta === 0) return;
+      if (hasLocalScrollRoom(delta)) {
+        // Storico locale ancora disponibile in quella direzione: lascia
+        // fare lo scroll nativo (alimenta terminal.onScroll più sopra),
+        // niente preventDefault e nessuna chiamata remota per questo evento.
+        accumPx = 0;
+        return;
+      }
+      // Niente altro da scrollare localmente: il drag pilota il pane
+      // remoto. preventDefault richiede il listener { passive: false }.
+      event.preventDefault();
+      accumPx += delta;
+      flushTicks();
+    };
+
+    const endDrag = () => {
+      dragging = false;
+      accumPx = 0;
+    };
+
+    const onWheel = (event: WheelEvent) => {
+      // Trackpad/mouse (l'app gira anche da browser desktop): nessun
+      // preventDefault, lo scroll nativo di .xterm-viewport resta
+      // invariato; il pane remoto riceve comunque i tick in aggiunta, con
+      // lo stesso accumulo a soglia del touch. deltaY>0 (wheel verso il
+      // basso) = direzione "down", convenzione opposta allo swipe touch
+      // perché segue la rotellina fisica, non lo scroll "naturale".
+      accumPx -= event.deltaY;
+      flushTicks();
+    };
+
+    container.addEventListener("touchstart", onTouchStart, { passive: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: false });
+    container.addEventListener("touchend", endDrag, { passive: true });
+    container.addEventListener("touchcancel", endDrag, { passive: true });
+    container.addEventListener("wheel", onWheel, { passive: true });
+
+    return () => {
+      container.removeEventListener("touchstart", onTouchStart);
+      container.removeEventListener("touchmove", onTouchMove);
+      container.removeEventListener("touchend", endDrag);
+      container.removeEventListener("touchcancel", endDrag);
+      container.removeEventListener("wheel", onWheel);
+    };
+  }, [outputMode, session.id, paneId]);
 
   useEffect(() => {
     if (outputMode === "terminal") return;

@@ -69,6 +69,7 @@ from .schemas import (
     ResizePaneInput,
     RestoreItemView,
     RestoreResult,
+    ScrollInput,
     SessionList,
     SessionView,
     SessionVisibilityInput,
@@ -635,7 +636,7 @@ def create_app(
         if request.method in {"POST", "DELETE"} and request.url.path != "/api/v1/auth/login":
             route = request.scope.get("route")
             route_path = getattr(route, "path", request.url.path)
-            if not route_path.endswith(("/input", "/keys", "/resize")):
+            if not route_path.endswith(("/input", "/keys", "/resize", "/scroll")):
                 await record_audit(
                     audit_actor(request),
                     f"{request.method} {route_path}",
@@ -2197,6 +2198,21 @@ def create_app(
             raise HTTPException(400, "Interrupt requires explicit confirmation")
         try:
             await gateway.send_key(session_id, payload.key, payload.pane_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except SessionNotFound as exc:
+            raise HTTPException(404, "Session not found") from exc
+        return Accepted()
+
+    @app.post(
+        "/api/v1/sessions/{session_id}/scroll",
+        response_model=Accepted,
+        status_code=202,
+        dependencies=[Depends(require_operator)],
+    )
+    async def scroll_pane(session_id: str, payload: ScrollInput) -> Accepted:
+        try:
+            await gateway.scroll_pane(session_id, payload.direction, payload.ticks, payload.pane_id)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except SessionNotFound as exc:

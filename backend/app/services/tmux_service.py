@@ -157,6 +157,9 @@ class TmuxGateway(Protocol):
     ) -> str: ...
     async def send_text(self, session_id: str, text: str, pane_id: str | None = None) -> None: ...
     async def send_key(self, session_id: str, key: str, pane_id: str | None = None) -> None: ...
+    async def scroll_pane(
+        self, session_id: str, direction: str, ticks: int, pane_id: str | None = None
+    ) -> None: ...
     async def resize_pane(
         self, session_id: str, width: int, height: int, pane_id: str | None = None
     ) -> None: ...
@@ -398,6 +401,24 @@ class TmuxService:
             raise ValueError("Unsupported key")
         target = await self._pane_target(session_id, pane_id)
         await self._run("send-keys", "-t", target, tmux_key)
+
+    async def scroll_pane(
+        self, session_id: str, direction: str, ticks: int, pane_id: str | None = None
+    ) -> None:
+        if direction not in {"up", "down"}:
+            raise ValueError("Unsupported scroll direction")
+        # Sequenza SGR standard del protocollo mouse xterm (codice pulsante
+        # 64/65 = wheel up/down). Claude Code intercetta questi eventi nel
+        # proprio schermo alternativo e scrolla la sua cronologia interna;
+        # tmux stesso non ha scrollback per queste TUI (`history_size`
+        # sempre 0). Colonna/riga non influenzano lo scroll: "1;1" fisso va
+        # bene, non serve calcolare la posizione reale del pane. Una sola
+        # chiamata `send-keys` con la sequenza ripetuta `ticks` volte, non
+        # `ticks` chiamate separate.
+        button_code = 64 if direction == "up" else 65
+        sequence = f"\x1b[<{button_code};1;1M" * ticks
+        target = await self._pane_target(session_id, pane_id)
+        await self._run("send-keys", "-t", target, sequence)
 
     async def resize_pane(self, session_id: str, pane_id: str, columns: int, rows: int) -> None:
         target = await self._pane_target(session_id, pane_id)

@@ -774,6 +774,18 @@ export async function resizePane(id: string, paneId: string, columns: number, ro
   );
 }
 
+export async function scrollPane(
+  id: string,
+  direction: "up" | "down",
+  ticks: number,
+  paneId?: string,
+) {
+  await request(`/api/v1/sessions/${encodeURIComponent(id)}/scroll`, {
+    method: "POST",
+    body: JSON.stringify({ direction, ticks, pane_id: paneId }),
+  });
+}
+
 export async function splitPane(
   id: string,
   paneId?: string,

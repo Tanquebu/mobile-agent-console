@@ -213,6 +213,12 @@ class KeyInput(BaseModel):
     pane_id: str | None = Field(default=None, pattern=r"^\d{1,10}$")
 
 
+class ScrollInput(BaseModel):
+    direction: Literal["up", "down"]
+    ticks: int = Field(ge=1, le=50)
+    pane_id: str | None = Field(default=None, pattern=r"^\d{1,10}$")
+
+
 class ResizePaneInput(BaseModel):
     columns: int = Field(ge=20, le=500)
     rows: int = Field(ge=5, le=300)
