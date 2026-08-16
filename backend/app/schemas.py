@@ -80,6 +80,13 @@ class AgentStatusView(BaseModel):
     # esecuzione. Segnale live sul pane, non lo storico di
     # session_usage_service/session_timeline_service (collector opzionale).
     subagent_count: int = Field(default=0, ge=0)
+    # Timestamp dell'ultimo cambiamento *reale* del contenuto del pane
+    # (digest SHA-256 in AgentStatusService.classify, non il
+    # session_activity di tmux che si aggiorna solo sull'input del client).
+    # `None` quando non c'è uno status classificato (sessione non-agentica o
+    # output non disponibile): in quel caso il frontend fa fallback su
+    # SessionView.activity_at.
+    content_changed_at: datetime | None = None
 
 
 class AgentStatusList(BaseModel):

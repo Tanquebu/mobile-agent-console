@@ -5337,7 +5337,10 @@ function SessionList({
                         {agentStatusBySession[session.id].model}
                       </span>
                     )}
-                    {" · "}{formatRelativeActivity(session.activity_at, language)}
+                    {" · "}{formatRelativeActivity(
+                      agentStatusBySession[session.id]?.content_changed_at ?? session.activity_at,
+                      language,
+                    )}
                   </small>
                   {agentStatusBySession[session.id]?.summary && (
                     <small className="session-summary">

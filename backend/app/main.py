@@ -4,9 +4,10 @@ import logging
 import os
 import re
 import stat
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
 
@@ -1303,6 +1304,12 @@ def create_app(
                 continue
             status = agent_statuses.classify(item.id, item.current_command, content)
             if status is not None:
+                # changed_at è un time.monotonic(): riportarlo a wall-clock
+                # sottraendo da "ora" la distanza monotonica trascorsa dal
+                # cambiamento, non un valore memorizzato direttamente.
+                content_changed_at = datetime.now(UTC) - timedelta(
+                    seconds=time.monotonic() - status.changed_at
+                )
                 permission = structured_permissions.get(item.id)
                 # Il profilo persistito è l'autorità per le sessioni yolo: la
                 # TUI di OpenCode non espone la modalità e la rilevazione
@@ -1345,6 +1352,7 @@ def create_app(
                             else None
                         ),
                         subagent_count=status.subagent_count,
+                        content_changed_at=content_changed_at,
                     )
                 )
         agent_statuses.forget_missing({item.id for item in sessions})

@@ -28,6 +28,10 @@ class FakeTmux:
         # list_sessions e la cui terminazione va rifiutata anche per id noto.
         self.protected_session_id: str | None = None
         self.directory = "/workspace"
+        # Session id per cui capture_output deve sollevare TmuxError,
+        # per esercitare il ramo "output non disponibile" di
+        # list_agent_statuses (content_changed_at resta None).
+        self.capture_error_sessions: set[str] = set()
         self.sessions = {
             "1": TmuxSession("1", "demo", False, 1, "bash", datetime.now(UTC))
         }
@@ -88,6 +92,8 @@ class FakeTmux:
         TmuxService.validate_target(session_id)
         if session_id not in self.sessions:
             raise SessionNotFound(session_id)
+        if session_id in self.capture_error_sessions:
+            raise TmuxError(f"capture failed: {session_id}")
         if pane_id is not None and pane_id != "10":
             raise SessionNotFound(pane_id)
         self.capture_ansi_calls.append(ansi)
