@@ -793,6 +793,59 @@ def test_special_keys_interrupt_and_termination_require_confirmation() -> None:
     assert fake.terminated == ["1"]
 
 
+def test_scroll_pane_up_and_down() -> None:
+    unauthenticated, _ = client_and_fake()
+    assert unauthenticated.post(
+        "/api/v1/sessions/1/scroll", json={"direction": "up", "ticks": 3}
+    ).status_code == 401
+
+    client, fake = client_and_fake()
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+
+    assert client.post(
+        "/api/v1/sessions/1/scroll", json={"direction": "up", "ticks": 3}
+    ).status_code == 403
+
+    up = client.post(
+        "/api/v1/sessions/1/scroll",
+        headers=headers,
+        json={"direction": "up", "ticks": 3},
+    )
+    assert up.status_code == 202
+    down = client.post(
+        "/api/v1/sessions/1/scroll",
+        headers=headers,
+        json={"direction": "down", "ticks": 1, "pane_id": "10"},
+    )
+    assert down.status_code == 202
+    assert fake.scrolls == [("up", 3), ("down", 1)]
+    assert fake.targets[-1] == "10"
+
+    assert client.post(
+        "/api/v1/sessions/1/scroll",
+        headers=headers,
+        json={"direction": "sideways", "ticks": 1},
+    ).status_code == 422
+    assert client.post(
+        "/api/v1/sessions/1/scroll",
+        headers=headers,
+        json={"direction": "up", "ticks": 0},
+    ).status_code == 422
+    assert client.post(
+        "/api/v1/sessions/1/scroll",
+        headers=headers,
+        json={"direction": "up", "ticks": 51},
+    ).status_code == 422
+
+    missing = client.post(
+        "/api/v1/sessions/9/scroll",
+        headers=headers,
+        json={"direction": "up", "ticks": 1},
+    )
+    assert missing.status_code == 404
+
+
 def test_rename_session_supports_spaces_and_requires_csrf() -> None:
     client, fake = client_and_fake()
     csrf = login(client)

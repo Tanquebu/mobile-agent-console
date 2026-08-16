@@ -81,6 +81,30 @@ def test_socket_prefix_variants(monkeypatch) -> None:
     assert recorder.calls[2][:3] == ("tmux", "-S", "/tmp/tmux-1000/default")
 
 
+def test_scroll_pane_sends_repeated_sgr_wheel_sequence(monkeypatch) -> None:
+    recorder = Recorder(monkeypatch)
+    service = TmuxService("test")
+    asyncio.run(service.scroll_pane("1", "up", 3))
+    call = recorder.calls[0]
+    assert call[:3] == ("tmux", "-L", "test")
+    assert call[3:] == ("send-keys", "-t", "$1", "\x1b[<64;1;1M" * 3)
+
+    async def panes(_session_id: str) -> list[TmuxPane]:
+        return [TmuxPane("12", 0, 0, True, "bash", "shell", 80, 24)]
+
+    monkeypatch.setattr(service, "list_panes", panes)
+    recorder.calls.clear()
+    asyncio.run(service.scroll_pane("1", "down", 1, pane_id="12"))
+    call = recorder.calls[0]
+    assert call[3:] == ("send-keys", "-t", "%12", "\x1b[<65;1;1M")
+
+
+def test_scroll_pane_rejects_unsupported_direction() -> None:
+    service = TmuxService("test")
+    with pytest.raises(ValueError):
+        asyncio.run(service.scroll_pane("1", "sideways", 1))
+
+
 def test_multiline_and_special_text_goes_through_stdin(monkeypatch) -> None:
     recorder = Recorder(monkeypatch)
     service = TmuxService("test")

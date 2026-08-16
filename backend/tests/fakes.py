@@ -16,6 +16,7 @@ class FakeTmux:
         self.capture_lines_calls: list[int] = []
         self.texts: list[str] = []
         self.keys: list[str] = []
+        self.scrolls: list[tuple[str, int]] = []
         self.targets: list[str | None] = []
         self.resizes: list[tuple[str, int, int]] = []
         self.splits: list[str] = []
@@ -114,6 +115,17 @@ class FakeTmux:
         if session_id not in self.sessions:
             raise SessionNotFound(session_id)
         self.keys.append(key)
+        self.targets.append(pane_id)
+
+    async def scroll_pane(
+        self, session_id: str, direction: str, ticks: int, pane_id: str | None = None
+    ) -> None:
+        if direction not in {"up", "down"}:
+            raise ValueError("Unsupported scroll direction")
+        TmuxService.validate_target(session_id)
+        if session_id not in self.sessions:
+            raise SessionNotFound(session_id)
+        self.scrolls.append((direction, ticks))
         self.targets.append(pane_id)
 
     async def resize_pane(self, session_id: str, pane_id: str, columns: int, rows: int) -> None:
