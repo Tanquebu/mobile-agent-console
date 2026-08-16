@@ -93,7 +93,6 @@ import {
   unsubscribePush,
   Snapshot,
   SnapshotMode,
-  splitPane,
   streamUrl,
   terminateSession,
   uploadAttachment,
@@ -5533,7 +5532,6 @@ function Console({
   const [attachmentError, setAttachmentError] = useState("");
   const [panes, setPanes] = useState<Pane[]>([]);
   const [paneId, setPaneId] = useState("");
-  const [splittingPane, setSplittingPane] = useState(false);
   const [closingPane, setClosingPane] = useState(false);
   const agentic = /codex|claude|agy|antigravity/i.test(session.current_command);
   const claude = /claude/i.test(session.current_command);
@@ -6148,21 +6146,6 @@ function Console({
     }
   }
 
-  async function createPane(direction: "horizontal" | "vertical") {
-    setSplittingPane(true);
-    setControlError("");
-    try {
-      const created = await splitPane(session.id, paneId || undefined, direction);
-      const items = await listPanes(session.id);
-      setPanes(items);
-      setPaneId(created.id);
-    } catch (value) {
-      setControlError(errorMessage(value));
-    } finally {
-      setSplittingPane(false);
-    }
-  }
-
   async function closePane() {
     if (!paneId) return;
     if (!window.confirm("Chiudere questo pane? Il processo al suo interno verrà terminato.")) return;
@@ -6591,20 +6574,6 @@ function Console({
                 Codex · {translations[readLanguage()].permissions}
               </button>
             )}
-            <button
-              disabled={connection === "closed" || splittingPane}
-              type="button"
-              onClick={() => void createPane("horizontal")}
-            >
-              {splittingPane ? translations[readLanguage()].splitting : translations[readLanguage()].splitHorizontal}
-            </button>
-            <button
-              disabled={connection === "closed" || splittingPane}
-              type="button"
-              onClick={() => void createPane("vertical")}
-            >
-              {splittingPane ? translations[readLanguage()].splitting : translations[readLanguage()].splitVertical}
-            </button>
             {panes.length > 1 && (
               <button
                 disabled={connection === "closed" || closingPane || !paneId}
