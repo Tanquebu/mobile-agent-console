@@ -140,9 +140,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Icona sessione dinamica per tipo di processo",
+  title: "Icone SVG ufficiali per tipo di sessione",
   description:
-    "Il riquadro a sinistra di ogni sessione in dashboard mostra ora un'icona specifica in base al processo in esecuzione: ✦ per Claude, ⊕ per Antigravity/agy, ◈ per OpenCode, ⬡ per Codex/Node, 🐍 per Python, 𝓥 per Vim/Neovim, ⎇ per Git, ⇄ per SSH. Le sessioni generiche continuano a mostrare >_.",
+    "Il riquadro a sinistra di ogni sessione mostra ora i loghi ufficiali SVG (Simple Icons) del provider in esecuzione: Anthropic per Claude, OpenAI per Codex, OpenCode, Python, Node.js, Neovim per vim/nvim, Git. AGY e SSH mantengono un'icona testuale dedicata; le sessioni generiche mostrano >_.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
