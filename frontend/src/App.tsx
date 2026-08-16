@@ -5302,7 +5302,7 @@ function SessionList({
                             aria-label={`${agentStatusBySession[session.id].subagent_count} subagent attivi`}
                             title={`${agentStatusBySession[session.id].subagent_count} subagent attivi`}
                           >
-                            ○{agentStatusBySession[session.id].subagent_count}
+                            ◯{agentStatusBySession[session.id].subagent_count}
                           </span>
                         )}
                       </>
