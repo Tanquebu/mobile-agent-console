@@ -435,7 +435,13 @@ function parseInlineTokens(text: string): InlineToken[] {
       tokens.push({ type: "code", value: code.slice(1, -1) });
     } else if (link) {
       const linkMatch = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(link);
-      if (linkMatch && (linkMatch[2].startsWith("http://") || linkMatch[2].startsWith("https://") || linkMatch[2].startsWith("/"))) {
+      if (
+        linkMatch &&
+        (linkMatch[2].startsWith("http://") ||
+          linkMatch[2].startsWith("https://") ||
+          linkMatch[2].startsWith("/") ||
+          linkMatch[2].startsWith("#"))
+      ) {
         tokens.push({ type: "link", text: linkMatch[1], href: linkMatch[2] });
       } else {
         tokens.push({ type: "text", value: link });
@@ -455,6 +461,32 @@ function parseInlineTokens(text: string): InlineToken[] {
   return tokens;
 }
 
+// Genera uno slug "alla GitHub" a partire dal testo di un header: minuscolo,
+// senza punteggiatura (lettere/numeri unicode, spazi e trattini preservati),
+// spazi collassati in trattini singoli.
+function githubSlug(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\p{L}\p{N} -]/gu, "")
+    .replace(/\s+/g, "-");
+}
+
+// Gestisce il click su un link interno (`#slug`) verso un header nello stesso
+// blocco markdown: niente modifica dell'hash della SPA, solo scroll fluido
+// verso il target, cercato dentro l'istanza corrente di `.chat-markdown` (non
+// `document.getElementById`) per restare scoped quando più blocchi condividono
+// lo stesso slug.
+function handleHashLinkClick(event: React.MouseEvent<HTMLAnchorElement>, href: string) {
+  event.preventDefault();
+  const container = event.currentTarget.closest(".chat-markdown");
+  if (!container) return;
+  const slug = href.slice(1);
+  if (!slug) return;
+  const target = container.querySelector(`#${CSS.escape(slug)}`);
+  target?.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
 function MarkdownInline({ text }: { text: string }) {
   const tokens = parseInlineTokens(text);
   return (
@@ -464,8 +496,15 @@ function MarkdownInline({ text }: { text: string }) {
         if (token.type === "bold") return <strong key={idx}>{token.value}</strong>;
         if (token.type === "italic") return <em key={idx}>{token.value}</em>;
         if (token.type === "link") {
+          const isHash = token.href.startsWith("#");
           return (
-            <a key={idx} href={token.href} target="_blank" rel="noopener noreferrer">
+            <a
+              key={idx}
+              href={token.href}
+              target={isHash ? undefined : "_blank"}
+              rel={isHash ? undefined : "noopener noreferrer"}
+              onClick={isHash ? (event) => handleHashLinkClick(event, token.href) : undefined}
+            >
               {token.text}
             </a>
           );
@@ -699,6 +738,17 @@ function parseMarkdownBlocks(text: string): MarkdownBlockItem[] {
 
 function MarkdownContent({ content }: { content: string }) {
   const blocks = parseMarkdownBlocks(content);
+  // Namespace di slug locale a questo render: azzerato ad ogni chiamata così
+  // istanze diverse di MarkdownContent (blocchi chat diversi) non si influenzano
+  // a vicenda. Duplicati nello stesso rendering ricevono suffissi -1, -2, ...
+  // come fa GitHub.
+  const slugCounts = new Map<string, number>();
+  const slugFor = (text: string): string => {
+    const base = githubSlug(text);
+    const count = slugCounts.get(base) ?? 0;
+    slugCounts.set(base, count + 1);
+    return count === 0 ? base : `${base}-${count}`;
+  };
   return (
     <>
       {blocks.map((block, idx) => {
@@ -706,10 +756,11 @@ function MarkdownContent({ content }: { content: string }) {
           return <MarkdownCodeBlock key={idx} code={block.code} lang={block.lang} />;
         }
         if (block.type === "heading") {
+          const id = slugFor(block.text);
           if (block.level === 1 || block.level === 2) {
-            return <h4 key={idx}><MarkdownInline text={block.text} /></h4>;
+            return <h4 id={id} key={idx}><MarkdownInline text={block.text} /></h4>;
           }
-          return <h5 key={idx}><MarkdownInline text={block.text} /></h5>;
+          return <h5 id={id} key={idx}><MarkdownInline text={block.text} /></h5>;
         }
         if (block.type === "ul") {
           return (
