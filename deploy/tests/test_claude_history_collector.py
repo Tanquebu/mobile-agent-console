@@ -84,6 +84,55 @@ class ContextSessionsTest(unittest.TestCase):
     def test_missing_root_returns_empty(self) -> None:
         self.assertEqual(collector.context_sessions(Path("/nonexistent/path")), {})
 
+    def test_duplicate_pane_id_keeps_most_recent_updated_at(self) -> None:
+        # Bug osservato: due file per lo stesso pane_id (nessuna pulizia dei
+        # vecchi), uno vecchio e uno fresco. Deve vincere il più recente,
+        # non il primo incontrato dall'iterazione della directory.
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            old_epoch = NOW_EPOCH - 13 * 24 * 3600
+            (root / "aaa-old-session.json").write_text(
+                json.dumps({"tmux_pane": "%212", "updated_at": _iso(old_epoch)}),
+                encoding="utf-8",
+            )
+            (root / "zzz-new-session.json").write_text(
+                json.dumps({"tmux_pane": "%212", "updated_at": _iso(NOW_EPOCH)}),
+                encoding="utf-8",
+            )
+            result_alphabetical = collector.context_sessions(root)
+
+            # Riscrive gli stessi due file in ordine inverso di creazione,
+            # per non dipendere da un'eventuale coincidenza tra ordine
+            # alfabetico e ordine di iterazione della directory.
+            (root / "aaa-old-session.json").unlink()
+            (root / "zzz-new-session.json").unlink()
+            (root / "zzz-new-session.json").write_text(
+                json.dumps({"tmux_pane": "%9", "updated_at": _iso(NOW_EPOCH)}),
+                encoding="utf-8",
+            )
+            (root / "aaa-old-session.json").write_text(
+                json.dumps({"tmux_pane": "%9", "updated_at": _iso(old_epoch)}),
+                encoding="utf-8",
+            )
+            result_reversed = collector.context_sessions(root)
+
+        self.assertEqual(result_alphabetical["212"][0], "zzz-new-session")
+        self.assertEqual(result_reversed["9"][0], "zzz-new-session")
+
+    def test_duplicate_pane_id_valid_timestamp_beats_missing_one(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "no-timestamp.json").write_text(
+                json.dumps({"tmux_pane": "%7"}), encoding="utf-8"
+            )
+            (root / "with-timestamp.json").write_text(
+                json.dumps({"tmux_pane": "%7", "updated_at": _iso(NOW_EPOCH)}),
+                encoding="utf-8",
+            )
+            result = collector.context_sessions(root)
+
+        self.assertEqual(result["7"][0], "with-timestamp")
+
 
 class CollectStaleCacheRegressionTest(unittest.TestCase):
     """Riproduce il bug osservato: pane nuovo (mai usato), Blocchi mostrava
