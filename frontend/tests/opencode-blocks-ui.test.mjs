@@ -175,3 +175,30 @@ echo 123
   assert.equal(blocks[3].code, "echo 123");
 });
 
+test("il parser Markdown a blocchi riconosce tabelle GFM e righe orizzontali", () => {
+  const blockFn = extractFunction(app, "parseMarkdownBlocks");
+  const { outputText } = tsModule.transpileModule(`${blockFn}\nmodule.exports = { parseMarkdownBlocks };\n`, {
+    compilerOptions: { module: tsModule.ModuleKind.CommonJS, target: tsModule.ScriptTarget.ES2022 },
+  });
+  const module = { exports: {} };
+  // eslint-disable-next-line no-new-func
+  new Function("module", "exports", outputText)(module, module.exports);
+
+  const tableText = `| Nome | Spesa | Stato |
+|:-----|:-----:|------:|
+| Panino | 6 | ok |
+| Caffe' | 1,2 | -- |
+`;
+  const tableBlocks = module.exports.parseMarkdownBlocks(tableText);
+  assert.equal(tableBlocks.length, 1);
+  assert.equal(tableBlocks[0].type, "table");
+  assert.deepEqual(tableBlocks[0].header, ["Nome", "Spesa", "Stato"]);
+  assert.deepEqual(tableBlocks[0].align, ["left", "center", "right"]);
+  assert.deepEqual(tableBlocks[0].rows[0], ["Panino", "6", "ok"]);
+  assert.deepEqual(tableBlocks[0].rows[1], ["Caffe'", "1,2", "--"]);
+
+  const hrText = "Prima riga\n\n---\n\nDopo la riga";
+  const hrBlocks = module.exports.parseMarkdownBlocks(hrText);
+  assert.deepEqual(hrBlocks.map((block) => block.type), ["paragraph", "hr", "paragraph"]);
+});
+

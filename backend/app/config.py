@@ -107,6 +107,13 @@ class Settings(BaseSettings):
     provider_session_states_path: str = (
         "/workspace/.mobile-agent-console/provider-session-states.json"
     )
+    # Profilo con cui ogni sessione tmux è stata avviata (incluse le varianti
+    # `*_yolo`), persistito dal backend per tracciare le sessioni a permessi
+    # estesi anche dopo un riavvio. Scritto dal backend stesso, mai da un
+    # collector esterno.
+    session_profiles_path: str = (
+        "/workspace/.mobile-agent-console/session-profiles.json"
+    )
     orchestrator_state_path: str = (
         "/workspace/.mobile-agent-console/orchestrator-state.json"
     )

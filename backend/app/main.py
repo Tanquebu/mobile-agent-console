@@ -116,6 +116,7 @@ from .services.rate_limit_fresh_client import (
 )
 from .services.rate_limit_history_service import RateLimitHistory, RateLimitHistoryService
 from .services.rate_limit_status_service import RateLimitStatus, RateLimitStatusService
+from .services.session_profile_service import SessionProfileService
 from .services.session_timeline_service import (
     SessionTimelineInvalidResponse,
     SessionTimelineService,
@@ -320,6 +321,7 @@ def create_app(
     users = UserService(database.engine) if database else None
     archives = ArchiveService(database.engine) if database else None
     session_visibility = SessionVisibilityService(database.engine) if database else None
+    session_profiles = SessionProfileService(settings.session_profiles_path)
     audit = AuditService(database.engine) if database else None
     attachments = (
         AttachmentService(
@@ -543,6 +545,20 @@ def create_app(
             await asyncio.to_thread(artifacts.ensure_session_dir, created.id)
         except Exception:
             logger.exception("Unable to prepare artifacts folder for session %s", session_name)
+
+    async def _record_created_profile(session_name: str, profile: str) -> None:
+        # Best-effort: il tracciamento del profilo (in particolare yolo) non
+        # deve far fallire la creazione o il ripristino della sessione. L'id
+        # numerico tmux è noto solo dopo la creazione, quindi si risale alla
+        # sessione per nome come già fa _prepare_artifacts_folder.
+        try:
+            items = await gateway.list_sessions()
+            created = next((item for item in items if item.name == session_name), None)
+            if created is None:
+                return
+            await asyncio.to_thread(session_profiles.set, created.id, profile)
+        except Exception:
+            logger.exception("Unable to record profile for session %s", session_name)
 
     def archive_service() -> ArchiveService:
         if not archives:
@@ -1076,6 +1092,7 @@ def create_app(
             detail = _tmux_mutation_error(exc, "Unable to create session")
             raise HTTPException(409, detail) from exc
         await _prepare_artifacts_folder(payload.name)
+        await _record_created_profile(payload.name, payload.profile)
         return Accepted()
 
     @app.get(
@@ -1093,8 +1110,16 @@ def create_app(
             if session_visibility
             else set()
         )
+        profiles = await asyncio.to_thread(session_profiles.read)
         return SessionList(
-            sessions=[SessionView(**item.__dict__, hidden=item.id in hidden_ids) for item in items]
+            sessions=[
+                SessionView(
+                    **item.__dict__,
+                    hidden=item.id in hidden_ids,
+                    profile=profiles.get(item.id),
+                )
+                for item in items
+            ]
         )
 
     @app.post(
@@ -1221,6 +1246,7 @@ def create_app(
             return_exceptions=True,
         )
         structured_permissions = await asyncio.to_thread(provider_session_states.read)
+        profiles = await asyncio.to_thread(session_profiles.read)
         views = []
         for item, content in zip(agent_sessions, contents, strict=True):
             if isinstance(content, BaseException):
@@ -1241,6 +1267,11 @@ def create_app(
             status = agent_statuses.classify(item.id, item.current_command, content)
             if status is not None:
                 permission = structured_permissions.get(item.id)
+                # Il profilo persistito è l'autorità per le sessioni yolo: la
+                # TUI di OpenCode non espone la modalità e la rilevazione
+                # euristica sull'output non è affidabile. Un profilo *_yolo
+                # prevale quindi su qualunque stato osservato.
+                is_yolo = (profiles.get(item.id) or "").endswith("_yolo")
                 views.append(
                     AgentStatusView(
                         session_id=item.id,
@@ -1248,14 +1279,22 @@ def create_app(
                         state=status.state,
                         detail=status.detail,
                         permission_state=(
-                            permission.permission_state
-                            if permission is not None
-                            else status.permission_state
+                            "bypass"
+                            if is_yolo
+                            else (
+                                permission.permission_state
+                                if permission is not None
+                                else status.permission_state
+                            )
                         ),
                         permission_detail=(
-                            permission.permission_detail
-                            if permission is not None
-                            else status.permission_detail
+                            "Accesso completo"
+                            if is_yolo
+                            else (
+                                permission.permission_detail
+                                if permission is not None
+                                else status.permission_detail
+                            )
                         ),
                         context_used_percent=(
                             permission.context_used_percent
@@ -1328,11 +1367,15 @@ def create_app(
             raise HTTPException(404, "Session not found") from exc
         service = archive_service()
         user = active_user(cookie)
+        profiles = await asyncio.to_thread(session_profiles.read)
+        # Il profilo persistito (incluse le varianti yolo) prevale sulla
+        # derivazione euristica dal comando, che non distingue le due forme.
+        profile = profiles.get(session_id) or session_profile(live.current_command)
         item = await asyncio.to_thread(
             service.create,
             live.name,
             directory,
-            session_profile(live.current_command),
+            profile,
             user.username if user is not None else "legacy",
             payload.agent_session_name,
             payload.summary,
@@ -1342,6 +1385,7 @@ def create_app(
         except (ValueError, SessionNotFound, TmuxError) as exc:
             await asyncio.to_thread(service.delete, item.id)
             raise HTTPException(409, "Unable to archive session") from exc
+        await asyncio.to_thread(session_profiles.remove, session_id)
         await _cleanup_session_files(session_id, archive_id=item.id)
         return ArchivedSessionView.model_validate(item, from_attributes=True)
 
@@ -1405,6 +1449,7 @@ def create_app(
                 )
         except Exception:
             logger.exception("Unable to restore artifacts for archive %s", archive_id)
+        await _record_created_profile(item.name, item.profile)
         await asyncio.to_thread(service.delete, archive_id)
         return Accepted()
 
@@ -1501,10 +1546,14 @@ def create_app(
                 TmuxService.validate_session_id(saved.name)
                 directory, _ = _resolve_within_allowed_roots(saved.directory, roots)
                 profile = (
-                    saved.mode if saved.mode in {"antigravity", "opencode"} else "shell"
+                    saved.mode
+                    if saved.mode
+                    in {"antigravity", "antigravity_yolo", "opencode", "opencode_yolo"}
+                    else "shell"
                 )
                 await gateway.create_session(saved.name, str(directory), profile)
                 existing_names.add(saved.name)
+                await _record_created_profile(saved.name, profile)
                 if saved.mode in SNAPSHOT_RESUME_COMMANDS:
                     created = next(
                         (item for item in await gateway.list_sessions() if item.name == saved.name),
@@ -2120,6 +2169,10 @@ def create_app(
         except TmuxError as exc:
             raise HTTPException(409, str(exc)) from exc
         await _cleanup_session_files(session_id)
+        # La sessione è terminata: il profilo persistito (in particolare le
+        # varianti yolo) non deve restare assegnato a un id che tmux può
+        # riassegnare a una sessione futura.
+        await asyncio.to_thread(session_profiles.remove, session_id)
         return Response(status_code=204)
 
     @app.post(

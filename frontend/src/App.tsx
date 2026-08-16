@@ -43,7 +43,6 @@ import {
   fetchSessionTimeline,
   fileDownloadUrl,
   filePreviewUrl,
-  FileContent,
   errorMessage,
   login,
   logout,
@@ -141,9 +140,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Percentuale di contesto per le sessioni OpenCode",
+  title: "Badge YOLO per sessioni con permessi estesi",
   description:
-    "Le sessioni OpenCode mostrano ora quanto contesto del modello è in uso, replicando la finestra Context della TUI: gli ultimi token dell'agente (input, output, reasoning e cache) divisi per il limite del modello dal catalogo models.dev, con la stessa semantica degli altri provider.",
+    "Le sessioni yolo (Antigravity e OpenCode avviate con tutti i permessi, senza conferme) sono ora marcate visivamente con una pill YOLO e un accento di colore: in dashboard, nella barra di stato della console e nello switcher sessioni, con una strip di avviso persistente sotto l'header. Il profilo sopravvive a riavvio, archiviazione e ripristino dello snapshot.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -189,7 +188,12 @@ function readRecentSessions(): Session[] {
       && typeof item.attached === "boolean"
       && typeof item.windows === "number"
       && typeof item.activity_at === "string"
-    )).slice(0, 2);
+    )).map((item) => ({
+      ...item,
+      // Gli item salvati prima dell'introduzione di `profile` non lo hanno:
+      // lo normalizziamo a null senza scartare la sessione.
+      profile: typeof item.profile === "string" ? item.profile : null,
+    })).slice(0, 2);
   } catch {
     return [];
   }
@@ -500,18 +504,59 @@ function MarkdownCodeBlock({ code, lang }: { code: string; lang: string }) {
   );
 }
 
+type TableAlign = "left" | "center" | "right";
+
 type MarkdownBlockItem =
   | { type: "code_block"; lang: string; code: string }
   | { type: "heading"; level: number; text: string }
   | { type: "ul"; items: string[] }
   | { type: "ol"; items: string[] }
   | { type: "quote"; text: string }
+  | { type: "hr" }
+  | { type: "table"; header: string[]; rows: string[][]; align: TableAlign[] }
   | { type: "paragraph"; text: string };
 
 function parseMarkdownBlocks(text: string): MarkdownBlockItem[] {
   const blocks: MarkdownBlockItem[] = [];
   const lines = text.split("\n");
   let i = 0;
+
+  // Separatore GFM di una tabella (`| --- | :---: | ---: |`, pipe iniziale e
+  // finale opzionali): le colonne definiscono solo l'allineamento, mai testo.
+  const tableSeparatorRe = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
+  // Riga di tabella: deve iniziare con una pipe (il separatore arriva dopo).
+  const tableRowRe = /^\s*\|/;
+  // Riga orizzontale (`---`, `***`, `___`), ma non `- ` di un elenco né `- - -`.
+  const horizontalRuleRe = /^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/;
+
+  function splitTableRow(line: string): string[] {
+    const sentinel = "\u0000";
+    const cells = line
+      .trim()
+      .replace(/\\\|/g, sentinel)
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((cell) => cell.replace(sentinel, "|").trim());
+    return cells;
+  }
+
+  function parseTableSeparator(line: string): TableAlign[] {
+    return splitTableRow(line).map((cell) => {
+      const left = cell.startsWith(":");
+      const right = cell.endsWith(":");
+      if (left && right) return "center";
+      if (right) return "right";
+      return "left";
+    });
+  }
+
+  function nextNonEmptyIndex(lines: string[], start: number): number {
+    for (let index = start; index < lines.length; index += 1) {
+      if (lines[index].trim()) return index;
+    }
+    return -1;
+  }
 
   while (i < lines.length) {
     const line = lines[i];
@@ -541,6 +586,31 @@ function parseMarkdownBlocks(text: string): MarkdownBlockItem[] {
       continue;
     }
 
+    // Tabella GFM: riga che inizia con `|` seguita (anche dopo righe vuote) da
+    // un separatore. Consuma header, separatore e righe successive insieme.
+    if (tableRowRe.test(line)) {
+      const separatorIndex = nextNonEmptyIndex(lines, i + 1);
+      if (separatorIndex !== -1 && tableSeparatorRe.test(lines[separatorIndex].trim())) {
+        const header = splitTableRow(lines[i]);
+        const align = parseTableSeparator(lines[separatorIndex]);
+        const rows: string[][] = [];
+        let j = separatorIndex + 1;
+        while (j < lines.length && tableRowRe.test(lines[j])) {
+          rows.push(splitTableRow(lines[j]));
+          j += 1;
+        }
+        blocks.push({ type: "table", header, rows, align });
+        i = j;
+        continue;
+      }
+    }
+
+    if (horizontalRuleRe.test(line)) {
+      blocks.push({ type: "hr" });
+      i += 1;
+      continue;
+    }
+
     // Elenco puntato (-, *, •)
     if (/^\s*[-*•]\s+/.test(line)) {
       const items: string[] = [];
@@ -553,7 +623,9 @@ function parseMarkdownBlocks(text: string): MarkdownBlockItem[] {
           !/^\s*[-*•]\s+/.test(lines[i]) &&
           !/^\s*\d+\.\s+/.test(lines[i]) &&
           !/^(#{1,4})\s+/.test(lines[i]) &&
-          !/^\s*```([a-zA-Z0-9_-]+)?\s*$/.test(lines[i])
+          !/^\s*```([a-zA-Z0-9_-]+)?\s*$/.test(lines[i]) &&
+          !tableRowRe.test(lines[i]) &&
+          !horizontalRuleRe.test(lines[i])
         ) {
           itemText += ` ${lines[i].trim()}`;
           i += 1;
@@ -576,7 +648,9 @@ function parseMarkdownBlocks(text: string): MarkdownBlockItem[] {
           !/^\s*[-*•]\s+/.test(lines[i]) &&
           !/^\s*\d+\.\s+/.test(lines[i]) &&
           !/^(#{1,4})\s+/.test(lines[i]) &&
-          !/^\s*```([a-zA-Z0-9_-]+)?\s*$/.test(lines[i])
+          !/^\s*```([a-zA-Z0-9_-]+)?\s*$/.test(lines[i]) &&
+          !tableRowRe.test(lines[i]) &&
+          !horizontalRuleRe.test(lines[i])
         ) {
           itemText += ` ${lines[i].trim()}`;
           i += 1;
@@ -610,7 +684,9 @@ function parseMarkdownBlocks(text: string): MarkdownBlockItem[] {
       !/^(#{1,4})\s+/.test(lines[i]) &&
       !/^\s*[-*•]\s+/.test(lines[i]) &&
       !/^\s*\d+\.\s+/.test(lines[i]) &&
-      !/^\s*>\s*/.test(lines[i])
+      !/^\s*>\s*/.test(lines[i]) &&
+      !tableRowRe.test(lines[i]) &&
+      !horizontalRuleRe.test(lines[i])
     ) {
       pLines.push(lines[i]);
       i += 1;
@@ -658,6 +734,43 @@ function MarkdownContent({ content }: { content: string }) {
             <blockquote key={idx}>
               <MarkdownInline text={block.text} />
             </blockquote>
+          );
+        }
+        if (block.type === "hr") {
+          return <hr key={idx} />;
+        }
+        if (block.type === "table") {
+          const cellStyle = (cellIdx: number): React.CSSProperties | undefined => {
+            const align = block.align[cellIdx];
+            if (align === "center") return { textAlign: "center" };
+            if (align === "right") return { textAlign: "right" };
+            return undefined;
+          };
+          return (
+            <div className="markdown-table-wrap" key={idx}>
+              <table>
+                <thead>
+                  <tr>
+                    {block.header.map((cell, cellIdx) => (
+                      <th key={cellIdx} style={cellStyle(cellIdx)}>
+                        <MarkdownInline text={cell} />
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row, rowIdx) => (
+                    <tr key={rowIdx}>
+                      {row.map((cell, cellIdx) => (
+                        <td key={cellIdx} style={cellStyle(cellIdx)}>
+                          <MarkdownInline text={cell} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           );
         }
         return (
@@ -840,12 +953,30 @@ function isDownloadable(name: string): boolean {
 const PREVIEWABLE_VIDEO = /\.mp4$/i;
 const PREVIEWABLE_IMAGE = /\.(?:jpe?g|png|webp)$/i;
 const PREVIEWABLE_AUDIO = /\.m4a$/i;
+const PREVIEWABLE_MARKDOWN = /\.(?:md|markdown)$/i;
 
-function mediaPreviewKind(name: string): "video" | "image" | "audio" | null {
-  if (PREVIEWABLE_VIDEO.test(name)) return "video";
-  if (PREVIEWABLE_IMAGE.test(name)) return "image";
-  if (PREVIEWABLE_AUDIO.test(name)) return "audio";
-  return null;
+type PreviewKind = "image" | "video" | "audio" | "text" | "markdown";
+
+type PreviewContent = {
+  content: string;
+  truncated: boolean;
+};
+
+type PreviewSource = {
+  kind: PreviewKind;
+  name: string;
+  url: string | null;
+  fetchContent: () => Promise<PreviewContent>;
+  onBack: () => void;
+  eyebrow?: string;
+};
+
+function previewKindFor(name: string, mediaType?: string): PreviewKind {
+  if (mediaType === "text/markdown" || PREVIEWABLE_MARKDOWN.test(name)) return "markdown";
+  if (mediaType === "video/mp4" || PREVIEWABLE_VIDEO.test(name)) return "video";
+  if (mediaType?.startsWith("image/") || PREVIEWABLE_IMAGE.test(name)) return "image";
+  if ((mediaType === "audio/mpeg" || mediaType === "audio/mp4") || PREVIEWABLE_AUDIO.test(name)) return "audio";
+  return "text";
 }
 
 type BrowserSort = "name-asc" | "name-desc" | "date-desc" | "date-asc";
@@ -871,44 +1002,76 @@ function sortDirectoryEntries(entries: DirectoryEntry[], sort: BrowserSort): Dir
   });
 }
 
-function FileModal({
-  sessionId,
-  path,
-  onBack,
-}: {
-  sessionId: string;
-  path: string;
-  onBack: () => void;
-}) {
-  const [file, setFile] = useState<FileContent | null>(null);
+// Adapter di directory: il tipo si decide dall'estensione perche' la directory
+// non espone un media type; i tag media caricano da soli e il flag `truncated`
+// arriva dalla risposta di `/file`.
+function directoryPreviewSource(sessionId: string, path: string, onBack: () => void): PreviewSource {
+  const kind = previewKindFor(path);
+  const isMedia = kind === "video" || kind === "image" || kind === "audio";
+  return {
+    kind,
+    name: path,
+    url: isMedia ? filePreviewUrl(sessionId, path) : null,
+    fetchContent: () => fetchFile(sessionId, path).then((file) => ({ content: file.content, truncated: file.truncated })),
+    eyebrow: translations[readLanguage()].readOnlyFile,
+    onBack,
+  };
+}
+
+function artifactPreviewSource(sessionId: string, item: Artifact, onBack: () => void): PreviewSource {
+  const kind = previewKindFor(item.name, item.media_type);
+  const isMedia = kind === "video" || kind === "image" || kind === "audio";
+  return {
+    kind,
+    name: item.name,
+    url: isMedia ? artifactDownloadUrl(sessionId, item.name) : null,
+    fetchContent: () => fetchArtifactContent(sessionId, item.name).then((text) => ({ content: text, truncated: false })),
+    onBack,
+  };
+}
+
+function PreviewModal({ source }: { source: PreviewSource }) {
+  const [content, setContent] = useState<string | null>(null);
+  const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const t = translations[readLanguage()];
-  const mediaKind = mediaPreviewKind(path);
+  const isText = source.kind === "text" || source.kind === "markdown";
+
+  // Il source e' ricreato a ogni render del padre (adapter costruiti inline),
+  // quindi l'effetto non deve dipenderne per identita', altrimenti ogni
+  // ri-render (poll agent-status, snapshot WebSocket) ritriggerebbe il fetch
+  // e il contenuto verrebbe smontato/rimontato, perdendo lo scroll. Ci si
+  // ancora al file aperto e si legge la callback corrente tramite ref.
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
 
   useEffect(() => {
-    // Su un media non si chiama `/file`: quella rotta legge solo testo e
-    // risponderebbe "Binary file, no preview available". Il tag lo carica da solo.
-    if (mediaKind) {
-      setFile(null);
+    if (!isText) {
+      setContent(null);
       setError("");
       setLoading(false);
       return;
     }
     let cancelled = false;
+    setContent(null);
     setLoading(true);
     setError("");
-    fetchFile(sessionId, path)
-      .then((value) => { if (!cancelled) setFile(value); })
+    sourceRef.current.fetchContent()
+      .then((value) => {
+        if (cancelled) return;
+        setContent(value.content);
+        setTruncated(value.truncated);
+      })
       .catch((value) => { if (!cancelled) setError(errorMessage(value)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [sessionId, path, mediaKind]);
+  }, [isText, source.kind, source.name]);
 
   async function copy() {
-    if (!file || !file.content) return;
-    const ok = await copyToClipboard(file.content);
+    if (!content) return;
+    const ok = await copyToClipboard(content);
     if (ok) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
@@ -919,42 +1082,39 @@ function FileModal({
     <>
       <header>
         <div>
-          <span className="eyebrow">{t.readOnlyFile}</span>
-          <h2 className="directory-path" title={path}>{path}</h2>
+          <span className="eyebrow">{source.eyebrow ?? t.preview}</span>
+          <h2 className="directory-path" title={source.name}>{source.name}</h2>
         </div>
-        <button className="modal-close" onClick={onBack} aria-label={t.backToList}>‹</button>
+        <button className="modal-close" onClick={source.onBack} aria-label={t.backToList}>‹</button>
       </header>
-      {mediaKind === "video" && (
-        <video
-          className="file-media"
-          src={filePreviewUrl(sessionId, path)}
-          controls
-          playsInline
-          preload="metadata"
-        />
+      {source.kind === "video" && (
+        <video className="file-media" src={source.url ?? undefined} controls playsInline preload="metadata" />
       )}
-      {mediaKind === "image" && (
-        <img className="file-media" src={filePreviewUrl(sessionId, path)} alt={path} />
+      {source.kind === "image" && (
+        <img className="file-media" src={source.url ?? undefined} alt={source.name} />
       )}
-      {mediaKind === "audio" && (
-        <audio
-          className="file-media"
-          src={filePreviewUrl(sessionId, path)}
-          controls
-          preload="metadata"
-        />
+      {source.kind === "audio" && (
+        <audio className="file-media" src={source.url ?? undefined} controls preload="metadata" />
       )}
-      {loading && <p className="empty">{t.loading}</p>}
-      {error && <p className="error">{error}</p>}
-      {!loading && !error && file && (
+      {isText && loading && <p className="empty">{t.loading}</p>}
+      {isText && error && <p className="error">{error}</p>}
+      {isText && !loading && !error && content !== null && (
         <>
-          {file.content && (
+          {content && (
             <button type="button" className="directory-copy" onClick={() => void copy()}>
               {copied ? t.copied : t.copyContent}
             </button>
           )}
-          <pre className="file-preview">{file.content || t.emptyFile}</pre>
-          {file.truncated && <small>{t.truncatedPreview}</small>}
+          {source.kind === "markdown" ? (
+            content ? (
+              <div className="chat-markdown markdown-preview"><MarkdownContent content={content} /></div>
+            ) : (
+              <p className="empty">{t.emptyFile}</p>
+            )
+          ) : (
+            <pre className="file-preview">{content || t.emptyFile}</pre>
+          )}
+          {truncated && <small>{t.truncatedPreview}</small>}
         </>
       )}
     </>
@@ -1035,14 +1195,19 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   function openEntry(entry: DirectoryEntry) {
     if (!listing) return;
     const fullPath = joinPath(listing.path, entry.name);
-    if (entry.type === "dir") setCurrentPath(fullPath);
-    else if (entry.type === "file" && mediaPreviewKind(entry.name)) {
+    if (entry.type === "dir") {
+      setCurrentPath(fullPath);
+      return;
+    }
+    if (entry.type !== "file") return;
+    // I file scaricabili non anteprima (gif, pdf, docx, …) si scaricano col
+    // browser; testo, markdown e media si aprono in anteprima.
+    const previewable = previewKindFor(entry.name) !== "text" || !isDownloadable(entry.name);
+    if (previewable) {
       savedScrollTopRef.current = modalRef.current?.scrollTop ?? 0;
       setOpenFile(fullPath);
-    } else if (entry.type === "file" && isDownloadable(entry.name)) downloadEntry(entry);
-    else if (entry.type === "file") {
-      savedScrollTopRef.current = modalRef.current?.scrollTop ?? 0;
-      setOpenFile(fullPath);
+    } else {
+      downloadEntry(entry);
     }
   }
 
@@ -1143,7 +1308,7 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     >
       <section ref={modalRef} className="help-modal directory-modal" role="dialog" aria-modal="true" aria-labelledby="directory-title">
         {openFile !== null ? (
-          <FileModal sessionId={sessionId} path={openFile} onBack={closeFilePreview} />
+          <PreviewModal source={directoryPreviewSource(sessionId, openFile, closeFilePreview)} />
         ) : (
           <>
             <header>
@@ -1272,96 +1437,8 @@ const PREVIEWABLE_TEXT_TYPES = new Set([
   "application/xml",
 ]);
 
-function isPreviewableImage(mediaType: string): boolean {
-  return mediaType.startsWith("image/");
-}
-
-function isPreviewableText(mediaType: string): boolean {
-  return PREVIEWABLE_TEXT_TYPES.has(mediaType);
-}
-
-function isPreviewableVideo(mediaType: string): boolean {
-  return mediaType === "video/mp4";
-}
-
-function isPreviewableAudio(mediaType: string): boolean {
-  return mediaType === "audio/mpeg" || mediaType === "audio/mp4";
-}
-
-function isPreviewableArtifact(mediaType: string): boolean {
-  return isPreviewableImage(mediaType) || isPreviewableText(mediaType) || isPreviewableVideo(mediaType) || isPreviewableAudio(mediaType);
-}
-
-function ArtifactPreview({ sessionId, item, onBack }: { sessionId: string; item: Artifact; onBack: () => void }) {
-  const isImage = isPreviewableImage(item.media_type);
-  const isVideo = isPreviewableVideo(item.media_type);
-  const isAudio = isPreviewableAudio(item.media_type);
-  const [content, setContent] = useState<string | null>(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(!isImage && !isVideo && !isAudio);
-  const [copied, setCopied] = useState(false);
-  const t = translations[readLanguage()];
-
-  useEffect(() => {
-    if (isImage || isVideo || isAudio) return;
-    let cancelled = false;
-    setLoading(true);
-    setError("");
-    fetchArtifactContent(sessionId, item.name)
-      .then((text) => { if (!cancelled) setContent(text); })
-      .catch((value) => { if (!cancelled) setError(errorMessage(value)); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [sessionId, item.name, isImage, isVideo, isAudio]);
-
-  async function copy() {
-    if (!content) return;
-    const ok = await copyToClipboard(content);
-    if (ok) {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    }
-  }
-
-  return (
-    <>
-      <header>
-        <div>
-          <span className="eyebrow">ANTEPRIMA</span>
-          <h2 className="directory-path" title={item.name}>{item.name}</h2>
-        </div>
-        <button className="modal-close" onClick={onBack} aria-label="Torna all'elenco">‹</button>
-      </header>
-      {isImage ? (
-        <div className="artifact-preview">
-          <img src={artifactDownloadUrl(sessionId, item.name)} alt={item.name} />
-        </div>
-      ) : isVideo ? (
-        <div className="artifact-preview">
-          <video controls src={artifactDownloadUrl(sessionId, item.name)} />
-        </div>
-      ) : isAudio ? (
-        <div className="artifact-preview">
-          <audio controls src={artifactDownloadUrl(sessionId, item.name)} />
-        </div>
-      ) : (
-        <>
-          {loading && <p className="empty">Caricamento…</p>}
-          {error && <p className="error">{error}</p>}
-          {!loading && !error && (
-            <>
-              {content && (
-                <button type="button" className="directory-copy" onClick={() => void copy()}>
-                  {copied ? t.copied : t.copyContent}
-                </button>
-              )}
-              <pre className="file-preview">{content || "(file vuoto)"}</pre>
-            </>
-          )}
-        </>
-      )}
-    </>
-  );
+function isPreviewableArtifact(name: string, mediaType: string): boolean {
+  return previewKindFor(name, mediaType) !== "text" || PREVIEWABLE_TEXT_TYPES.has(mediaType);
 }
 
 type ArtifactSort = BrowserSort;
@@ -1500,7 +1577,7 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     >
       <section className="help-modal directory-modal" role="dialog" aria-modal="true" aria-labelledby="artifacts-title">
         {previewItem !== null ? (
-          <ArtifactPreview sessionId={sessionId} item={previewItem} onBack={() => setPreviewItem(null)} />
+          <PreviewModal source={artifactPreviewSource(sessionId, previewItem, () => setPreviewItem(null))} />
         ) : (
           <>
             <header>
@@ -1587,7 +1664,7 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                     <button
                       type="button"
                       className="directory-open"
-                      disabled={!isPreviewableArtifact(item.media_type)}
+                      disabled={!isPreviewableArtifact(item.name, item.media_type)}
                       onClick={() => setPreviewItem(item)}
                     >
                       <span className="directory-type file">FILE</span>
@@ -1613,7 +1690,18 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   );
 }
 
+function isYoloSession(session: Session): boolean {
+  return (session.profile ?? "").endsWith("_yolo");
+}
+
+function yoloLabel(): string {
+  return translations[readLanguage()].yoloLabel;
+}
+
 function suggestedSnapshotMode(session: Session): SnapshotMode {
+  if (isYoloSession(session)) {
+    return session.profile === "antigravity_yolo" ? "antigravity_yolo" : "opencode_yolo";
+  }
   const command = session.current_command.toLowerCase();
   if (command.includes("codex")) return "codex";
   if (command.includes("claude")) return "claude";
@@ -1770,7 +1858,9 @@ function SnapshotModal({
                     <option value="codex">Codex</option>
                     <option value="claude">Claude</option>
                     <option value="antigravity">Antigravity</option>
+                    <option value="antigravity_yolo">Antigravity (yolo)</option>
                     <option value="opencode">OpenCode</option>
+                    <option value="opencode_yolo">OpenCode (yolo)</option>
                     <option value="manual">Manual</option>
                   </select>
                 </div>
@@ -5017,8 +5107,10 @@ function SessionList({
         />
       )}
       <section className="session-list">
-        {visibleSessions.map((session) => (
-          <article className="session-item" key={session.id}>
+        {visibleSessions.map((session) => {
+          const isYolo = isYoloSession(session);
+          return (
+          <article className={`session-item${isYolo ? " yolo" : ""}`} key={session.id}>
             <div className="session-row">
               <button className="session-card" onClick={() => onOpen(session)}>
                 <span className="session-icon">&gt;_</span>
@@ -5042,6 +5134,15 @@ function SessionList({
                           {PERMISSION_STATE_ICON[agentStatusBySession[session.id].permission_state]}
                         </span>
                       </>
+                    )}
+                    {isYolo && (
+                      <span
+                        className="yolo-pill"
+                        title={t.yoloTitle}
+                        aria-label={t.yoloTitle}
+                      >
+                        {yoloLabel()}
+                      </span>
                     )}
                   </strong>
                   <small>
@@ -5096,7 +5197,8 @@ function SessionList({
               </div>
             )}
           </article>
-        ))}
+          );
+        })}
         {!error && dashboardSessions.length === 0 && <p className="empty">Nessuna sessione visibile sulla dashboard.</p>}
         {!error && !compactDashboard && dashboardSessions.length > 0 && filteredSessions.length === 0 && (
           <p className="empty">Nessuna sessione corrisponde alla ricerca.</p>
@@ -5127,6 +5229,10 @@ function SessionList({
                 {label}
               </span>
             ))}
+            <span>
+              <i className="yolo-pill" aria-hidden="true">{yoloLabel()}</i>
+              {t.yoloTitle}
+            </span>
           </div>
         </section>
       </footer>
@@ -5895,7 +6001,7 @@ function Console({
   }
 
   return (
-    <main className={`console ${fullscreenOutput ? "fullscreen-console" : ""}`}>
+    <main className={`console ${fullscreenOutput ? "fullscreen-console" : ""}${isYoloSession(session) ? " yolo" : ""}`}>
       <header className="console-header">
         <button className="icon-button" onClick={onBack} aria-label="Indietro">‹</button>
         <div className="session-header-copy">
@@ -5923,6 +6029,11 @@ function Console({
           ☰
         </button>
       </header>
+      {isYoloSession(session) && (
+        <div className="yolo-strip" role="status">
+          {translations[readLanguage()].yoloStrip}
+        </div>
+      )}
       {agenticStatus && (ownStatus || ownProviderLimit) && (
         <section className="agent-info-bar" aria-label="Stato agente">
           <div className="agent-info-primary">
@@ -5930,6 +6041,11 @@ function Console({
               <span className="agent-info-state" title={`${ownStatus.provider}: ${ownStatus.detail}`}>
                 <i className={`agent-state ${ownStatus.state}`}>{AGENT_STATE_ICON[ownStatus.state]}</i>
                 {getAgentStateLegend().find(([st]) => st === ownStatus.state)?.[1] ?? ownStatus.detail}
+              </span>
+            )}
+            {isYoloSession(session) && (
+              <span className="yolo-badge" title={translations[readLanguage()].yoloTitle}>
+                {yoloLabel()}
               </span>
             )}
             {ownStatus?.context_used_percent != null && (
@@ -6005,6 +6121,11 @@ function Console({
                           title={`${agentStatusBySession[item.id].provider}: ${agentStatusBySession[item.id].detail}`}
                         >
                           {AGENT_STATE_ICON[agentStatusBySession[item.id].state]}
+                        </span>
+                      )}
+                      {isYoloSession(item) && (
+                        <span className="yolo-pill compact" title={translations[readLanguage()].yoloTitle}>
+                          {yoloLabel()}
                         </span>
                       )}
                     </strong>

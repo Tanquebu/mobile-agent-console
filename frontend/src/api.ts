@@ -6,6 +6,9 @@ export type Session = {
   current_command: string;
   activity_at: string;
   hidden: boolean;
+  // Profilo agente (es. "opencode_yolo"): usato per marcare visivamente le
+  // sessioni yolo. Assente nelle sessioni più vecchie, quindi nullable.
+  profile: string | null;
 };
 
 let csrfToken = "";
@@ -841,7 +844,7 @@ export type ArchivedSession = {
   id: string;
   name: string;
   directory: string;
-  profile: "shell" | "codex" | "claude" | "antigravity" | "opencode";
+  profile: "shell" | "codex" | "claude" | "antigravity" | "antigravity_yolo" | "opencode" | "opencode_yolo";
   agent_session_name: string | null;
   summary: string | null;
   archived_by: string;
@@ -911,7 +914,7 @@ export async function createSession(name: string, directory: string, profile: Se
   });
 }
 
-export type SnapshotMode = "shell" | "codex" | "claude" | "antigravity" | "opencode" | "manual";
+export type SnapshotMode = "shell" | "codex" | "claude" | "antigravity" | "antigravity_yolo" | "opencode" | "opencode_yolo" | "manual";
 
 export type SessionSnapshot = {
   name: string;

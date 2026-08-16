@@ -36,14 +36,15 @@ test("immagini e video aprono l'anteprima prima del ramo download", () => {
 test("i file MP3 sono scaricabili dal browser directory", () => {
   assert.match(app, /DOWNLOADABLE_FILE = \/.*mp3/);
   assert.match(app, /mediaType === "audio\/mpeg"/);
-  assert.match(app, /<audio controls src=\{artifactDownloadUrl/);
+  assert.match(app, /<audio className="file-media" src=\{source\.url/);
 });
 
 test("i file M4A aprono il player audio in directory e artefatti", () => {
   assert.match(app, /PREVIEWABLE_AUDIO = \/\\\.m4a/);
-  assert.match(app, /mediaKind === "audio"/);
+  assert.match(app, /return "audio"/);
   assert.match(app, /mediaType === "audio\/mp4"/);
-  assert.match(app, /<audio[\s\S]*filePreviewUrl/);
+  assert.match(app, /filePreviewUrl\(sessionId, path\)/);
+  assert.match(app, /artifactDownloadUrl\(sessionId, item\.name\)/);
 });
 
 test("la chiusura dell'anteprima conserva scroll, path e filtri della directory", () => {

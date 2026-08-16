@@ -31,6 +31,9 @@ class SessionView(BaseModel):
     current_command: str
     activity_at: datetime
     hidden: bool = False
+    # Profilo di avvio della sessione (es. "opencode_yolo"), persistito dal
+    # backend e filtrato alle sole sessioni vive. `None` se ignoto.
+    profile: str | None = None
 
 
 class SessionList(BaseModel):
@@ -214,7 +217,16 @@ class RenameSessionInput(BaseModel):
 
 class SnapshotSelectionInput(BaseModel):
     session_id: str = Field(pattern=r"^\d{1,10}$")
-    mode: Literal["shell", "codex", "claude", "antigravity", "opencode", "manual"]
+    mode: Literal[
+        "shell",
+        "codex",
+        "claude",
+        "antigravity",
+        "antigravity_yolo",
+        "opencode",
+        "opencode_yolo",
+        "manual",
+    ]
 
 
 class CreateSnapshotInput(BaseModel):
@@ -232,7 +244,16 @@ class CreateSnapshotInput(BaseModel):
 class SnapshotSessionView(BaseModel):
     name: str
     directory: str
-    mode: Literal["shell", "codex", "claude", "antigravity", "opencode", "manual"]
+    mode: Literal[
+        "shell",
+        "codex",
+        "claude",
+        "antigravity",
+        "antigravity_yolo",
+        "opencode",
+        "opencode_yolo",
+        "manual",
+    ]
     observed_command: str
 
 
@@ -278,7 +299,15 @@ class ArchivedSessionView(BaseModel):
     id: str
     name: str
     directory: str
-    profile: Literal["shell", "codex", "claude", "antigravity", "opencode"]
+    profile: Literal[
+        "shell",
+        "codex",
+        "claude",
+        "antigravity",
+        "antigravity_yolo",
+        "opencode",
+        "opencode_yolo",
+    ]
     agent_session_name: str | None = None
     summary: str | None = None
     archived_by: str

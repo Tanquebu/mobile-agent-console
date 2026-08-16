@@ -97,6 +97,11 @@ export const translations = {
     permBypass: "Accesso completo",
     permUnknown: "Non rilevato",
 
+    // YOLO sessions
+    yoloLabel: "YOLO",
+    yoloTitle: "Permessi estesi: l'agente non chiede conferma",
+    yoloStrip: "Sessione con permessi estesi: l'agente può eseguire comandi senza conferma.",
+
     // Hints
     sessionNameHint: "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri",
 
@@ -285,6 +290,11 @@ export const translations = {
     permPlan: "Plan mode",
     permBypass: "Full access",
     permUnknown: "Undetected",
+
+    // YOLO sessions
+    yoloLabel: "YOLO",
+    yoloTitle: "Extended permissions: the agent never asks for confirmation",
+    yoloStrip: "Session with extended permissions: the agent can run commands without confirmation.",
 
     // Hints
     sessionNameHint: "Use letters (including accented), numbers, hyphens and single spaces; max 64 characters",
