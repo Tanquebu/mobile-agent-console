@@ -94,3 +94,33 @@ allarga. Se l'ultima voce della cronologia è un'attività senza alcun testo
 successivo, viene marcata `pending: true` — segnale di solo stato ("il tool
 è ancora in corso o in attesa di conferma"), non contenuto aggiuntivo.
 Record senza un nome tool valido restano esclusi come prima.
+
+## Addendum: Blocchi usa la cronologia nativa quando disponibile
+
+Il punto 6 della Decisione ("`Blocchi` e `Terminale` continuano a usare
+esclusivamente lo stream tmux") è rivisto per `Blocchi`: Claude Code gira a
+schermo alternativo, quindi `capture-pane` espone al massimo l'altezza
+corrente del pane — per sessioni che lavorano da sole per minuti/ore la
+vista Blocchi mostrava sistematicamente pochissime righe, un limite
+strutturale non dell'adapter (vedi Contesto sopra) ma della sorgente dati
+scelta per quella vista. `Terminale` non è toccato: resta l'unica vista
+sempre garantita, senza dipendenze opzionali, esattamente come nella
+Decisione originale.
+
+Quando `MAC_CLAUDE_HISTORY_ENABLED=true` e la cronologia contiene almeno un
+messaggio testuale, `Blocchi` la usa come sorgente primaria (stesso
+adapter, stessa pipeline di validazione/freschezza già descritta sopra),
+con fallback automatico allo stream tmux quando il flag è spento, il
+collector è assente/stale, o la cronologia è vuota — stesso comportamento
+di errore già previsto in "Non regressione" (collector assente, lento o
+malformato non rompe nulla, degrada silenziosamente).
+
+Compromesso accettato consapevolmente: la cronologia nativa esclude tool
+input/output per costruzione (punto 3 della Decisione), quindi i Blocchi
+alimentati da essa mostrano meno dettaglio operativo (solo il nome del
+tool, mai il suo output) rispetto alla vista live da stream tmux che
+mostravano prima quando il pane conteneva ancora quel turno. Si scambia
+profondità di storico con dettaglio del turno più recente — non è una
+regressione della vista live (che resta identica quando la cronologia non
+è disponibile), è un cambio deliberato di sorgente dati quando lo storico
+vale più del dettaglio tool dell'ultimo turno visibile a schermo.
