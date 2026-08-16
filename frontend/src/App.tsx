@@ -1710,6 +1710,21 @@ function suggestedSnapshotMode(session: Session): SnapshotMode {
   return "shell";
 }
 
+/** Icona testuale da mostrare nel riquadro a sinistra di ogni sessione in lista. */
+function sessionIcon(cmd: string): string {
+  const c = cmd.toLowerCase();
+  if (c.includes("claude"))                    return "✦";   // Claude
+  if (c.includes("agy") || c.includes("antigravity")) return "⊕"; // Antigravity
+  if (c.includes("codex"))                     return "⬡";   // OpenAI Codex
+  if (c.includes("opencode"))                  return "◈";   // OpenCode
+  if (c.includes("python") || c.includes("ipython") || c.includes("jupyter")) return "🐍";
+  if (c.includes("node") || c.includes("bun") || c.includes("deno")) return "⬡";
+  if (c.includes("vim") || c.includes("nvim")) return "𝓥";   // Vim / Neovim
+  if (c.includes("git"))                       return "⎇";   // Git
+  if (c.includes("ssh"))                       return "⇄";   // SSH
+  return ">_";                                               // shell generica
+}
+
 function defaultSnapshotName(): string {
   return `Prima del riavvio ${new Date().toLocaleString()}`;
 }
@@ -5113,7 +5128,7 @@ function SessionList({
           <article className={`session-item${isYolo ? " yolo" : ""}`} key={session.id}>
             <div className="session-row">
               <button className="session-card" onClick={() => onOpen(session)}>
-                <span className="session-icon">&gt;_</span>
+                <span className="session-icon">{sessionIcon(session.current_command)}</span>
                 <span className="session-copy">
                   <strong>
                     {session.name}
