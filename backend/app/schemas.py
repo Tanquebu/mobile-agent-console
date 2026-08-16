@@ -71,6 +71,10 @@ class AgentStatusView(BaseModel):
     permission_detail: str
     context_used_percent: float | None = Field(default=None, ge=0, le=100)
     summary: str | None = None
+    # Modello in uso, disponibile solo per OpenCode (letto dal suo DB
+    # SQLite locale). `None` per gli altri provider: nessuna fonte
+    # affidabile, mai un placeholder.
+    model: str | None = None
 
 
 class AgentStatusList(BaseModel):

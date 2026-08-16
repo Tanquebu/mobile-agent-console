@@ -884,6 +884,20 @@ function formatAge(seconds: number): string {
   return `${Math.floor(seconds / 86400)}g`;
 }
 
+// Formato relativo compatto per l'ultimo aggiornamento di una sessione
+// (es. "3 min fa" / "3 min ago"). Nessun tooltip con la data assoluta:
+// scelta esplicita, solo il testo relativo.
+function formatRelativeActivity(value: string, language: Language): string {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return "";
+  const diffSeconds = (Date.now() - timestamp) / 1000;
+  const rtf = new Intl.RelativeTimeFormat(language, { numeric: "auto", style: "short" });
+  if (diffSeconds < 60) return rtf.format(0, "second");
+  if (diffSeconds < 3600) return rtf.format(-Math.round(diffSeconds / 60), "minute");
+  if (diffSeconds < 86400) return rtf.format(-Math.round(diffSeconds / 3600), "hour");
+  return rtf.format(-Math.round(diffSeconds / 86400), "day");
+}
+
 function rateLimitColor(usedPercent: number | null): string | undefined {
   if (usedPercent === null) return undefined;
   const percentage = Math.max(0, Math.min(100, usedPercent));
@@ -2242,7 +2256,7 @@ function HiddenSessionsModal({
             <article className="snapshot-card" key={session.id}>
               <div>
                 <strong>{session.name}</strong>
-                <small>{session.current_command} · {session.windows} window</small>
+                <small>{session.current_command}</small>
               </div>
               <div className="snapshot-actions">
                 <button onClick={() => { onOpen(session); onClose(); }}>Open</button>
@@ -5258,7 +5272,12 @@ function SessionList({
                         ctx {Math.round(agentStatusBySession[session.id].context_used_percent!)}%
                       </span>
                     )}
-                    {" · "}{session.windows} window
+                    {agentStatusBySession[session.id]?.model && (
+                      <span className="agent-model">
+                        {agentStatusBySession[session.id].model}
+                      </span>
+                    )}
+                    {" · "}{formatRelativeActivity(session.activity_at, language)}
                   </small>
                   {agentStatusBySession[session.id]?.summary && (
                     <small className="session-summary">

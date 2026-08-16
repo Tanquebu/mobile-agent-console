@@ -132,7 +132,13 @@ from .services.snapshot_service import (
     SnapshotService,
     SnapshotSession,
 )
-from .services.tmux_service import SessionNotFound, TmuxError, TmuxGateway, TmuxService
+from .services.tmux_service import (
+    SessionNotFound,
+    TmuxError,
+    TmuxGateway,
+    TmuxService,
+    TmuxSession,
+)
 from .services.user_service import UserService
 
 logger = logging.getLogger("mobile_agent_console")
@@ -1247,6 +1253,36 @@ def create_app(
         )
         structured_permissions = await asyncio.to_thread(provider_session_states.read)
         profiles = await asyncio.to_thread(session_profiles.read)
+
+        async def _opencode_model(item: TmuxSession) -> str | None:
+            # Costo aggiuntivo (una pane_path + una query SQLite mirata) solo
+            # per le sessioni OpenCode, mai per l'intero elenco: questo
+            # endpoint è in polling. Nessuna eccezione deve propagarsi qui,
+            # per non rompere lo stato delle altre sessioni.
+            try:
+                directory = await gateway.pane_path(item.id)
+            except TmuxError:
+                return None
+            return await asyncio.to_thread(
+                opencode_service.read_session_model, directory, item.id, item.created_at
+            )
+
+        opencode_items = [
+            item
+            for item in agent_sessions
+            if agent_statuses.provider_for(item.current_command) == "opencode"
+        ]
+        opencode_models: dict[str, str | None] = {}
+        if settings.opencode_history_enabled and opencode_items:
+            model_results = await asyncio.gather(
+                *(_opencode_model(item) for item in opencode_items),
+                return_exceptions=True,
+            )
+            opencode_models = {
+                item.id: (result if isinstance(result, str) else None)
+                for item, result in zip(opencode_items, model_results, strict=True)
+            }
+
         views = []
         for item, content in zip(agent_sessions, contents, strict=True):
             if isinstance(content, BaseException):
@@ -1261,6 +1297,7 @@ def create_app(
                             permission_state="unknown",
                             permission_detail="Livello permessi non rilevato",
                             context_used_percent=None,
+                            model=None,
                         )
                     )
                 continue
@@ -1302,6 +1339,11 @@ def create_app(
                             else None
                         ),
                         summary=status.summary,
+                        model=(
+                            opencode_models.get(item.id)
+                            if status.provider == "opencode"
+                            else None
+                        ),
                     )
                 )
         agent_statuses.forget_missing({item.id for item in sessions})
