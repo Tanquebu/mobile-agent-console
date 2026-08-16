@@ -32,6 +32,13 @@ Tabelle rilevanti (schema verificato):
 | Tabella | Colonne utili | Uso |
 |---|---|---|
 | `session` | `id`, `directory`, `title`, `model`, `agent`, `parent_id`, `time_created`, `time_updated`, `time_archived` | correlazione pane→sessione, esclusione subagent/archiviate |
+
+`model` non è il nome nudo del modello: OpenCode ci serializza un JSON tipo
+`{"id":"deepseek-v4-flash-free","providerID":"opencode"}` (a volte anche con
+`"variant"`). Chi legge questa colonna deve fare `json.loads` ed estrarre
+`id` — vedi `OpencodeService._extract_model_id` in
+`backend/app/services/opencode_service.py`, usato da `read_session_model`
+per il nome modello mostrato in dashboard (`/api/v1/agent-statuses`).
 | `message` | `id`, `session_id`, `time_created`, `time_updated`, `data` (JSON) | ruolo (`role`), timestamp |
 | `part` | `id`, `message_id`, `session_id`, `time_created`, `data` (JSON) | contenuto per tipo |
 

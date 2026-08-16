@@ -15,7 +15,8 @@ def _create_sample_opencode_db(db_path: Path, directory: str = "/workspace/proj"
             directory TEXT,
             title TEXT,
             time_created INTEGER,
-            time_updated INTEGER
+            time_updated INTEGER,
+            model TEXT
         )
         """
     )
@@ -43,8 +44,16 @@ def _create_sample_opencode_db(db_path: Path, directory: str = "/workspace/proj"
 
     # Insert sample session
     c.execute(
-        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
-        ("ses_test_123", directory, "Test session", 1700000000000, 1700000050000),
+        "INSERT INTO session (id, directory, title, time_created, time_updated, model) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            "ses_test_123",
+            directory,
+            "Test session",
+            1700000000000,
+            1700000050000,
+            json.dumps({"id": "anthropic/claude-sonnet-4-5", "providerID": "anthropic"}),
+        ),
     )
 
     # Message 1 (user)
@@ -160,8 +169,9 @@ def test_opencode_service_new_session_does_not_inherit_previous_blocks(tmp_path:
     conn = sqlite3.connect(db_file)
     c = conn.cursor()
     c.execute(
-        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
-        ("ses_new_123", "/workspace", "Nuova", 1700000120000, 1700000120000),
+        "INSERT INTO session (id, directory, title, time_created, time_updated, model) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("ses_new_123", "/workspace", "Nuova", 1700000120000, 1700000120000, "openai/gpt-5-codex"),
     )
     c.execute(
         "INSERT INTO message VALUES (?, ?, ?, ?)",
@@ -197,8 +207,16 @@ def test_opencode_service_picks_conversation_born_after_pane_start_not_most_rece
     conn = sqlite3.connect(db_file)
     c = conn.cursor()
     c.execute(
-        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
-        ("ses_born_first", "/workspace", "Nata per prima", 1700000120000, 1700000120000),
+        "INSERT INTO session (id, directory, title, time_created, time_updated, model) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            "ses_born_first",
+            "/workspace",
+            "Nata per prima",
+            1700000120000,
+            1700000120000,
+            json.dumps({"id": "anthropic/claude-opus-4-1", "providerID": "anthropic"}),
+        ),
     )
     c.execute(
         "INSERT INTO message VALUES (?, ?, ?, ?)",
@@ -209,8 +227,16 @@ def test_opencode_service_picks_conversation_born_after_pane_start_not_most_rece
         ("prt_b1", "msg_b1", "ses_born_first", 1700000121100, json.dumps({"type": "text", "text": "Blocco della conversazione corretta"})),
     )
     c.execute(
-        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
-        ("ses_born_later", "/workspace", "Altra sessione", 1700000130000, 1700000140000),
+        "INSERT INTO session (id, directory, title, time_created, time_updated, model) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            "ses_born_later",
+            "/workspace",
+            "Altra sessione",
+            1700000130000,
+            1700000140000,
+            json.dumps({"id": "openai/gpt-5", "providerID": "openai"}),
+        ),
     )
     c.execute(
         "INSERT INTO message VALUES (?, ?, ?, ?)",
@@ -229,3 +255,140 @@ def test_opencode_service_picks_conversation_born_after_pane_start_not_most_rece
     assert history.opencode_session_id == "ses_born_first"
     assert len(history.blocks) == 1
     assert history.blocks[0].content == "Blocco della conversazione corretta"
+
+
+def test_read_session_model_returns_correlated_model(tmp_path: Path) -> None:
+    db_file = tmp_path / "opencode.db"
+    _create_sample_opencode_db(db_file, "/workspace")
+    service = OpencodeService(str(db_file))
+
+    assert service.read_session_model("/workspace", "1") == "anthropic/claude-sonnet-4-5"
+
+
+def test_read_session_model_respects_min_timestamp_correlation(tmp_path: Path) -> None:
+    from datetime import UTC, datetime
+
+    db_file = tmp_path / "opencode.db"
+    _create_sample_opencode_db(db_file, "/workspace")
+    service = OpencodeService(str(db_file))
+
+    conn = sqlite3.connect(db_file)
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO session (id, directory, title, time_created, time_updated, model) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            "ses_new_123",
+            "/workspace",
+            "Nuova",
+            1700000120000,
+            1700000120000,
+            json.dumps({"id": "openai/gpt-5-codex", "providerID": "openai"}),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    tmux_start = datetime.fromtimestamp(1700000100, tz=UTC)
+    # La conversazione precedente (nata prima dell'avvio del pane) non deve
+    # vincere la correlazione: stessa regola di read_history.
+    assert service.read_session_model("/workspace", "1", min_timestamp=tmux_start) == (
+        "openai/gpt-5-codex"
+    )
+
+
+def test_read_session_model_missing_db_or_directory_returns_none(tmp_path: Path) -> None:
+    service = OpencodeService(str(tmp_path / "non_existent.db"))
+    assert service.read_session_model("/some/path", "1") is None
+
+    db_file = tmp_path / "opencode.db"
+    _create_sample_opencode_db(db_file, "/path/one")
+    service2 = OpencodeService(str(db_file))
+    assert service2.read_session_model("/different/path", "1") is None
+
+
+def test_read_session_model_missing_model_column_does_not_raise(tmp_path: Path) -> None:
+    # DB con schema piu' vecchio/diverso (colonna model assente): niente
+    # eccezione, solo None, come per qualunque altro errore sqlite.
+    db_file = tmp_path / "opencode.db"
+    conn = sqlite3.connect(db_file)
+    c = conn.cursor()
+    c.execute(
+        """
+        CREATE TABLE session (
+            id TEXT PRIMARY KEY,
+            directory TEXT,
+            title TEXT,
+            time_created INTEGER,
+            time_updated INTEGER
+        )
+        """
+    )
+    c.execute(
+        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
+        ("ses_no_model", "/workspace", "Senza colonna model", 1700000000000, 1700000050000),
+    )
+    conn.commit()
+    conn.close()
+
+    service = OpencodeService(str(db_file))
+    assert service.read_session_model("/workspace", "1") is None
+
+
+def test_read_session_model_parses_real_opencode_json_shape(tmp_path: Path) -> None:
+    # Formato reale di OpenCode (schema `session.model` su disco): un JSON
+    # con `id`/`providerID` (a volte anche `variant`), non una stringa nuda.
+    # Verificato leggendo un opencode.db reale — vedi commit che introduce
+    # questo test per il contesto del bug.
+    db_file = tmp_path / "opencode.db"
+    _create_sample_opencode_db(db_file, "/workspace")
+    conn = sqlite3.connect(db_file)
+    c = conn.cursor()
+    c.execute(
+        "UPDATE session SET model = ? WHERE id = ?",
+        (
+            json.dumps(
+                {"id": "deepseek-v4-flash-free", "providerID": "opencode", "variant": "default"}
+            ),
+            "ses_test_123",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    service = OpencodeService(str(db_file))
+    assert service.read_session_model("/workspace", "1") == "deepseek-v4-flash-free"
+
+
+def test_read_session_model_non_json_string_falls_back_to_raw_value(tmp_path: Path) -> None:
+    db_file = tmp_path / "opencode.db"
+    _create_sample_opencode_db(db_file, "/workspace")
+    conn = sqlite3.connect(db_file)
+    c = conn.cursor()
+    c.execute(
+        "UPDATE session SET model = ? WHERE id = ?",
+        ("anthropic/claude-sonnet-4-5", "ses_test_123"),
+    )
+    conn.commit()
+    conn.close()
+
+    service = OpencodeService(str(db_file))
+    # Formato non-JSON (schema piu' vecchio/diverso): meglio mostrare la
+    # stringa grezza che nascondere il dato.
+    assert service.read_session_model("/workspace", "1") == "anthropic/claude-sonnet-4-5"
+
+
+def test_read_session_model_json_without_id_returns_none(tmp_path: Path) -> None:
+    db_file = tmp_path / "opencode.db"
+    _create_sample_opencode_db(db_file, "/workspace")
+    conn = sqlite3.connect(db_file)
+    c = conn.cursor()
+    c.execute(
+        "UPDATE session SET model = ? WHERE id = ?",
+        (json.dumps({"providerID": "opencode"}), "ses_test_123"),
+    )
+    conn.commit()
+    conn.close()
+
+    service = OpencodeService(str(db_file))
+    assert service.read_session_model("/workspace", "1") is None

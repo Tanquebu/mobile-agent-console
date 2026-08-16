@@ -285,8 +285,16 @@ def test_opencode_history_api_picks_conversation_born_after_pane_start(tmp_path)
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
     c.execute(
-        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
-        ("ses_born_first", "/workspace", "Nata per prima", 1700000120000, 1700000120000),
+        "INSERT INTO session (id, directory, title, time_created, time_updated, model) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            "ses_born_first",
+            "/workspace",
+            "Nata per prima",
+            1700000120000,
+            1700000120000,
+            "anthropic/claude-opus-4-1",
+        ),
     )
     c.execute(
         "INSERT INTO message VALUES (?, ?, ?, ?)",
@@ -297,8 +305,9 @@ def test_opencode_history_api_picks_conversation_born_after_pane_start(tmp_path)
         ("prt_b1", "msg_b1", "ses_born_first", 1700000121100, json.dumps({"type": "text", "text": "Blocco della conversazione corretta"})),
     )
     c.execute(
-        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
-        ("ses_born_later", "/workspace", "Altra sessione", 1700000130000, 1700000140000),
+        "INSERT INTO session (id, directory, title, time_created, time_updated, model) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("ses_born_later", "/workspace", "Altra sessione", 1700000130000, 1700000140000, "openai/gpt-5"),
     )
     c.execute(
         "INSERT INTO message VALUES (?, ?, ?, ?)",
@@ -360,6 +369,7 @@ def test_agent_statuses_include_only_agentic_sessions() -> None:
                 "permission_detail": "Auto",
                 "context_used_percent": None,
                 "summary": "Would you like to run this command? permissions: Auto",
+                "model": None,
             }
         ]
     }
@@ -397,6 +407,122 @@ def test_agent_statuses_opencode_from_real_tui_fixture() -> None:
     assert status["permission_state"] == "ask"
     assert status["permission_detail"] == "Chiede conferma"
     assert "permission" in status["summary"].lower()
+
+
+def test_agent_statuses_opencode_model_present_when_history_enabled(tmp_path) -> None:
+    from tests.test_opencode_service import _create_sample_opencode_db
+
+    db_path = tmp_path / "opencode.db"
+    _create_sample_opencode_db(db_path, "/workspace")
+
+    client, fake = client_and_fake(
+        opencode_history_enabled=True,
+        opencode_db_path=str(db_path),
+    )
+    login(client)
+    current = fake.sessions["1"]
+    fake.sessions["1"] = type(current)(
+        current.id,
+        "OpenCode demo",
+        current.attached,
+        current.windows,
+        "opencode",
+        current.activity_at,
+        datetime.fromtimestamp(1699999999, tz=UTC),
+    )
+    response = client.get("/api/v1/agent-statuses")
+    assert response.status_code == 200
+    statuses = response.json()["statuses"]
+    assert len(statuses) == 1
+    assert statuses[0]["provider"] == "opencode"
+    assert statuses[0]["model"] == "anthropic/claude-sonnet-4-5"
+
+
+def test_agent_statuses_model_is_none_for_non_opencode_providers(tmp_path) -> None:
+    from tests.test_opencode_service import _create_sample_opencode_db
+
+    db_path = tmp_path / "opencode.db"
+    _create_sample_opencode_db(db_path, "/workspace")
+
+    # opencode_history_enabled=True dimostra che il gating è per provider,
+    # non solo per il flag: anche con la fonte dati disponibile, claude,
+    # codex e antigravity non hanno una fonte affidabile per il modello.
+    client, fake = client_and_fake(
+        opencode_history_enabled=True,
+        opencode_db_path=str(db_path),
+    )
+    login(client)
+    for provider_command in ("claude", "codex", "agy"):
+        current = fake.sessions["1"]
+        fake.sessions["1"] = type(current)(
+            current.id,
+            current.name,
+            current.attached,
+            current.windows,
+            provider_command,
+            current.activity_at,
+        )
+        status = client.get("/api/v1/agent-statuses").json()["statuses"][0]
+        assert status["model"] is None
+
+
+def test_agent_statuses_opencode_model_none_when_history_disabled(tmp_path) -> None:
+    from tests.test_opencode_service import _create_sample_opencode_db
+
+    db_path = tmp_path / "opencode.db"
+    _create_sample_opencode_db(db_path, "/workspace")
+
+    client, fake = client_and_fake(
+        opencode_history_enabled=False,
+        opencode_db_path=str(db_path),
+    )
+    login(client)
+    current = fake.sessions["1"]
+    fake.sessions["1"] = type(current)(
+        current.id,
+        "OpenCode demo",
+        current.attached,
+        current.windows,
+        "opencode",
+        current.activity_at,
+        datetime.fromtimestamp(1699999999, tz=UTC),
+    )
+    response = client.get("/api/v1/agent-statuses")
+    assert response.status_code == 200
+    statuses = response.json()["statuses"]
+    assert len(statuses) == 1
+    assert statuses[0]["provider"] == "opencode"
+    assert statuses[0]["model"] is None
+
+
+def test_agent_statuses_opencode_model_none_when_correlation_fails(tmp_path) -> None:
+    from tests.test_opencode_service import _create_sample_opencode_db
+
+    db_path = tmp_path / "opencode.db"
+    # Il DB di esempio ha sessioni per "/workspace/other", non "/workspace"
+    # (la directory del pane fake): nessuna riga corrisponde.
+    _create_sample_opencode_db(db_path, "/workspace/other")
+
+    client, fake = client_and_fake(
+        opencode_history_enabled=True,
+        opencode_db_path=str(db_path),
+    )
+    login(client)
+    current = fake.sessions["1"]
+    fake.sessions["1"] = type(current)(
+        current.id,
+        "OpenCode demo",
+        current.attached,
+        current.windows,
+        "opencode",
+        current.activity_at,
+    )
+    response = client.get("/api/v1/agent-statuses")
+    assert response.status_code == 200
+    statuses = response.json()["statuses"]
+    assert len(statuses) == 1
+    assert statuses[0]["provider"] == "opencode"
+    assert statuses[0]["model"] is None
 
 
 def test_agent_statuses_prefer_structured_provider_permissions(tmp_path) -> None:

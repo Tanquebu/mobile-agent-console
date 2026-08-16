@@ -226,3 +226,82 @@ class OpencodeService:
             collected_at=datetime.now(UTC),
             blocks=blocks,
         )
+
+    def read_session_model(
+        self,
+        directory: str,
+        tmux_session_id: str,
+        min_timestamp: datetime | None = None,
+    ) -> str | None:
+        """Legge solo la colonna `model` della sessione OpenCode correlata al
+        pane, senza toccare `message`/`part`. Pensato per l'uso in
+        `/api/v1/agent-statuses` (polling frequente): stessa correlazione
+        directory+`time_created` di `read_history`, ma una query mirata sulla
+        sola tabella `session`. `tmux_session_id` non entra nella
+        correlazione (identico a `read_history`): serve solo a mantenere la
+        stessa forma di chiamata del resto del servizio. Ritorna sempre
+        `None` in assenza di corrispondenza o in caso di errore, mai
+        un'eccezione — questo endpoint non deve rompersi per una sessione.
+        """
+        del tmux_session_id  # non usato nella correlazione, vedi docstring
+        if not self.db_path.exists() or not self.db_path.is_file():
+            return None
+
+        norm_dir = str(Path(directory).resolve())
+
+        try:
+            conn = sqlite3.connect(
+                f"file:{self.db_path.resolve()}?mode=ro",
+                uri=True,
+                timeout=2.0,
+            )
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            query = """
+                SELECT model
+                FROM session
+                WHERE (directory = ? OR directory = ?)
+            """
+            params: list[Any] = [directory, norm_dir]
+
+            if min_timestamp is not None:
+                min_ms = int(min_timestamp.timestamp() * 1000)
+                query += " AND time_created >= ?"
+                params.append(min_ms)
+
+            # Stessa regola di read_history: a parita' di directory vince la
+            # conversazione nata per prima dopo l'avvio del pane.
+            query += " ORDER BY time_created ASC LIMIT 1"
+
+            row = cursor.execute(query, tuple(params)).fetchone()
+            conn.close()
+        except (sqlite3.Error, OSError):
+            return None
+
+        if row is None:
+            return None
+
+        return self._extract_model_id(row["model"])
+
+    @staticmethod
+    def _extract_model_id(raw: Any) -> str | None:
+        """La colonna `session.model` non è il nome del modello: OpenCode ci
+        serializza un JSON tipo `{"id":"deepseek-v4-flash-free",
+        "providerID":"opencode"}` (a volte con anche `"variant"`). Il nome
+        da mostrare è il campo `id`; se il valore non è nel formato atteso
+        (schema futuro diverso, colonna vuota, ecc.) non solleviamo mai
+        un'eccezione, restituiamo solo `None`.
+        """
+        if not isinstance(raw, str) or not raw.strip():
+            return None
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            # Formato inatteso (non JSON): meglio mostrare la stringa grezza
+            # che nascondere del tutto il dato.
+            return raw.strip() or None
+        if isinstance(parsed, dict):
+            model_id = parsed.get("id")
+            return model_id.strip() if isinstance(model_id, str) and model_id.strip() else None
+        return None

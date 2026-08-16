@@ -213,6 +213,9 @@ export type AgentStatus = {
   permission_detail: string;
   context_used_percent: number | null;
   summary: string | null;
+  // Nome modello: valorizzato solo per OpenCode quando disponibile, null
+  // per tutti gli altri provider.
+  model: string | null;
 };
 
 export async function listAgentStatuses(): Promise<AgentStatus[]> {
