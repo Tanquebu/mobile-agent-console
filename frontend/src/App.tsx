@@ -1710,6 +1710,20 @@ function suggestedSnapshotMode(session: Session): SnapshotMode {
   return "shell";
 }
 
+/**
+ * Modificatore di colore per il riquadro icona, per dare un minimo di
+ * riconoscibilità visiva ai servizi principali senza rompere la palette
+ * scura dell'app. Stessa logica di riconoscimento di `SessionIcon`.
+ */
+function sessionIconAccent(cmd: string): "" | "claude" | "agy" | "opencode" | "codex" {
+  const c = cmd.toLowerCase();
+  if (c.includes("claude") || c.includes("anthropic")) return "claude";
+  if (c.includes("agy") || c.includes("antigravity")) return "agy";
+  if (c.includes("opencode")) return "opencode";
+  if (c.includes("codex") || c.includes("openai")) return "codex";
+  return "";
+}
+
 /** Icona SVG ufficiale (Simple Icons) o testuale per il riquadro di ogni sessione in lista. */
 function SessionIcon({ cmd }: { cmd: string }): ReactNode {
   const c = cmd.toLowerCase();
@@ -5185,11 +5199,14 @@ function SessionList({
       <section className="session-list">
         {visibleSessions.map((session) => {
           const isYolo = isYoloSession(session);
+          const iconAccent = sessionIconAccent(session.current_command);
           return (
           <article className={`session-item${isYolo ? " yolo" : ""}`} key={session.id}>
             <div className="session-row">
               <button className="session-card" onClick={() => onOpen(session)}>
-                <span className="session-icon"><SessionIcon cmd={session.current_command} /></span>
+                <span className={`session-icon${iconAccent ? ` session-icon--${iconAccent}` : ""}`}>
+                  <SessionIcon cmd={session.current_command} />
+                </span>
                 <span className="session-copy">
                   <strong>
                     {session.name}

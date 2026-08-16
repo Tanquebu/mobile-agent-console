@@ -134,6 +134,14 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .session-toolbar button.danger { border-color: #704039; color: #ffaaa0; }
 .session-icon { display: grid; place-items: center; flex: 0 0 auto; width: 52px; height: 52px; border-radius: 14px; background: #25382b; color: #8ee2aa; font: 700 1.5rem ui-monospace, monospace; }
 .session-icon svg { width: 34px; height: 34px; fill: currentColor; }
+/* Accenti per servizio: solo il colore del glifo, sfondo invariato. Hue fissi
+   da palette categorica validata (contrasto >=3:1 su superficie scura),
+   scelti fuori dalla terna rosso/arancio/verde già usata per gli stati
+   (alert/lock/ok) per non creare falsi segnali. */
+.session-icon--claude { color: #3987e5; }   /* blu */
+.session-icon--opencode { color: #199e70; } /* aqua */
+.session-icon--codex { color: #9085e9; }    /* violetto */
+.session-icon--agy { color: #d55181; }      /* magenta */
 .session-copy { display: grid; gap: 4px; flex: 1; }
 .session-copy > strong { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .agent-state { display: inline-grid; place-items: center; flex: 0 0 auto; width: 21px; height: 21px; border: 1px solid #46564b; border-radius: 50%; color: #a9bcaf; font-size: .7rem; line-height: 1; }
