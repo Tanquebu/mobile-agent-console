@@ -370,6 +370,7 @@ def test_agent_statuses_include_only_agentic_sessions() -> None:
                 "context_used_percent": None,
                 "summary": "Would you like to run this command? permissions: Auto",
                 "model": None,
+                "subagent_count": 0,
             }
         ]
     }

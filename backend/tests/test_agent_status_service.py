@@ -311,4 +311,103 @@ def test_agent_status_opencode_summary_filters_tui_chrome() -> None:
     assert "esc interrupt" not in status.summary
     assert "ctrl+p" not in status.summary
     assert "1.18.11" not in status.summary
+
+
+# Frammenti sintetici del pannello subagent del footer di Claude Code,
+# trascritti da quattro screenshot reali (non capture-pane grezzo) di una
+# sessione di test dedicata ("Test sessione subagent Claude", 16/08/2026):
+# a riposo il footer termina con "for agents" e nient'altro sotto; con
+# subagent attivi compare subito dopo, senza interazione, un blocco
+# "● <branch>" seguito da una riga "○ <tipo agente>   <descrizione>" per
+# ciascun subagent, più una riga di metriche indentata che non inizia con
+# "○" (tempo e token, non contata). Verificato anche nella vista "Blocchi"
+# (stesso testo, solo reimpaginato lato client) e nel transcript inline
+# ("● Agent(<descrizione>)" + "⎿ Backgrounded agent" + "⎿ Allowed by auto
+# mode classifier" + verbo di stato casuale "Kneading…"), non usato qui
+# come fonte: il verbo non è deterministico (come "Thinking…"/"Working…"
+# per il turno principale), il pannello del footer sì.
+_CLAUDE_FOOTER_NO_SUBAGENT = (
+    "Fatto, ho aggiornato il file richiesto.\n"
+    "> \n"
+    "Sonnet 5 | /home/max/projects/demo | main |...\n"
+    "⏵⏵ auto mode on (shift+tab to cycle) · ← for agents"
+)
+_CLAUDE_FOOTER_ONE_SUBAGENT = (
+    "Fatto, ho aggiornato il file richiesto.\n"
+    "> \n"
+    "Sonnet 5 | /home/max/projects/demo | main |...\n"
+    "⏵⏵ auto mode on (shift+tab to cycle) · ← for agents\n"
+    "\n"
+    "● main\n"
+    "\n"
+    "○ general-purpose   Ricognizione overview progetti\n"
+    "     9s · ↓ 43.3k tokens"
+)
+_CLAUDE_FOOTER_TWO_SUBAGENTS = (
+    "Fatto, ho aggiornato il file richiesto.\n"
+    "> \n"
+    "Sonnet 5 | /home/max/projects/demo | main |...\n"
+    "⏵⏵ auto mode on (shift+tab to cycle) · ← for agents\n"
+    "\n"
+    "● main\n"
+    "○ general-purpose   Ricognizione overview progetti\n"
+    "     16s · ↓ 43.4k tokens\n"
+    "○ general-purpose   Ricognizione profilo.md vs sviluppi recenti\n"
+    "     4s · ↓ 31.6k tokens"
+)
+
+
+@pytest.mark.parametrize(
+    ("content", "expected_count"),
+    [
+        (_CLAUDE_FOOTER_NO_SUBAGENT, 0),
+        (_CLAUDE_FOOTER_ONE_SUBAGENT, 1),
+        (_CLAUDE_FOOTER_TWO_SUBAGENTS, 2),
+    ],
+)
+def test_agent_status_claude_subagent_panel_counts_active_subagents(
+    content: str, expected_count: int
+) -> None:
+    service = AgentStatusService(active_window_seconds=8)
+    status = service.classify("1", "claude", content, now=0)
+    assert status is not None
+    assert status.subagent_count == expected_count
+
+
+def test_agent_status_subagent_panel_ignored_for_other_providers() -> None:
+    # Il pannello è verificato solo su Claude Code: per gli altri provider il
+    # conteggio resta 0 anche se lo stesso testo comparisse per coincidenza,
+    # piuttosto che indovinare un pattern senza prova (stessa disciplina di
+    # SUBAGENT_PANEL_ANCHOR).
+    service = AgentStatusService(active_window_seconds=8)
+    content = _CLAUDE_FOOTER_TWO_SUBAGENTS.replace("> ", "› ")
+    status = service.classify("1", "codex", content, now=0)
+    assert status is not None
+    assert status.subagent_count == 0
+
+
+def test_agent_status_subagent_count_scoped_after_for_agents_anchor() -> None:
+    # Disciplina anti-INC-AS-01: una riga "○ ..." comparsa nella prosa prima
+    # dell'ancora "for agents" (es. citata in un riepilogo di un turno
+    # precedente) non deve essere contata — solo le righe dopo l'ancora più
+    # recente sono il pannello live.
+    service = AgentStatusService(active_window_seconds=8)
+    content = (
+        "○ questa non è una riga del pannello, solo testo citato nel turno.\n"
+        + _CLAUDE_FOOTER_ONE_SUBAGENT
+    )
+    status = service.classify("1", "claude", content, now=0)
+    assert status is not None
+    assert status.subagent_count == 1
+
+
+def test_agent_status_subagent_count_defaults_to_zero_without_panel() -> None:
+    # Regressione: nessuna delle sessioni Claude "normali" già coperte dai
+    # test precedenti mostra il pannello subagent; il campo deve restare 0
+    # senza influenzare lo stato calcolato.
+    service = AgentStatusService(active_window_seconds=8)
+    status = service.classify("1", "claude", "Task completed.\n> ", now=0)
+    assert status is not None
+    assert status.state == "idle"
+    assert status.subagent_count == 0
     assert "· 10.1s" not in status.summary

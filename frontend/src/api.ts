@@ -216,6 +216,10 @@ export type AgentStatus = {
   // Nome modello: valorizzato solo per OpenCode quando disponibile, null
   // per tutti gli altri provider.
   model: string | null;
+  // Numero di subagent Claude Code attivi in questo momento (rilevato dal
+  // pannello footer del pane); 0 per gli altri provider o quando non ci
+  // sono subagent in corso. Sempre presente, mai null.
+  subagent_count: number;
 };
 
 export async function listAgentStatuses(): Promise<AgentStatus[]> {

@@ -75,6 +75,11 @@ class AgentStatusView(BaseModel):
     # SQLite locale). `None` per gli altri provider: nessuna fonte
     # affidabile, mai un placeholder.
     model: str | None = None
+    # Subagent live (tool "Agent(...)") rilevati nel pannello del footer di
+    # Claude Code: 0 per gli altri provider o quando nessun subagent è in
+    # esecuzione. Segnale live sul pane, non lo storico di
+    # session_usage_service/session_timeline_service (collector opzionale).
+    subagent_count: int = Field(default=0, ge=0)
 
 
 class AgentStatusList(BaseModel):

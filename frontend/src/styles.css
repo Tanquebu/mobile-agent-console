@@ -160,6 +160,7 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .permission-state.manual { color: #9fc9ff; font-weight: 900; }
 .permission-state.accept_edits { color: #f0cf70; }
 .permission-state.dont_ask { background: #321c19; color: #ffaaa0; font-weight: 900; }
+.subagent-badge { display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto; min-width: 21px; height: 21px; padding: 0 6px; border: 1px solid #4f7a5c; border-radius: 999px; background: #1e2b23; color: #8ee2aa; font-size: .68rem; font-weight: 800; line-height: 1; }
 .session-item.yolo .session-card { border-left: 4px solid #a0524a; }
 .session-item.yolo .session-card:hover { border-left-color: #ffaaa0; }
 .yolo-pill {

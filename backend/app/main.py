@@ -1344,6 +1344,7 @@ def create_app(
                             if status.provider == "opencode"
                             else None
                         ),
+                        subagent_count=status.subagent_count,
                     )
                 )
         agent_statuses.forget_missing({item.id for item in sessions})

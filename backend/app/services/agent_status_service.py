@@ -174,6 +174,28 @@ LEADING_DECORATION = re.compile(r"^[△✔✘✱✻✽✢✳✶⏺⠏]\s*")
 # always   Reject  ctrl+f fullscreen  ⇆ select  enter con..."): chrome puro.
 OPENCODE_CONFIRM_BUTTONS = re.compile(r"Allow once\s+Allow always\s+Reject")
 
+# Pannello subagent del footer di Claude Code: quando almeno un subagent
+# (tool "Agent(...)", fan-out) è in esecuzione, sotto la barra di stato
+# compare automaticamente (nessuna interazione richiesta) un blocco
+# "● <branch>" seguito da una riga "○ <tipo agente>   <descrizione>" per
+# ciascun subagent attivo, più una riga di metriche indentata (tempo e
+# token) che non inizia con "○" e quindi non viene contata. Verificato su
+# quattro catture reali (screenshot, non capture-pane grezzo, sessione di
+# test dedicata — vedi trascrizione in agent_status_service task, non un
+# fixture testuale originale): a riposo il footer termina con la riga
+# "for agents" e nient'altro sotto; con subagent attivi il pannello compare
+# subito dopo, senza dover premere la freccia suggerita dall'hint. Il verbo
+# di stato nel transcript ("Kneading…", ecc., marker A, non usato qui) è
+# casuale come "Thinking…"/"Working…" per il turno principale — per questo
+# il segnale scelto è il pannello strutturato del footer, non il testo del
+# transcript. La riga "for agents" è l'ancora: si contano solo le righe "○"
+# che compaiono *dopo* di essa nella finestra recente (stessa disciplina
+# "scope sul segnale più recente" di INC-AS-01, non un match su tutto il
+# buffer), così una menzione testuale di "for agents" o "○" più in alto nello
+# scroll non genera un conteggio falso.
+SUBAGENT_PANEL_ANCHOR = re.compile(r"for agents\b")
+SUBAGENT_ENTRY_PATTERN = re.compile(r"^\s*○\s+\S")
+
 
 @dataclass(frozen=True)
 class AgentStatus:
@@ -184,6 +206,9 @@ class AgentStatus:
     permission_state: PermissionState
     permission_detail: str
     summary: str | None = None
+    # Numero di subagent (tool "Agent(...)") live nel pannello del footer,
+    # non uno storico: 0 quando non rilevato o non applicabile al provider.
+    subagent_count: int = 0
 
 
 class AgentStatusService:
@@ -207,6 +232,28 @@ class AgentStatusService:
     @staticmethod
     def _matches(patterns: tuple[str, ...], content: str) -> bool:
         return any(re.search(pattern, content, re.IGNORECASE) for pattern in patterns)
+
+    @staticmethod
+    def _count_subagents(provider: AgentProvider, lines: list[str]) -> int:
+        # Solo Claude Code espone il pannello subagent del footer (verificato
+        # sugli screenshot reali, vedi SUBAGENT_PANEL_ANCHOR sopra); per gli
+        # altri provider il segnale non è ancora verificato, quindi resta 0
+        # piuttosto che indovinare un pattern senza prova.
+        if provider != "claude":
+            return 0
+        anchor = next(
+            (
+                index
+                for index in range(len(lines) - 1, -1, -1)
+                if SUBAGENT_PANEL_ANCHOR.search(lines[index])
+            ),
+            None,
+        )
+        if anchor is None:
+            return 0
+        return sum(
+            1 for line in lines[anchor + 1 :] if SUBAGENT_ENTRY_PATTERN.match(line)
+        )
 
     def classify(
         self,
@@ -249,6 +296,11 @@ class AgentStatusService:
 
         permission_state, permission_detail = self._permission(provider, nonempty[-8:])
         summary = self._summarize(nonempty)
+        # Calcolato una sola volta, indipendentemente dal ramo di stato: un
+        # subagent può restare in esecuzione mentre il turno principale è
+        # "idle" in attesa del suo risultato, quindi non è legato a nessuno
+        # stato specifico.
+        subagent_count = self._count_subagents(provider, nonempty[-20:])
 
         if self._matches(AUTHORIZATION_PATTERNS[provider], tail):
             # Solo OpenCode borda ogni riga del pannello con "┃": per gli altri
@@ -265,6 +317,7 @@ class AgentStatusService:
                 permission_state,
                 permission_detail,
                 authorization_summary or summary,
+                subagent_count,
             )
         if prompt_index is not None:
             before_prompt = "\n".join(
@@ -279,6 +332,7 @@ class AgentStatusService:
                     permission_state,
                     permission_detail,
                     summary,
+                    subagent_count,
                 )
             # Il prompt inattivo è il segnale più recente disponibile: un
             # marker attivo (parola generica come "working"/"thinking" o
@@ -302,6 +356,7 @@ class AgentStatusService:
                     permission_state,
                     permission_detail,
                     summary,
+                    subagent_count,
                 )
             return AgentStatus(
                 provider,
@@ -311,6 +366,7 @@ class AgentStatusService:
                 permission_state,
                 permission_detail,
                 summary,
+                subagent_count,
             )
         if self._matches(ACTIVE_PATTERNS[provider], tail):
             return AgentStatus(
@@ -321,6 +377,7 @@ class AgentStatusService:
                 permission_state,
                 permission_detail,
                 summary,
+                subagent_count,
             )
         if self._matches(IDLE_PATTERNS.get(provider, ()), tail):
             return AgentStatus(
@@ -331,6 +388,7 @@ class AgentStatusService:
                 permission_state,
                 permission_detail,
                 summary,
+                subagent_count,
             )
         if previous is not None and observed_now - changed_at <= self.active_window_seconds:
             return AgentStatus(
@@ -341,6 +399,7 @@ class AgentStatusService:
                 permission_state,
                 permission_detail,
                 summary,
+                subagent_count,
             )
         return AgentStatus(
             provider,
@@ -350,6 +409,7 @@ class AgentStatusService:
             permission_state,
             permission_detail,
             summary,
+            subagent_count,
         )
 
     @staticmethod

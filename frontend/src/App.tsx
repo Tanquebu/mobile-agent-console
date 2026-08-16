@@ -5296,6 +5296,15 @@ function SessionList({
                         >
                           {PERMISSION_STATE_ICON[agentStatusBySession[session.id].permission_state]}
                         </span>
+                        {agentStatusBySession[session.id].subagent_count > 0 && (
+                          <span
+                            className="subagent-badge"
+                            aria-label={`${agentStatusBySession[session.id].subagent_count} subagent attivi`}
+                            title={`${agentStatusBySession[session.id].subagent_count} subagent attivi`}
+                          >
+                            ○{agentStatusBySession[session.id].subagent_count}
+                          </span>
+                        )}
                       </>
                     )}
                     {isYolo && (
