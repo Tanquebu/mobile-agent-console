@@ -839,7 +839,7 @@ export async function sendEnter(id: string, paneId?: string) {
 
 export async function sendKey(
   id: string,
-  key: "Enter" | "Up" | "Down" | "Left" | "Right" | "Escape" | "C-c" | "Tab" | "Shift-Tab",
+  key: "Enter" | "Up" | "Down" | "Left" | "Right" | "Escape" | "C-c" | "Tab" | "Shift-Tab" | "C-End",
   confirmed = false,
   paneId?: string,
 ) {

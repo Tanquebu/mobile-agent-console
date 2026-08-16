@@ -6189,7 +6189,7 @@ function Console({
     }
   }
 
-  async function pressSpecialKey(key: "Up" | "Down" | "Left" | "Right" | "Escape" | "C-c" | "Tab" | "Shift-Tab") {
+  async function pressSpecialKey(key: "Up" | "Down" | "Left" | "Right" | "Escape" | "C-c" | "Tab" | "Shift-Tab" | "C-End") {
     const confirmed = key !== "C-c" || window.confirm(
       "Inviare Ctrl-C? Il processo attivo potrebbe essere interrotto.",
     );
@@ -6693,6 +6693,16 @@ function Console({
                   {clearing ? "Clear…" : "Clear"}
                 </button>
               </>
+            )}
+            {outputMode === "terminal" && (
+              <button
+                disabled={connection === "closed"}
+                type="button"
+                onClick={() => void pressSpecialKey("C-End")}
+                title="Torna in fondo alla cronologia del pane (Ctrl+End)"
+              >
+                ⤓ Vai in fondo
+              </button>
             )}
             <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Up")}>↑ Up</button>
             <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Down")}>↓ Down</button>
