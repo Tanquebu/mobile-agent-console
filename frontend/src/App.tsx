@@ -1710,19 +1710,76 @@ function suggestedSnapshotMode(session: Session): SnapshotMode {
   return "shell";
 }
 
-/** Icona testuale da mostrare nel riquadro a sinistra di ogni sessione in lista. */
-function sessionIcon(cmd: string): string {
+/** Icona SVG ufficiale (Simple Icons) o testuale per il riquadro di ogni sessione in lista. */
+function SessionIcon({ cmd }: { cmd: string }): ReactNode {
   const c = cmd.toLowerCase();
-  if (c.includes("claude"))                    return "✦";   // Claude
-  if (c.includes("agy") || c.includes("antigravity")) return "⊕"; // Antigravity
-  if (c.includes("codex"))                     return "⬡";   // OpenAI Codex
-  if (c.includes("opencode"))                  return "◈";   // OpenCode
-  if (c.includes("python") || c.includes("ipython") || c.includes("jupyter")) return "🐍";
-  if (c.includes("node") || c.includes("bun") || c.includes("deno")) return "⬡";
-  if (c.includes("vim") || c.includes("nvim")) return "𝓥";   // Vim / Neovim
-  if (c.includes("git"))                       return "⎇";   // Git
-  if (c.includes("ssh"))                       return "⇄";   // SSH
-  return ">_";                                               // shell generica
+
+  // Claude / Anthropic — logo Anthropic (claude.svg non presente in Simple Icons)
+  if (c.includes("claude") || c.includes("anthropic"))
+    return (
+      <svg viewBox="0 0 24 24" aria-label="Claude" role="img">
+        <path d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z" />
+      </svg>
+    );
+
+  // Antigravity / AGY — nessun SVG ufficiale, simbolo dedicato
+  if (c.includes("agy") || c.includes("antigravity"))
+    return <span aria-label="Antigravity">⊕</span>;
+
+  // OpenCode
+  if (c.includes("opencode"))
+    return (
+      <svg viewBox="0 0 24 24" aria-label="OpenCode" role="img">
+        <path d="M0 0v24h24V0H0zm3.84 3.84h16.32v16.32H3.84V3.84zm3.84 3.84v8.64h8.64V7.68H7.68z" />
+      </svg>
+    );
+
+  // Codex / OpenAI
+  if (c.includes("codex") || c.includes("openai"))
+    return (
+      <svg viewBox="0 0 24 24" aria-label="OpenAI" role="img">
+        <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.5045 4.5045 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1239 7.2a.076.076 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z" />
+      </svg>
+    );
+
+  // Python / IPython / Jupyter
+  if (c.includes("python") || c.includes("ipython") || c.includes("jupyter"))
+    return (
+      <svg viewBox="0 0 24 24" aria-label="Python" role="img">
+        <path d="M14.254.011c-.459.002-.899.04-1.284.11-1.12.202-1.682.63-1.682 1.32v1.54h3.033v.44H8.652c-1.42 0-2.664.845-3.045 2.378-.44 1.765-.452 2.87-.01 4.675.344 1.392 1.125 2.376 2.545 2.376h1.64v-1.6c0-1.57 1.338-2.88 2.97-2.88h4.59v-3.04c0-1.392-1.156-2.5-2.547-2.5H14.25zm-2.03 1.54a.88.88 0 1 1 .002 1.76.88.88 0 0 1-.002-1.76zM9.746 23.989c.459-.002.899-.04 1.284-.11 1.12-.202 1.682-.63 1.682-1.32v-1.54H9.68v-.44h5.669c1.42 0 2.664-.845 3.045-2.378.44-1.765.452-2.87.01-4.675-.344-1.392-1.125-2.376-2.545-2.376h-1.64v1.6c0 1.57-1.338 2.88-2.97 2.88h-4.59v3.04c0 1.392 1.156 2.5 2.547 2.5h.547zm2.03-1.54a.88.88 0 1 1-.002-1.76.88.88 0 0 1 .002 1.76z" />
+      </svg>
+    );
+
+  // Node.js / Bun / Deno
+  if (c.includes("node") || c.includes("bun") || c.includes("deno"))
+    return (
+      <svg viewBox="0 0 24 24" aria-label="Node.js" role="img">
+        <path d="M11.998 0c-.394 0-.788.106-1.135.318L1.648 5.7c-.707.416-1.148 1.185-1.148 2.012v10.576c0 .827.441 1.596 1.148 2.012l9.215 5.382c.347.212.741.318 1.135.318s.788-.106 1.135-.318l9.215-5.382c.707-.416 1.148-1.185 1.148-2.012V7.712c0-.827-.441-1.596-1.148-2.012L13.133.318C12.786.106 12.392 0 11.998 0zm.014 2.215a.998.998 0 0 1 .5.137l7.744 4.523a1 1 0 0 1 .494.863v8.524a1 1 0 0 1-.494.863l-7.744 4.523a.998.998 0 0 1-1 0l-7.744-4.523a1 1 0 0 1-.494-.863V7.738a1 1 0 0 1 .494-.863l7.744-4.523a.998.998 0 0 1 .5-.137z" />
+      </svg>
+    );
+
+  // Vim / Neovim — Simple Icons ha solo neovim.svg
+  if (c.includes("vim") || c.includes("nvim"))
+    return (
+      <svg viewBox="0 0 24 24" aria-label="Neovim" role="img">
+        <path d="M1.644 0v19.34L18.356 0v20h-1.644V.66L0 20V0h1.644Z" />
+      </svg>
+    );
+
+  // Git
+  if (c.includes("git"))
+    return (
+      <svg viewBox="0 0 24 24" aria-label="Git" role="img">
+        <path d="M23.546 10.93L13.067.452a2.023 2.023 0 0 0-2.862 0l-2.86 2.86 3.616 3.616c.358-.12.774-.08 1.107.126.544.336.804.972.673 1.583l4.316 4.316c.611-.13 1.247.13 1.583.673.473.766.242 1.776-.524 2.249-.766.473-1.776.242-2.249-.524a1.698 1.698 0 0 1-.127-1.108l-4.048-4.047v5.52a1.724 1.724 0 0 1 .494.673c.473.766.242 1.776-.524 2.249-.766.473-1.776.242-2.249-.524-.473-.766-.242-1.776.524-2.249.263-.162.564-.236.864-.23V9.824a1.7 1.7 0 0 1-.864-.23c-.766-.473-.997-1.483-.524-2.249.473-.766 1.483-.997 2.249-.524.333.206.55.51.64.864l3.65-3.65L7.345 0 .454 6.892a2.023 2.023 0 0 0 0 2.862l10.479 10.479a2.023 2.023 0 0 0 2.862 0l9.751-9.751a2.023 2.023 0 0 0 0-2.862z" />
+      </svg>
+    );
+
+  // SSH
+  if (c.includes("ssh"))
+    return <span aria-label="SSH">⇄</span>;
+
+  // Shell generica / default
+  return <span aria-label="shell">{">_"}</span>;
 }
 
 function defaultSnapshotName(): string {
@@ -5128,7 +5185,7 @@ function SessionList({
           <article className={`session-item${isYolo ? " yolo" : ""}`} key={session.id}>
             <div className="session-row">
               <button className="session-card" onClick={() => onOpen(session)}>
-                <span className="session-icon">{sessionIcon(session.current_command)}</span>
+                <span className="session-icon"><SessionIcon cmd={session.current_command} /></span>
                 <span className="session-copy">
                   <strong>
                     {session.name}
