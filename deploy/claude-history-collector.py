@@ -5,6 +5,7 @@ import argparse
 import json
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
@@ -27,7 +28,7 @@ def run_tmux(socket_file: str) -> list[dict[str, str]]:
             "list-panes",
             "-a",
             "-F",
-            "#{session_id}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}",
+            "#{session_id}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{session_created}",
         ],
         check=False,
         capture_output=True,
@@ -38,15 +39,16 @@ def run_tmux(socket_file: str) -> list[dict[str, str]]:
         return []
     panes = []
     for line in result.stdout.splitlines():
-        values = line.split("\t", 3)
-        if len(values) != 4:
+        values = line.split("\t", 4)
+        if len(values) != 5:
             continue
-        session_id, pane_id, command, cwd = values
+        session_id, pane_id, command, cwd, created = values
         if (
             session_id.startswith("$")
             and session_id[1:].isdigit()
             and pane_id.startswith("%")
             and pane_id[1:].isdigit()
+            and created.isdigit()
         ):
             panes.append(
                 {
@@ -54,13 +56,33 @@ def run_tmux(socket_file: str) -> list[dict[str, str]]:
                     "pane_id": pane_id[1:],
                     "command": command.lower(),
                     "cwd": cwd,
+                    "session_created": int(created),
                 }
             )
     return panes
 
 
-def context_sessions(root: Path) -> dict[str, str]:
-    result = {}
+def _parse_updated_at(value: object) -> float | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def context_sessions(root: Path) -> dict[str, tuple[str, float | None]]:
+    # Ogni file resta sotto ~/.claude/context-window-cache anche a pane/
+    # sessione tmux chiusi (nessuna pulizia nota): #{pane_id} di tmux non è
+    # stabile nel tempo, viene riassegnato da capo se il server tmux
+    # riparte, quindi un pane NUOVO può ricevere lo stesso id "%N" di un
+    # pane VECCHIO il cui file di cache è rimasto lì. Senza un controllo di
+    # freschezza, un pane appena aperto erediterebbe silenziosamente la
+    # conversazione di settimane prima (bug osservato: sessione mai usata,
+    # Blocchi mostrava una candidatura di lavoro chiusa il 03/08). Si porta
+    # quindi anche "updated_at" del file, non solo l'UUID, per poterlo
+    # confrontare con l'avvio della sessione tmux in collect().
+    result: dict[str, tuple[str, float | None]] = {}
     if not root.is_dir():
         return result
     for path in root.glob("*.json"):
@@ -70,7 +92,8 @@ def context_sessions(root: Path) -> dict[str, str]:
             continue
         pane = payload.get("tmux_pane") if isinstance(payload, dict) else None
         if isinstance(pane, str) and pane.removeprefix("%").isdigit():
-            result[pane.removeprefix("%")] = path.stem
+            updated_at = _parse_updated_at(payload.get("updated_at"))
+            result[pane.removeprefix("%")] = (path.stem, updated_at)
     return result
 
 
@@ -85,8 +108,18 @@ def collect(args: argparse.Namespace) -> dict[str, object]:
     for pane in run_tmux(args.tmux_socket_file):
         if "claude" not in pane["command"]:
             continue
-        claude_session_id = cache.get(pane["pane_id"])
-        if not claude_session_id:
+        entry = cache.get(pane["pane_id"])
+        if entry is None:
+            continue
+        claude_session_id, updated_at = entry
+        # Rifiuta una corrispondenza più vecchia dell'avvio della sessione
+        # tmux corrente: un file di cache così non descrive questo pane, è
+        # un residuo di un pane precedente con lo stesso id riassegnato
+        # (vedi commento in context_sessions). Anche "updated_at" mancante o
+        # non parsabile è trattato come stantio, mai come match valido — la
+        # stessa disciplina "niente dato piuttosto che dato sbagliato" già
+        # usata altrove in questo collector.
+        if updated_at is None or updated_at < pane["session_created"]:
             continue
         transcript = (
             claude_project_dir(projects, pane["cwd"]) / f"{claude_session_id}.jsonl"

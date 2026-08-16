@@ -124,3 +124,30 @@ profondità di storico con dettaglio del turno più recente — non è una
 regressione della vista live (che resta identica quando la cronologia non
 è disponibile), è un cambio deliberato di sorgente dati quando lo storico
 vale più del dettaglio tool dell'ultimo turno visibile a schermo.
+
+## Addendum: correlazione pane→conversazione instabile su riavvio del server tmux
+
+Portare la cronologia in primo piano su `Blocchi` (addendum precedente) ha
+reso visibile un bug di correlazione preesistente nel collector: la mappa
+pane→UUID Claude (`~/.claude/context-window-cache/<uuid>.json`, campo
+`tmux_pane`) non viene mai ripulita per i pane chiusi, e `#{pane_id}` di
+tmux non è stabile nel tempo — viene riassegnato da zero se il server tmux
+riparte (riavvio host, `kill-server`, ecc.). Un pane **nuovo, mai usato**
+può quindi ricevere lo stesso `%N` di un pane vecchio il cui file di cache
+è rimasto sul disco: osservato in produzione, una sessione appena aperta
+mostrava in `Blocchi` la cronologia di una conversazione chiusa 13 giorni
+prima, sullo stesso numero di pane riassegnato dopo un riavvio del server.
+
+Fix in `deploy/claude-history-collector.py`: la correlazione ora richiede
+anche che il campo `updated_at` del file di cache non sia precedente
+all'avvio della sessione tmux del pane corrente (`#{session_created}`);
+altrimenti la voce è trattata come assente, mai come dato valido — nessuna
+sessione emessa per quel pane invece di contenuto sbagliato. Lo stesso bug
+di classe esisteva anche in `deploy/provider-session-state-collector.py`
+per il badge `ctx X%` (stessa cache, stesso campo `tmux_pane` senza
+controllo di freschezza): corretto in parallelo con lo stesso criterio, lì
+basato su `process_started_at(pid)` del processo del pane (già disponibile
+e più preciso di `session_created`, immune anche al riuso dello stesso
+pane all'interno di una sessione tmux longeva), con fallback sulla ricerca
+già esistente per PID (`claude_transcript`) quando la cache è assente o
+stantia.

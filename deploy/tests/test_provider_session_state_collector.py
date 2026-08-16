@@ -4,6 +4,7 @@ import json
 import sqlite3
 import time
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -126,16 +127,25 @@ def assistant_message(
 NOW_EPOCH = time.time()
 
 
+def _iso(epoch: float) -> str:
+    return datetime.fromtimestamp(epoch, tz=UTC).isoformat().replace("+00:00", "Z")
+
+
 class AntigravityContextCacheTest(unittest.TestCase):
     def test_parses_valid_cache_entries(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "session-a.json").write_text(
-                json.dumps({"used_percent": 42.5, "tmux_pane": "%3"}), encoding="utf-8"
+                json.dumps({"used_percent": 42.5, "tmux_pane": "%3", "updated_at": _iso(NOW_EPOCH)}),
+                encoding="utf-8",
             )
             result = collector.antigravity_context_cache(str(root))
 
-        self.assertEqual(result, {"3": ("session-a", 42.5)})
+        # Round-trip via stringa ISO: confronta il terzo elemento (epoch)
+        # con tolleranza, non con uguaglianza esatta sui float.
+        session_id, percent, updated_at = result["3"]
+        self.assertEqual((session_id, percent), ("session-a", 42.5))
+        self.assertAlmostEqual(updated_at, NOW_EPOCH, places=3)
 
     def test_malformed_files_are_ignored(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -169,11 +179,29 @@ class AntigravityContextCacheTest(unittest.TestCase):
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "session-c.json").write_text(
-                json.dumps({"used_percent": 150, "tmux_pane": "%9"}), encoding="utf-8"
+                json.dumps({"used_percent": 150, "tmux_pane": "%9", "updated_at": _iso(NOW_EPOCH)}),
+                encoding="utf-8",
             )
             result = collector.antigravity_context_cache(str(root))
 
-        self.assertEqual(result["9"], ("session-c", 100.0))
+        session_id, percent, updated_at = result["9"]
+        self.assertEqual((session_id, percent), ("session-c", 100.0))
+        self.assertAlmostEqual(updated_at, NOW_EPOCH, places=3)
+
+    def test_missing_or_malformed_updated_at_yields_none_timestamp(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "no-timestamp.json").write_text(
+                json.dumps({"used_percent": 20.0, "tmux_pane": "%4"}), encoding="utf-8"
+            )
+            (root / "bad-timestamp.json").write_text(
+                json.dumps({"used_percent": 20.0, "tmux_pane": "%5", "updated_at": "not-a-date"}),
+                encoding="utf-8",
+            )
+            result = collector.antigravity_context_cache(str(root))
+
+        self.assertIsNone(result["4"][2])
+        self.assertIsNone(result["5"][2])
 
 
 class CollectAntigravityTest(unittest.TestCase):
@@ -182,10 +210,13 @@ class CollectAntigravityTest(unittest.TestCase):
             context_cache_root = Path(temporary) / "antigravity-context"
             context_cache_root.mkdir()
             (context_cache_root / "a676aa0c.json").write_text(
-                json.dumps({"used_percent": 37.0, "tmux_pane": "%3"}), encoding="utf-8"
+                json.dumps({"used_percent": 37.0, "tmux_pane": "%3", "updated_at": _iso(NOW_EPOCH)}),
+                encoding="utf-8",
             )
             args = make_args(antigravity_context_cache=str(context_cache_root))
-            with patch.object(collector, "run_tmux", return_value=[make_pane()]):
+            with patch.object(
+                collector, "run_tmux", return_value=[make_pane()]
+            ), patch.object(collector, "process_started_at", return_value=NOW_EPOCH):
                 result = collector.collect(args)
 
         self.assertEqual(len(result["sessions"]), 1)
@@ -211,6 +242,30 @@ class CollectAntigravityTest(unittest.TestCase):
 
         self.assertEqual(result["sessions"][0]["context_used_percent"], None)
 
+    def test_agy_pane_with_stale_cache_from_reused_pane_id_has_none_percent(self) -> None:
+        # Bug reale: #{pane_id} di tmux viene riassegnato da capo se il
+        # server riparte, quindi un pane NUOVO può ereditare il file di
+        # cache di un pane VECCHIO chiuso da tempo. Un updated_at antecedente
+        # all'avvio del processo del pane corrente deve essere trattato come
+        # assente, mai come dato valido.
+        with TemporaryDirectory() as temporary:
+            context_cache_root = Path(temporary) / "antigravity-context"
+            context_cache_root.mkdir()
+            stale_epoch = NOW_EPOCH - 3600
+            (context_cache_root / "old-session.json").write_text(
+                json.dumps(
+                    {"used_percent": 90.0, "tmux_pane": "%3", "updated_at": _iso(stale_epoch)}
+                ),
+                encoding="utf-8",
+            )
+            args = make_args(antigravity_context_cache=str(context_cache_root))
+            with patch.object(
+                collector, "run_tmux", return_value=[make_pane()]
+            ), patch.object(collector, "process_started_at", return_value=NOW_EPOCH):
+                result = collector.collect(args)
+
+        self.assertEqual(result["sessions"][0]["context_used_percent"], None)
+
     def test_unrecognized_command_is_dropped(self) -> None:
         args = make_args()
         with patch.object(collector, "run_tmux", return_value=[make_pane(command="bash")]):
@@ -232,6 +287,34 @@ class CollectBaselineRegressionTest(unittest.TestCase):
         self.assertEqual(session["provider"], "claude")
         self.assertEqual(session["context_used_percent"], None)
         self.assertEqual(session["permission_state"], "unknown")
+
+    def test_claude_pane_with_stale_cache_falls_back_to_transcript_lookup(self) -> None:
+        # Stessa disciplina del test antigravity gemello: un updated_at
+        # antecedente all'avvio del processo del pane corrente è un residuo
+        # di un pane_id riassegnato, non un dato valido — deve degradare
+        # esattamente come se la cache non avesse alcuna voce per quel pane
+        # (fallback su claude_transcript via PID, immune al riuso del
+        # pane_id).
+        with TemporaryDirectory() as temporary:
+            context_cache_root = Path(temporary) / "claude-context"
+            context_cache_root.mkdir()
+            stale_epoch = NOW_EPOCH - 3600
+            (context_cache_root / "old-session-uuid.json").write_text(
+                json.dumps(
+                    {"used_percent": 80.0, "tmux_pane": "%3", "updated_at": _iso(stale_epoch)}
+                ),
+                encoding="utf-8",
+            )
+            args = make_args(claude_context_cache=str(context_cache_root))
+            with patch.object(
+                collector, "run_tmux", return_value=[make_pane(command="claude", pid="1")]
+            ), patch.object(
+                collector, "process_started_at", return_value=NOW_EPOCH
+            ), patch.object(collector, "claude_transcript", return_value=None):
+                result = collector.collect(args)
+
+        session = result["sessions"][0]
+        self.assertEqual(session["context_used_percent"], None)
 
     def test_codex_pane_without_transcript_still_reports_provider(self) -> None:
         args = make_args()
