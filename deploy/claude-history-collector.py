@@ -82,18 +82,34 @@ def context_sessions(root: Path) -> dict[str, tuple[str, float | None]]:
     # Blocchi mostrava una candidatura di lavoro chiusa il 03/08). Si porta
     # quindi anche "updated_at" del file, non solo l'UUID, per poterlo
     # confrontare con l'avvio della sessione tmux in collect().
+    #
+    # Più file possono riferire lo stesso pane_id (nessuna pulizia dei
+    # vecchi): tra i duplicati vince quello con "updated_at" più recente,
+    # non il primo incontrato da Path.glob() (ordine di iterazione della
+    # directory, non garantito né cronologico né stabile) — altrimenti un
+    # file vecchio può "vincere" per puro ordine del filesystem anche
+    # quando ne esiste uno fresco valido per lo stesso pane (bug osservato:
+    # con un file dell'03/08 e uno di oggi entrambi su %212, glob()
+    # restituiva quello dell'03/08, il controllo di freschezza lo scartava
+    # giustamente, ma quello fresco non veniva mai considerato). Un
+    # updated_at assente/non parsabile ha priorità minima: non deve mai
+    # scavalcare un duplicato con timestamp valido.
     result: dict[str, tuple[str, float | None]] = {}
-    if not root.is_dir():
-        return result
-    for path in root.glob("*.json"):
+    for path in root.glob("*.json") if root.is_dir() else ():
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
         pane = payload.get("tmux_pane") if isinstance(payload, dict) else None
-        if isinstance(pane, str) and pane.removeprefix("%").isdigit():
-            updated_at = _parse_updated_at(payload.get("updated_at"))
-            result[pane.removeprefix("%")] = (path.stem, updated_at)
+        if not (isinstance(pane, str) and pane.removeprefix("%").isdigit()):
+            continue
+        pane_id = pane.removeprefix("%")
+        updated_at = _parse_updated_at(payload.get("updated_at"))
+        existing = result.get(pane_id)
+        if existing is not None and existing[1] is not None:
+            if updated_at is None or updated_at <= existing[1]:
+                continue
+        result[pane_id] = (path.stem, updated_at)
     return result
 
 

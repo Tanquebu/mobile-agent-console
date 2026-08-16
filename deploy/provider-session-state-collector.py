@@ -213,6 +213,14 @@ def _pane_context_cache(path: str | None) -> dict[str, tuple[str, float, float |
     root = Path(path)
     if not root.is_dir():
         return {}
+    # Più file possono riferire lo stesso pane_id (nessuna pulizia dei
+    # vecchi): tra i duplicati vince quello con "updated_at" più recente,
+    # non il primo incontrato da Path.glob() (ordine di iterazione della
+    # directory, non garantito cronologico) — altrimenti un file vecchio
+    # può "vincere" per puro ordine del filesystem anche quando ne esiste
+    # uno fresco valido per lo stesso pane (stesso bug corretto in
+    # claude-history-collector.py/context_sessions). Un updated_at
+    # assente/non parsabile ha priorità minima.
     result: dict[str, tuple[str, float, float | None]] = {}
     for cache_file in root.glob("*.json"):
         try:
@@ -221,16 +229,23 @@ def _pane_context_cache(path: str | None) -> dict[str, tuple[str, float, float |
             continue
         percent = item.get("used_percent") if isinstance(item, dict) else None
         pane_id = item.get("tmux_pane") if isinstance(item, dict) else None
-        if (
+        if not (
             isinstance(percent, (int, float))
             and isinstance(pane_id, str)
             and pane_id.removeprefix("%").isdigit()
         ):
-            result[pane_id.removeprefix("%")] = (
-                cache_file.stem,
-                max(0.0, min(100.0, float(percent))),
-                _parse_updated_at(item.get("updated_at")),
-            )
+            continue
+        pane_key = pane_id.removeprefix("%")
+        updated_at = _parse_updated_at(item.get("updated_at"))
+        existing = result.get(pane_key)
+        if existing is not None and existing[2] is not None:
+            if updated_at is None or updated_at <= existing[2]:
+                continue
+        result[pane_key] = (
+            cache_file.stem,
+            max(0.0, min(100.0, float(percent))),
+            updated_at,
+        )
     return result
 
 

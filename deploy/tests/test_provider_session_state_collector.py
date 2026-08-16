@@ -188,6 +188,30 @@ class AntigravityContextCacheTest(unittest.TestCase):
         self.assertEqual((session_id, percent), ("session-c", 100.0))
         self.assertAlmostEqual(updated_at, NOW_EPOCH, places=3)
 
+    def test_duplicate_pane_id_keeps_most_recent_updated_at(self) -> None:
+        # Stesso bug/fix di context_sessions in claude-history-collector.py:
+        # tra due file per lo stesso pane_id deve vincere il più recente,
+        # non il primo incontrato dall'iterazione della directory.
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            old_epoch = NOW_EPOCH - 3600
+            (root / "aaa-old.json").write_text(
+                json.dumps(
+                    {"used_percent": 90.0, "tmux_pane": "%3", "updated_at": _iso(old_epoch)}
+                ),
+                encoding="utf-8",
+            )
+            (root / "zzz-new.json").write_text(
+                json.dumps(
+                    {"used_percent": 10.0, "tmux_pane": "%3", "updated_at": _iso(NOW_EPOCH)}
+                ),
+                encoding="utf-8",
+            )
+            result = collector.antigravity_context_cache(str(root))
+
+        self.assertEqual(result["3"][0], "zzz-new")
+        self.assertEqual(result["3"][1], 10.0)
+
     def test_missing_or_malformed_updated_at_yields_none_timestamp(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
