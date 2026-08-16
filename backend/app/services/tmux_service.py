@@ -22,6 +22,12 @@ ALLOWED_KEYS = {
     "C-c": "C-c",
     "Tab": "Tab",
     "Shift-Tab": "BTab",
+    # Scorciatoia nativa di Claude Code per tornare in fondo al proprio
+    # pager interno (hint "Jump to bottom (ctrl+End)" mostrato quando sei
+    # scrollato indietro — vedi scroll_pane sopra per il meccanismo di
+    # scroll). tmux riconosce "End" come key name; il prefisso "C-" per il
+    # modificatore ctrl è lo stesso già usato per "C-c".
+    "C-End": "C-End",
 }
 
 
