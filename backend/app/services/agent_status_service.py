@@ -177,24 +177,29 @@ OPENCODE_CONFIRM_BUTTONS = re.compile(r"Allow once\s+Allow always\s+Reject")
 # Pannello subagent del footer di Claude Code: quando almeno un subagent
 # (tool "Agent(...)", fan-out) è in esecuzione, sotto la barra di stato
 # compare automaticamente (nessuna interazione richiesta) un blocco
-# "● <branch>" seguito da una riga "○ <tipo agente>   <descrizione>" per
+# "● <branch>" seguito da una riga "◯ <tipo agente>   <descrizione>" per
 # ciascun subagent attivo, più una riga di metriche indentata (tempo e
-# token) che non inizia con "○" e quindi non viene contata. Verificato su
-# quattro catture reali (screenshot, non capture-pane grezzo, sessione di
-# test dedicata — vedi trascrizione in agent_status_service task, non un
-# fixture testuale originale): a riposo il footer termina con la riga
-# "for agents" e nient'altro sotto; con subagent attivi il pannello compare
-# subito dopo, senza dover premere la freccia suggerita dall'hint. Il verbo
-# di stato nel transcript ("Kneading…", ecc., marker A, non usato qui) è
-# casuale come "Thinking…"/"Working…" per il turno principale — per questo
-# il segnale scelto è il pannello strutturato del footer, non il testo del
-# transcript. La riga "for agents" è l'ancora: si contano solo le righe "○"
-# che compaiono *dopo* di essa nella finestra recente (stessa disciplina
-# "scope sul segnale più recente" di INC-AS-01, non un match su tutto il
-# buffer), così una menzione testuale di "for agents" o "○" più in alto nello
-# scroll non genera un conteggio falso.
+# token) che non inizia con "◯" e quindi non viene contata. Il glifo è
+# U+25EF LARGE CIRCLE, non U+25CB WHITE CIRCLE (visivamente quasi identici,
+# byte diversi) — verificato con `tmux capture-pane -p` grezzo + ispezione
+# `ord()` dei codepoint su una sessione reale con 1 subagent attivo, dopo
+# che una prima versione di questo pattern (dedotta da screenshot, non da
+# testo grezzo) aveva usato per errore U+25CB e non matchava mai. Lezione:
+# un marker letto da un'immagine è una congettura sul glifo, non una prova
+# — per un pattern su caratteri va sempre confermato il codepoint esatto da
+# testo grezzo prima di scriverlo in una regex. A riposo il footer termina
+# con la riga "for agents" e nient'altro sotto; con subagent attivi il
+# pannello compare subito dopo, senza dover premere la freccia suggerita
+# dall'hint. Il verbo di stato nel transcript ("Kneading…", ecc., marker A,
+# non usato qui) è casuale come "Thinking…"/"Working…" per il turno
+# principale — per questo il segnale scelto è il pannello strutturato del
+# footer, non il testo del transcript. La riga "for agents" è l'ancora: si
+# contano solo le righe "◯" che compaiono *dopo* di essa nella finestra
+# recente (stessa disciplina "scope sul segnale più recente" di INC-AS-01,
+# non un match su tutto il buffer), così una menzione testuale di "for
+# agents" o "◯" più in alto nello scroll non genera un conteggio falso.
 SUBAGENT_PANEL_ANCHOR = re.compile(r"for agents\b")
-SUBAGENT_ENTRY_PATTERN = re.compile(r"^\s*○\s+\S")
+SUBAGENT_ENTRY_PATTERN = re.compile(r"^\s*◯\s+\S")
 
 
 @dataclass(frozen=True)

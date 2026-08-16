@@ -313,19 +313,26 @@ def test_agent_status_opencode_summary_filters_tui_chrome() -> None:
     assert "1.18.11" not in status.summary
 
 
-# Frammenti sintetici del pannello subagent del footer di Claude Code,
-# trascritti da quattro screenshot reali (non capture-pane grezzo) di una
-# sessione di test dedicata ("Test sessione subagent Claude", 16/08/2026):
-# a riposo il footer termina con "for agents" e nient'altro sotto; con
-# subagent attivi compare subito dopo, senza interazione, un blocco
-# "● <branch>" seguito da una riga "○ <tipo agente>   <descrizione>" per
-# ciascun subagent, più una riga di metriche indentata che non inizia con
-# "○" (tempo e token, non contata). Verificato anche nella vista "Blocchi"
-# (stesso testo, solo reimpaginato lato client) e nel transcript inline
-# ("● Agent(<descrizione>)" + "⎿ Backgrounded agent" + "⎿ Allowed by auto
-# mode classifier" + verbo di stato casuale "Kneading…"), non usato qui
-# come fonte: il verbo non è deterministico (come "Thinking…"/"Working…"
-# per il turno principale), il pannello del footer sì.
+# Frammenti del pannello subagent del footer di Claude Code. La prima
+# versione di questi fixture (e del pattern in agent_status_service.py) era
+# stata trascritta da screenshot e usava "○" (U+25CB WHITE CIRCLE): il
+# glifo reale, confermato con `tmux capture-pane -p` grezzo + ispezione
+# `ord()` su una sessione live con un subagent attivo, è invece "◯"
+# (U+25EF LARGE CIRCLE) — visivamente quasi identici in un'immagine, byte
+# diversi, e la regex non matchava mai contro il vero. A riposo il footer
+# termina con "for agents" e nient'altro sotto; con subagent attivi compare
+# subito dopo, senza interazione, un blocco "● <branch>" seguito da una
+# riga "◯ <tipo agente>  <descrizione>   <tempo> · ↓ <token> tokens" per
+# ciascun subagent — descrizione e metriche stanno sulla STESSA riga logica
+# nel pane grezzo (un pane abbastanza largo, MIN_PANE_COLUMNS, non le va a
+# capo); è solo la UI mobile stretta a spezzarle su due righe visive in uno
+# screenshot, il che aveva inizialmente suggerito una riga di metriche
+# separata da escludere — non necessario, il pattern conta solo le righe
+# che iniziano per "◯", indipendentemente da cosa segue. Verificato anche
+# nel transcript inline ("● Agent(<descrizione>)" + "⎿ Backgrounded agent"
+# + verbo di stato casuale "Kneading…"), non usato qui come fonte: il
+# verbo non è deterministico (come "Thinking…"/"Working…" per il turno
+# principale), il pannello del footer sì.
 _CLAUDE_FOOTER_NO_SUBAGENT = (
     "Fatto, ho aggiornato il file richiesto.\n"
     "> \n"
@@ -335,13 +342,11 @@ _CLAUDE_FOOTER_NO_SUBAGENT = (
 _CLAUDE_FOOTER_ONE_SUBAGENT = (
     "Fatto, ho aggiornato il file richiesto.\n"
     "> \n"
-    "Sonnet 5 | /home/max/projects/demo | main |...\n"
-    "⏵⏵ auto mode on (shift+tab to cycle) · ← for agents\n"
+    "Sonnet 5 | /home/max/projects/demo | develop | ctx: 8% (80k / 1000k) | $2.…\n"
+    "⏵⏵ auto mode on · 1 shell · ← for agents\n"
     "\n"
     "● main\n"
-    "\n"
-    "○ general-purpose   Ricognizione overview progetti\n"
-    "     9s · ↓ 43.3k tokens"
+    "◯ general-purpose  Test wait 5 minuti con conteggio        9s · ↓ 23.8k tokens"
 )
 _CLAUDE_FOOTER_TWO_SUBAGENTS = (
     "Fatto, ho aggiornato il file richiesto.\n"
@@ -350,10 +355,8 @@ _CLAUDE_FOOTER_TWO_SUBAGENTS = (
     "⏵⏵ auto mode on (shift+tab to cycle) · ← for agents\n"
     "\n"
     "● main\n"
-    "○ general-purpose   Ricognizione overview progetti\n"
-    "     16s · ↓ 43.4k tokens\n"
-    "○ general-purpose   Ricognizione profilo.md vs sviluppi recenti\n"
-    "     4s · ↓ 31.6k tokens"
+    "◯ general-purpose  Ricognizione overview progetti           16s · ↓ 43.4k tokens\n"
+    "◯ general-purpose  Ricognizione profilo.md vs sviluppi recenti  4s · ↓ 31.6k tokens"
 )
 
 
@@ -393,7 +396,7 @@ def test_agent_status_subagent_count_scoped_after_for_agents_anchor() -> None:
     # recente sono il pannello live.
     service = AgentStatusService(active_window_seconds=8)
     content = (
-        "○ questa non è una riga del pannello, solo testo citato nel turno.\n"
+        "◯ questa non è una riga del pannello, solo testo citato nel turno.\n"
         + _CLAUDE_FOOTER_ONE_SUBAGENT
     )
     status = service.classify("1", "claude", content, now=0)
