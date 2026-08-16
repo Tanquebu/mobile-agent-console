@@ -132,7 +132,8 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .session-toolbar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-left: 57px; }
 .session-toolbar button { min-height: 38px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .78rem; font-weight: 700; }
 .session-toolbar button.danger { border-color: #704039; color: #ffaaa0; }
-.session-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: #25382b; color: #8ee2aa; font: 700 .82rem ui-monospace, monospace; }
+.session-icon { display: grid; place-items: center; flex: 0 0 auto; width: 52px; height: 52px; border-radius: 14px; background: #25382b; color: #8ee2aa; font: 700 1.5rem ui-monospace, monospace; }
+.session-icon svg { width: 34px; height: 34px; fill: currentColor; }
 .session-copy { display: grid; gap: 4px; flex: 1; }
 .session-copy > strong { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .agent-state { display: inline-grid; place-items: center; flex: 0 0 auto; width: 21px; height: 21px; border: 1px solid #46564b; border-radius: 50%; color: #a9bcaf; font-size: .7rem; line-height: 1; }
