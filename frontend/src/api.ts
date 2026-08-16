@@ -220,6 +220,10 @@ export type AgentStatus = {
   // pannello footer del pane); 0 per gli altri provider o quando non ci
   // sono subagent in corso. Sempre presente, mai null.
   subagent_count: number;
+  // Timestamp ISO UTC dell'ultimo cambiamento reale del contenuto del pane
+  // (basato sull'output, non sull'ultimo input utente); null quando il
+  // provider non è riconosciuto o lo stato non è ancora classificato.
+  content_changed_at: string | null;
 };
 
 export async function listAgentStatuses(): Promise<AgentStatus[]> {

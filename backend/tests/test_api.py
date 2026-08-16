@@ -358,7 +358,12 @@ def test_agent_statuses_include_only_agentic_sessions() -> None:
     fake.content = "Would you like to run this command?\n1. Yes, proceed\npermissions: Auto\n› "
     response = client.get("/api/v1/agent-statuses")
     assert response.status_code == 200
-    assert response.json() == {
+    body = response.json()
+    statuses = body["statuses"]
+    assert len(statuses) == 1
+    content_changed_at = statuses[0].pop("content_changed_at")
+    assert content_changed_at is not None
+    assert body == {
         "statuses": [
             {
                 "session_id": "1",
@@ -376,6 +381,64 @@ def test_agent_statuses_include_only_agentic_sessions() -> None:
     }
     # L'euristica lavora su testo semplice: mai richiedere l'ANSI opt-in.
     assert fake.capture_ansi_calls == [False]
+
+
+def test_agent_statuses_content_changed_at_tracks_pane_content_not_input() -> None:
+    # Il bug: session_activity di tmux si aggiorna solo sull'input del
+    # client. content_changed_at deve invece riflettere l'ultimo cambio
+    # reale del digest del contenuto del pane (AgentStatusService.classify),
+    # e restare stabile tra due poll consecutivi se il contenuto non cambia.
+    client, fake = client_and_fake()
+    login(client)
+    current = fake.sessions["1"]
+    fake.sessions["1"] = type(current)(
+        current.id,
+        "Codex demo",
+        current.attached,
+        current.windows,
+        "codex",
+        current.activity_at,
+    )
+    fake.content = "› "
+
+    first = client.get("/api/v1/agent-statuses").json()["statuses"][0]
+    assert first["content_changed_at"] is not None
+    first_changed_at = datetime.fromisoformat(first["content_changed_at"])
+
+    # Stesso contenuto al secondo poll: content_changed_at non deve avanzare
+    # (a parte un rumore di pochi microsecondi dovuto alla conversione
+    # float monotonic -> wall clock ad ogni richiesta).
+    second = client.get("/api/v1/agent-statuses").json()["statuses"][0]
+    second_changed_at = datetime.fromisoformat(second["content_changed_at"])
+    assert abs((second_changed_at - first_changed_at).total_seconds()) < 0.01
+
+    # Il contenuto del pane cambia (nessun nuovo input dal client, solo
+    # output del processo): content_changed_at deve avanzare.
+    fake.content = "› updated output\n"
+    third = client.get("/api/v1/agent-statuses").json()["statuses"][0]
+    third_changed_at = datetime.fromisoformat(third["content_changed_at"])
+    assert third_changed_at >= second_changed_at
+
+
+def test_agent_statuses_content_changed_at_none_when_output_unavailable() -> None:
+    client, fake = client_and_fake()
+    login(client)
+    current = fake.sessions["1"]
+    fake.sessions["1"] = type(current)(
+        current.id,
+        "Codex demo",
+        current.attached,
+        current.windows,
+        "codex",
+        current.activity_at,
+    )
+    fake.capture_error_sessions.add("1")
+    response = client.get("/api/v1/agent-statuses")
+    assert response.status_code == 200
+    statuses = response.json()["statuses"]
+    assert len(statuses) == 1
+    assert statuses[0]["state"] == "unknown"
+    assert statuses[0]["content_changed_at"] is None
 
 
 def test_agent_statuses_opencode_from_real_tui_fixture() -> None:
