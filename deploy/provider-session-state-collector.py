@@ -198,13 +198,22 @@ def codex_context_percent(path: Path) -> float | None:
     return None
 
 
-def _pane_context_cache(path: str | None) -> dict[str, tuple[str, float]]:
+def _parse_updated_at(value: object) -> float | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def _pane_context_cache(path: str | None) -> dict[str, tuple[str, float, float | None]]:
     if not path:
         return {}
     root = Path(path)
     if not root.is_dir():
         return {}
-    result: dict[str, tuple[str, float]] = {}
+    result: dict[str, tuple[str, float, float | None]] = {}
     for cache_file in root.glob("*.json"):
         try:
             item = json.loads(cache_file.read_text(encoding="utf-8"))
@@ -220,15 +229,31 @@ def _pane_context_cache(path: str | None) -> dict[str, tuple[str, float]]:
             result[pane_id.removeprefix("%")] = (
                 cache_file.stem,
                 max(0.0, min(100.0, float(percent))),
+                _parse_updated_at(item.get("updated_at")),
             )
     return result
 
 
-def claude_context_cache(path: str | None) -> dict[str, tuple[str, float]]:
+def _context_cache_is_fresh(updated_at: float | None, process_pid: str) -> bool:
+    # #{pane_id} di tmux non è stabile: viene riassegnato da capo se il
+    # server tmux riparte, quindi un pane NUOVO può ricevere lo stesso id di
+    # un pane VECCHIO il cui file di cache è rimasto sotto
+    # ~/.claude(o antigravity)/context-window-cache (nessuna pulizia nota).
+    # Senza questo controllo un pane appena aperto mostrerebbe silenziosamente
+    # il context% di settimane prima (stesso bug di correlazione risolto in
+    # claude-history-collector.py, qui per il badge "ctx X%"). -5s di
+    # tolleranza come già in opencode_context_percent, per lo stesso motivo
+    # (scrittura della cache leggermente prima che /proc/<pid>/stat sia letto).
+    if updated_at is None:
+        return False
+    return updated_at >= process_started_at(process_pid) - 5
+
+
+def claude_context_cache(path: str | None) -> dict[str, tuple[str, float, float | None]]:
     return _pane_context_cache(path)
 
 
-def antigravity_context_cache(path: str | None) -> dict[str, tuple[str, float]]:
+def antigravity_context_cache(path: str | None) -> dict[str, tuple[str, float, float | None]]:
     return _pane_context_cache(path)
 
 
@@ -356,8 +381,8 @@ def collect(args: argparse.Namespace) -> dict[str, object]:
         elif "claude" in pane["command"]:
             provider = "claude"
             cached_context = claude_context.get(pane["pane_id"])
-            if cached_context is not None:
-                claude_session_id, context_used_percent = cached_context
+            if cached_context is not None and _context_cache_is_fresh(cached_context[2], pane["pid"]):
+                claude_session_id, context_used_percent, _updated_at = cached_context
                 candidate = claude_project_dir(claude_root, pane["cwd"]) / (
                     f"{claude_session_id}.jsonl"
                 )
@@ -369,8 +394,8 @@ def collect(args: argparse.Namespace) -> dict[str, object]:
         elif "agy" in pane["command"] or "antigravity" in pane["command"]:
             provider = "antigravity"
             cached_context = antigravity_context.get(pane["pane_id"])
-            if cached_context is not None:
-                _antigravity_session_id, context_used_percent = cached_context
+            if cached_context is not None and _context_cache_is_fresh(cached_context[2], pane["pid"]):
+                _antigravity_session_id, context_used_percent, _updated_at = cached_context
         elif "opencode" in pane["command"]:
             # La TUI OpenCode non espone un indicatore di modalità permessi
             # nella status bar: il profilo è conservativo e il classificatore
