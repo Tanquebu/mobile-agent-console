@@ -28,7 +28,11 @@ async function assertPosition(page, position) {
 
 const browser = await chromium.launch({ headless: true });
 try {
-  const context = await browser.newContext({ viewport: { width: 320, height: 720 }, locale: "it-IT" });
+  const context = await browser.newContext({
+    viewport: { width: 320, height: 720 },
+    locale: "it-IT",
+    permissions: ["clipboard-read", "clipboard-write"],
+  });
   const page = await context.newPage();
   page.setDefaultTimeout(7_000);
   await page.route("**/api/v1/**", async (route) => {
@@ -76,6 +80,10 @@ try {
   await assertPosition(page, "1 / 2");
   await page.locator(".preview-modified", { hasText: "Ultimo aggiornamento" }).waitFor();
   assert.match(await page.locator(".preview-modified").innerText(), /22\/08\/2026/);
+  const copyPath = page.getByRole("button", { name: "Copia percorso: /workspace/zeta.md" });
+  await copyPath.click();
+  await page.locator(".preview-path-copy", { hasText: "Copiato!" }).waitFor();
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "/workspace/zeta.md");
   await page.getByRole("button", { name: "Schermo intero", exact: true }).click();
   await page.locator(".help-modal-fullscreen").waitFor();
   assert.equal(await page.getByRole("button", { name: "Esci da schermo intero", exact: true }).getAttribute("aria-pressed"), "true");

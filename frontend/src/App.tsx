@@ -152,7 +152,7 @@ const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spa
 const LATEST_RELEASE = {
   title: "Anteprime direttamente dai blocchi",
   description:
-    "I percorsi di immagini, audio, video e Markdown mostrati dagli agenti nei blocchi sono ora apribili nella stessa anteprima centralizzata di Directory e Artefatti, anche da root esterne abilitate in sola lettura.",
+    "I percorsi di immagini, audio, video e Markdown mostrati dagli agenti nei blocchi sono ora apribili nella stessa anteprima centralizzata di Directory e Artefatti, con copia rapida del path completo.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1233,6 +1233,7 @@ function PreviewModal({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [pathCopied, setPathCopied] = useState(false);
   const t = translations[readLanguage()];
   const isText = source.kind === "text" || source.kind === "markdown";
 
@@ -1275,12 +1276,28 @@ function PreviewModal({
     }
   }
 
+  async function copyPath() {
+    if (!await copyToClipboard(source.name)) return;
+    setPathCopied(true);
+    window.setTimeout(() => setPathCopied(false), 1500);
+  }
+
   return (
     <>
       <header>
         <div>
           <span className="eyebrow">{source.eyebrow ?? t.preview}</span>
-          <h2 className="directory-path" title={source.name}>{source.name}</h2>
+          <div className="preview-path-row">
+            <h2 className="directory-path" title={source.name}>{source.name}</h2>
+            <button
+              type="button"
+              className="preview-path-copy"
+              onClick={() => void copyPath()}
+              aria-label={`${t.copyPath}: ${source.name}`}
+            >
+              {pathCopied ? t.copied : t.copyPath}
+            </button>
+          </div>
           {source.modifiedAt && (
             <p className="preview-modified">
               {t.lastModified}: <time dateTime={source.modifiedAt}>{formatDate(source.modifiedAt)}</time>

@@ -96,6 +96,12 @@ test("l'anteprima mostra la data di ultimo aggiornamento del file corrente", () 
   assert.match(app, /modifiedAt: item\.modified_at/);
 });
 
+test("la PreviewModal centralizza anche la copia del path completo", () => {
+  assert.match(app, /className="preview-path-copy"/);
+  assert.match(app, /copyToClipboard\(source\.name\)/);
+  assert.match(app, /pathCopied \? t\.copied : t\.copyPath/);
+});
+
 test("il selettore progetto mostra ricerca, ordinamento e risultati accessibili", () => {
   assert.match(sessionList, /projectSearchPlaceholder/);
   assert.match(sessionList, /projectSortNameAsc/);

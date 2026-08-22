@@ -14,7 +14,11 @@ function json(route, body, status = 200) {
 
 const browser = await chromium.launch({ headless: true });
 try {
-  const context = await browser.newContext({ viewport: { width: 320, height: 720 }, locale: "it-IT" });
+  const context = await browser.newContext({
+    viewport: { width: 320, height: 720 },
+    locale: "it-IT",
+    permissions: ["clipboard-read", "clipboard-write"],
+  });
   const page = await context.newPage();
   page.setDefaultTimeout(7_000);
   await page.addInitScript(() => {
@@ -111,6 +115,15 @@ try {
   await previewDialog.waitFor();
   assert.match(await previewDialog.locator(".preview-modified").innerText(), /22\/08\/2026/);
   await previewDialog.getByRole("heading", { name: "Report esterno" }).waitFor();
+  const copyPreviewPath = previewDialog.getByRole("button", {
+    name: "Copia percorso: /tmp/mac-preview-browser/report.md",
+  });
+  await copyPreviewPath.click();
+  await previewDialog.locator(".preview-path-copy", { hasText: "Copiato!" }).waitFor();
+  assert.equal(
+    await page.evaluate(() => navigator.clipboard.readText()),
+    "/tmp/mac-preview-browser/report.md",
+  );
   await previewDialog.getByRole("button", { name: "Schermo intero" }).click();
   await page.locator(".help-modal-fullscreen").waitFor();
   await previewDialog.getByRole("button", { name: "Torna all'elenco" }).click();

@@ -369,7 +369,9 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .whats-new { border: 1px solid #31533c; border-radius: 16px; padding: 16px; background: #17261c; }
 .whats-new h3 { margin: 7px 0 5px; font-size: 1rem; }
 .whats-new p { margin: 0; color: #a9bcaf; line-height: 1.45; }
-.directory-path { margin: 4px 0 0; font-size: .95rem; font-family: ui-monospace, monospace; word-break: break-all; color: #b8c9bd; }
+.preview-path-row { display: flex; align-items: start; gap: 8px; margin-top: 4px; }
+.directory-path { flex: 1; min-width: 0; margin: 0; font-size: .95rem; font-family: ui-monospace, monospace; word-break: break-all; color: #b8c9bd; }
+.preview-path-copy { flex: 0 0 auto; min-height: 32px; border: 1px solid #3a5142; border-radius: 9px; padding: 0 9px; background: #1b2820; color: #9be5b3; font-size: .68rem; font-weight: 750; }
 .preview-modified { margin: 6px 0 0; color: #91a397; font-size: .74rem; }
 .artifact-directory { display: grid; grid-template-columns: 1fr auto; gap: 7px 10px; align-items: center; margin-top: 14px; padding: 11px 12px; border: 1px solid #31533c; border-radius: 12px; background: #101a13; }
 .artifact-directory > span { grid-column: 1 / -1; color: #8faf99; font-size: .68rem; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
