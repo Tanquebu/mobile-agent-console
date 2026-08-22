@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 
+const baseUrl = process.env.MAC_BROWSER_BASE_URL || "http://127.0.0.1:4174";
+
 const sessions = [
   { id: "1", name: "osservabilità", attached: false, windows: 1, current_command: "codex", activity_at: "2026-08-02T10:00:00Z", hidden: false },
   { id: "2", name: "analisi qualità", attached: false, windows: 1, current_command: "claude", activity_at: "2026-08-02T10:00:00Z", hidden: false },
@@ -15,6 +17,34 @@ try {
   const context = await browser.newContext({ viewport: { width: 320, height: 720 }, locale: "it-IT" });
   const page = await context.newPage();
   page.setDefaultTimeout(7_000);
+  await page.addInitScript(() => {
+    class PreviewTestWebSocket {
+      static OPEN = 1;
+      static CLOSED = 3;
+      readyState = 0;
+      onopen = null;
+      onmessage = null;
+      onclose = null;
+      constructor() {
+        window.setTimeout(() => {
+          this.readyState = PreviewTestWebSocket.OPEN;
+          this.onopen?.({});
+          this.onmessage?.({
+            data: JSON.stringify({
+              type: "snapshot",
+              sequence_id: 1,
+              content: "• Ho creato il report `/tmp/mac-preview-browser/report.md`.",
+            }),
+          });
+        }, 0);
+      }
+      close() {
+        this.readyState = PreviewTestWebSocket.CLOSED;
+        this.onclose?.({});
+      }
+    }
+    window.WebSocket = PreviewTestWebSocket;
+  });
   const commands = [];
   let attachmentSequence = 0;
   await page.route("**/api/v1/**", async (route) => {
@@ -27,7 +57,23 @@ try {
     if (path === "/api/v1/agent-statuses") return json(route, { statuses: [] });
     if (path === "/api/v1/provider-rate-limits") return json(route, null);
     if (path === "/api/v1/orchestrator-state") return json(route, null);
-    if (/^\/api\/v1\/sessions\/\d+\/panes$/.test(path)) return json(route, { panes: [] });
+    if (/^\/api\/v1\/sessions\/\d+\/panes$/.test(path)) return json(route, {
+      panes: [{ id: "1", index: 0, title: "main", active: true, width: 80, height: 24 }],
+    });
+    if (/^\/api\/v1\/sessions\/\d+\/file\/metadata$/.test(path)) return json(route, {
+      session_id: "1",
+      path: url.searchParams.get("path"),
+      size: 19,
+      modified_at: "2026-08-22T11:45:00Z",
+      media_type: "text/markdown",
+    });
+    if (/^\/api\/v1\/sessions\/\d+\/file$/.test(path)) return json(route, {
+      session_id: "1",
+      path: url.searchParams.get("path"),
+      size: 19,
+      content: "# Report esterno\n",
+      truncated: false,
+    });
     if (/^\/api\/v1\/sessions\/\d+\/attachments$/.test(path) && request.method() === "POST") {
       attachmentSequence += 1;
       const name = url.searchParams.get("filename");
@@ -46,7 +92,7 @@ try {
     return json(route, { detail: "not found" }, 404);
   });
 
-  await page.goto("http://127.0.0.1:4174");
+  await page.goto(baseUrl);
   await page.locator("button.session-card", { hasText: "osservabilità" }).click();
   const composer = page.getByPlaceholder("Scrivi o incolla un prompt…");
   await composer.fill("bozza prima sessione");
@@ -58,6 +104,18 @@ try {
   await page.locator(".session-switcher-item", { hasText: "osservabilità" }).click();
   assert.equal(await composer.inputValue(), "bozza prima sessione");
 
+  const previewLink = page.getByRole("button", { name: /Apri anteprima file: \/tmp\/mac-preview-browser\/report\.md/ });
+  await previewLink.waitFor();
+  await previewLink.click();
+  const previewDialog = page.getByRole("dialog", { name: "Anteprima file" });
+  await previewDialog.waitFor();
+  assert.match(await previewDialog.locator(".preview-modified").innerText(), /22\/08\/2026/);
+  await previewDialog.getByRole("heading", { name: "Report esterno" }).waitFor();
+  await previewDialog.getByRole("button", { name: "Schermo intero" }).click();
+  await page.locator(".help-modal-fullscreen").waitFor();
+  await previewDialog.getByRole("button", { name: "Torna all'elenco" }).click();
+  assert.equal(await previewDialog.count(), 0);
+
   await page.getByRole("button", { name: "Funzioni", exact: true }).click();
   const specialActions = page.locator(".special-actions");
   await specialActions.waitFor({ state: "visible" });
@@ -66,8 +124,8 @@ try {
   await page.getByRole("button", { name: "Clear", exact: true }).click();
   await page.waitForTimeout(200);
   assert.deepEqual(commands.slice(-2), [
-    { path: "/api/v1/sessions/1/input", body: { text: "/clear", attachment_ids: [] } },
-    { path: "/api/v1/sessions/1/keys", body: { key: "Enter", confirmed: false } },
+    { path: "/api/v1/sessions/1/input", body: { text: "/clear", attachment_ids: [], pane_id: "1" } },
+    { path: "/api/v1/sessions/1/keys", body: { key: "Enter", confirmed: false, pane_id: "1" } },
   ]);
   await page.locator(".file-input").setInputFiles([
     { name: "Screenshot_20260809-013106-con-un-nome-molto-lungo.txt", mimeType: "text/plain", buffer: Buffer.from("uno") },
@@ -92,4 +150,4 @@ try {
   await browser.close();
 }
 
-console.log("Session console browser checks passed (Unicode, per-session drafts, Clear, attachment overflow)");
+console.log("Session console browser checks passed (block preview, Unicode, drafts, Clear, attachment overflow)");

@@ -1525,6 +1525,85 @@ def test_session_file_reads_text_content(tmp_path) -> None:
     assert body["size"] == len("# Titolo\n\nCiao à è ⚡\n".encode())
 
 
+def test_session_file_preview_roots_map_external_paths_read_only(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    mount_base = tmp_path / "preview"
+    mounted_root = mount_base / "external-preview-test"
+    mounted_root.mkdir(parents=True)
+    report = mounted_root / "report.md"
+    report.write_text("# Report esterno\n")
+    modified_at = datetime(2026, 8, 22, 11, 45, tzinfo=UTC)
+    os.utime(report, (modified_at.timestamp(), modified_at.timestamp()))
+    fake = FakeTmux()
+    fake.directory = str(workspace)
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(workspace)],
+        preview_roots=["/external-preview-test"],
+        preview_mount_root=str(mount_base),
+    )
+    client = TestClient(create_app(settings, fake))
+    login(client)
+
+    metadata = client.get(
+        "/api/v1/sessions/1/file/metadata",
+        params={"path": "/external-preview-test/report.md"},
+    )
+    assert metadata.status_code == 200
+    assert metadata.json() == {
+        "session_id": "1",
+        "path": "/external-preview-test/report.md",
+        "size": len("# Report esterno\n"),
+        "modified_at": "2026-08-22T11:45:00Z",
+        "media_type": "text/markdown",
+    }
+    content = client.get(
+        "/api/v1/sessions/1/file",
+        params={"path": "/external-preview-test/report.md"},
+    )
+    assert content.status_code == 200
+    assert content.json()["content"] == "# Report esterno\n"
+    assert content.json()["path"] == "/external-preview-test/report.md"
+
+
+def test_session_file_preview_roots_reject_outside_and_symlink_escape(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    mount_base = tmp_path / "preview"
+    mounted_root = mount_base / "external-preview-test"
+    mounted_root.mkdir(parents=True)
+    outside = tmp_path / "secret.md"
+    outside.write_text("segreto")
+    (mounted_root / "escape.md").symlink_to(outside)
+    fake = FakeTmux()
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        allowed_roots=[str(workspace)],
+        preview_roots=["/external-preview-test"],
+        preview_mount_root=str(mount_base),
+    )
+    client = TestClient(create_app(settings, fake))
+    login(client)
+    url = "/api/v1/sessions/1/file/metadata"
+
+    assert client.get(url, params={"path": "/outside/report.md"}).status_code == 400
+    assert client.get(
+        url, params={"path": "/external-preview-test/escape.md"}
+    ).status_code == 400
+
+
+def test_preview_roots_reject_filesystem_root() -> None:
+    with pytest.raises(ValueError, match="must not expose the filesystem root"):
+        Settings(preview_roots=["/"])
+
+
 def test_session_file_rejects_binary_missing_and_directory(tmp_path) -> None:
     (tmp_path / "image.bin").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x01\x02")
     (tmp_path / "src").mkdir()
@@ -2409,6 +2488,23 @@ def test_session_file_preview_serves_m4a_inline(tmp_path) -> None:
     assert response.headers["content-disposition"].startswith("inline")
     assert response.headers["x-content-type-options"] == "nosniff"
     assert response.content == M4A_BYTES
+
+
+def test_session_file_preview_serves_mp3_inline(tmp_path) -> None:
+    audio = tmp_path / "memo.mp3"
+    content = b"ID3\x04\x00\x00\x00\x00\x00\x00fake"
+    audio.write_bytes(content)
+    client = _preview_client(tmp_path)
+    login(client)
+
+    response = client.get(
+        "/api/v1/sessions/1/file/preview", params={"path": str(audio)}
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/mpeg")
+    assert response.headers["content-disposition"].startswith("inline")
+    assert response.content == content
 
 
 def test_session_file_preview_serves_image_inline(tmp_path) -> None:

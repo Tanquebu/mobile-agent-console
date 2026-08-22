@@ -1,0 +1,17 @@
+# Override opt-in per anteprime di file creati fuori dal workspace in modalità
+# host-tmux. La root esterna è montata in sola lettura sotto /preview mantenendo
+# il path assoluto: /tmp/file.mp3 -> /preview/tmp/file.mp3 nel backend.
+#
+# Attivare aggiungendo questo file a COMPOSE_FILE e impostando
+# MAC_PREVIEW_ROOT (per esempio /tmp). Non usare / come root.
+
+services:
+  backend:
+    environment:
+      MAC_PREVIEW_ROOTS: '["${MAC_PREVIEW_ROOT:?set MAC_PREVIEW_ROOT in .env}"]'
+      MAC_PREVIEW_MOUNT_ROOT: /preview
+    volumes:
+      - type: bind
+        source: ${MAC_PREVIEW_ROOT:?set MAC_PREVIEW_ROOT in .env}
+        target: /preview${MAC_PREVIEW_ROOT}
+        read_only: true

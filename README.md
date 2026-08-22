@@ -179,6 +179,11 @@ before the first login, enable lingering with
    and the socket, while a non-zero uid would map to an inaccessible
    subuid).
 
+   To preview media or Markdown paths emitted by agents outside the workspace,
+   append `compose.host-preview.yaml` to `COMPOSE_FILE` and set
+   `MAC_PREVIEW_ROOT` to the smallest suitable host directory. It is mounted
+   read-only and is not exposed by the directory browser; never set it to `/`.
+
 3. `docker compose up -d --build`, then verify:
 
    ```bash

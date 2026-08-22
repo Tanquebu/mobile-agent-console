@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     host_observability_rate_limit: int = Field(default=6, ge=1, le=1000)
     host_observability_rate_window_seconds: int = Field(default=60, ge=1, le=3600)
     allowed_roots: list[str] = ["/workspace"]
+    # Radici aggiuntive leggibili esclusivamente dagli endpoint di anteprima.
+    # In container ogni root esterna viene montata sotto preview_mount_root
+    # conservandone il path assoluto (es. /tmp -> /preview/tmp).
+    preview_roots: list[str] = []
+    preview_mount_root: str = "/"
     cors_origins: list[str] = ["http://localhost:5173"]
     workspace_presets: dict[str, str] = {}
     attachments_root: str = "/workspace/.agent-attachments"
@@ -171,7 +176,11 @@ class Settings(BaseSettings):
         return self
 
     @field_validator(
-        "allowed_roots", "cors_origins", "upload_allowed_extensions", mode="before"
+        "allowed_roots",
+        "preview_roots",
+        "cors_origins",
+        "upload_allowed_extensions",
+        mode="before",
     )
     @classmethod
     def split_csv(cls, value: object) -> object:
@@ -180,6 +189,23 @@ class Settings(BaseSettings):
                 return json.loads(value)
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @field_validator("preview_roots")
+    @classmethod
+    def validate_preview_roots(cls, roots: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for value in roots:
+            root = _validate_absolute_socket_path(value, "preview root")
+            if root == "/":
+                raise ValueError("preview root must not expose the filesystem root")
+            if root not in normalized:
+                normalized.append(root)
+        return normalized
+
+    @field_validator("preview_mount_root")
+    @classmethod
+    def validate_preview_mount_root(cls, value: str) -> str:
+        return _validate_absolute_socket_path(value, "preview mount root")
 
     @field_validator("upload_allowed_extensions")
     @classmethod

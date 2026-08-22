@@ -268,6 +268,10 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .chat-markdown code { border-radius: 4px; padding: 2px 5px; background: #1f2f25; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; color: #b7f0cb; }
 .chat-markdown a { color: #5ce68f; text-decoration: underline; text-underline-offset: 2px; }
 .chat-markdown a:hover { color: #8cf0b1; }
+.block-preview-link { display: inline; min-height: 0; border: 0; border-radius: 4px; padding: 0 2px; background: #183421; color: #75e49b; font: inherit; text-align: left; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; overflow-wrap: anywhere; cursor: pointer; }
+.block-preview-link:hover { background: #245033; color: #a3f2bd; }
+.block-preview-link.code { padding: 0; background: transparent; text-decoration: none; }
+.block-preview-link.code code { outline: 1px dashed #4d8a60; outline-offset: 1px; }
 .chat-markdown hr { border: 0; border-top: 1px solid #2a3c30; margin: 12px 0; }
 .chat-markdown .markdown-table-wrap { overflow-x: auto; margin: 0 0 8px; }
 .chat-markdown table { width: 100%; border-collapse: collapse; font-size: .82rem; }

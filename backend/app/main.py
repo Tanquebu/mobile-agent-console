@@ -52,6 +52,7 @@ from .schemas import (
     CreateUserInput,
     DirectoryEntryView,
     DirectoryView,
+    FileMetadataView,
     FileView,
     KeyInput,
     LoginInput,
@@ -189,8 +190,10 @@ INLINE_PREVIEW_MEDIA_TYPES = {
     "image/png",
     "image/webp",
     "audio/mp4",
+    "audio/mpeg",
     "video/mp4",
 }
+REFERENCE_PREVIEW_MEDIA_TYPES = INLINE_PREVIEW_MEDIA_TYPES | {"text/markdown"}
 SNAPSHOT_RESUME_COMMANDS = {
     "codex": "codex resume",
     "claude": "claude --resume",
@@ -209,6 +212,56 @@ def _resolve_within_allowed_roots(raw_path: str, roots: list[Path]) -> tuple[Pat
         if directory == root or root in directory.parents:
             return directory, root
     raise HTTPException(400, "Directory is not allowed")
+
+
+def _resolve_preview_file(raw_path: str, settings: Settings) -> tuple[Path, Path, bool]:
+    """Risolve un path visibile all'agente nel filesystem del backend.
+
+    Le radici workspace sono montate allo stesso path. Le radici di sola
+    anteprima possono invece vivere sotto un prefisso container dedicato:
+    `/tmp/report.md`, con mount root `/preview`, viene letto da
+    `/preview/tmp/report.md`. Il secondo valore è il path canonico da mostrare
+    al client; il primo non deve mai uscire dall'API.
+    """
+    allowed_roots = [Path(root).resolve() for root in settings.allowed_roots]
+    try:
+        file_path, _ = _resolve_within_allowed_roots(raw_path, allowed_roots)
+        return file_path, file_path, False
+    except HTTPException:
+        pass
+
+    requested = Path(raw_path)
+    if not requested.is_absolute() or "\x00" in raw_path:
+        raise HTTPException(400, "File is not in an allowed preview root")
+    normalized = Path(os.path.normpath(raw_path))
+    mount_base = Path(settings.preview_mount_root).resolve()
+    for configured_root in settings.preview_roots:
+        external_root = Path(configured_root)
+        if normalized != external_root and external_root not in normalized.parents:
+            continue
+        relative = normalized.relative_to(external_root)
+        mounted_root = (mount_base / external_root.relative_to("/")).resolve()
+        mounted_file = (mounted_root / relative).resolve()
+        if mounted_file != mounted_root and mounted_root not in mounted_file.parents:
+            raise HTTPException(400, "File is not in an allowed preview root")
+        canonical_external = external_root / mounted_file.relative_to(mounted_root)
+        return mounted_file, canonical_external, True
+    raise HTTPException(400, "File is not in an allowed preview root")
+
+
+def _validate_previewable_file(file_path: Path) -> tuple[os.stat_result, str]:
+    if not file_path.exists():
+        raise HTTPException(404, "File not found")
+    if not file_path.is_file():
+        raise HTTPException(400, "Not a file")
+    try:
+        info = file_path.stat()
+    except OSError as exc:
+        raise HTTPException(404, "File not found") from exc
+    media_type = sniff_media_type(file_path)
+    if media_type not in REFERENCE_PREVIEW_MEDIA_TYPES:
+        raise HTTPException(400, "File type has no preview")
+    return info, media_type
 
 
 def _list_directory(directory: Path) -> tuple[list[DirectoryEntryView], bool]:
@@ -1796,6 +1849,28 @@ def create_app(
         )
 
     @app.get(
+        "/api/v1/sessions/{session_id}/file/metadata",
+        response_model=FileMetadataView,
+        dependencies=[Depends(require_active_session)],
+    )
+    async def session_file_metadata(
+        session_id: str, path: Annotated[str, Query(min_length=1, max_length=4096)]
+    ) -> FileMetadataView:
+        try:
+            TmuxService.validate_target(session_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        file_path, display_path, _ = _resolve_preview_file(path, settings)
+        info, media_type = await asyncio.to_thread(_validate_previewable_file, file_path)
+        return FileMetadataView(
+            session_id=session_id,
+            path=str(display_path),
+            size=info.st_size,
+            modified_at=datetime.fromtimestamp(info.st_mtime, tz=UTC),
+            media_type=media_type,
+        )
+
+    @app.get(
         "/api/v1/sessions/{session_id}/file",
         response_model=FileView,
         dependencies=[Depends(require_active_session)],
@@ -1807,19 +1882,28 @@ def create_app(
             TmuxService.validate_target(session_id)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        roots = [Path(root).resolve() for root in settings.allowed_roots]
-        file_path, _ = _resolve_within_allowed_roots(path, roots)
+        file_path, display_path, external_preview = _resolve_preview_file(path, settings)
         if not file_path.exists():
             raise HTTPException(404, "File not found")
         if not file_path.is_file():
             raise HTTPException(400, "Not a file")
+        if external_preview:
+            _, media_type = await asyncio.to_thread(_validate_previewable_file, file_path)
+            if media_type != "text/markdown":
+                raise HTTPException(400, "File type has no text preview")
         try:
             content, size, truncated = await asyncio.to_thread(_read_text_file, file_path)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except OSError as exc:
             raise HTTPException(404, "File not found") from exc
-        return FileView(session_id=session_id, path=str(file_path), size=size, content=content, truncated=truncated)
+        return FileView(
+            session_id=session_id,
+            path=str(display_path),
+            size=size,
+            content=content,
+            truncated=truncated,
+        )
 
     @app.get(
         "/api/v1/sessions/{session_id}/file/download",
@@ -1865,13 +1949,8 @@ def create_app(
             TmuxService.validate_target(session_id)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        roots = [Path(root).resolve() for root in settings.allowed_roots]
-        file_path, _ = _resolve_within_allowed_roots(path, roots)
-        if not file_path.exists():
-            raise HTTPException(404, "File not found")
-        if not file_path.is_file():
-            raise HTTPException(400, "Not a file")
-        media_type = await asyncio.to_thread(sniff_media_type, file_path)
+        file_path, _, _ = _resolve_preview_file(path, settings)
+        _, media_type = await asyncio.to_thread(_validate_previewable_file, file_path)
         if media_type not in INLINE_PREVIEW_MEDIA_TYPES:
             raise HTTPException(400, "File type has no inline preview")
         return FileResponse(

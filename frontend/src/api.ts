@@ -1047,6 +1047,21 @@ export type FileContent = {
   truncated: boolean;
 };
 
+export type FileMetadata = {
+  session_id: string;
+  path: string;
+  size: number;
+  modified_at: string;
+  media_type: string;
+};
+
+export async function fetchFileMetadata(id: string, path: string): Promise<FileMetadata> {
+  const response = await request(
+    `/api/v1/sessions/${encodeURIComponent(id)}/file/metadata?path=${encodeURIComponent(path)}`,
+  );
+  return response.json();
+}
+
 export async function fetchFile(id: string, path: string): Promise<FileContent> {
   const response = await request(
     `/api/v1/sessions/${encodeURIComponent(id)}/file?path=${encodeURIComponent(path)}`,

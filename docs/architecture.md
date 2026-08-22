@@ -228,6 +228,12 @@ numerica senza `$`): i nomi — anche quelli arbitrari delle sessioni host
 preesistenti — servono solo per il display e per la creazione. Capture e
 input hanno come target il pane attivo della sessione, non `0.0`.
 
+I path assoluti di media e Markdown rilevati nei blocchi usano lo stesso
+`PreviewModal` delle viste Directory e Artefatti. Il backend li autorizza
+contro `MAC_ALLOWED_ROOTS` oppure contro la allowlist di sola anteprima
+`MAC_PREVIEW_ROOTS`; in container le root esterne sono montate read-only sotto
+`MAC_PREVIEW_MOUNT_ROOT` senza diventare directory navigabili (ADR 014).
+
 L'osservabilità host usa un boundary separato descritto in ADR 009. Una user
 socket unit systemd `AF_UNIX` attiva un collector one-shot soltanto quando il
 backend si collega; non esiste un listener TCP né un demone residente. Il

@@ -241,3 +241,29 @@ test("un blocco collassato parsa solo l'anteprima ma copia il contenuto completo
   assert.match(chatBlock, /<MarkdownContent content=\{displayContent\}/);
   assert.match(chatBlock, /onCopy\(blockKey, block\.content\)/);
 });
+
+test("la regex dei blocchi rileva solo path assoluti con tipi anteprimabili", () => {
+  const regexStart = app.indexOf("const BLOCK_PREVIEW_PATH_RE =");
+  const regex = app.slice(regexStart, app.indexOf("\n", regexStart));
+  const partsFn = extractFunction(app, "previewPathParts");
+  const { outputText } = tsModule.transpileModule(
+    `${regex}\n${partsFn}\nmodule.exports = { previewPathParts };\n`,
+    { compilerOptions: { module: tsModule.ModuleKind.CommonJS, target: tsModule.ScriptTarget.ES2022 } },
+  );
+  const module = { exports: {} };
+  // eslint-disable-next-line no-new-func
+  new Function("module", "exports", outputText)(module, module.exports);
+  const paths = module.exports.previewPathParts(
+    "Creati /tmp/demo/report.md, /tmp/demo/audio.mp3 e relativo.png; ignora /tmp/demo/archive.zip.",
+  ).flatMap((part) => part.path ? [part.path] : []);
+  assert.deepEqual(paths, ["/tmp/demo/report.md", "/tmp/demo/audio.mp3"]);
+});
+
+test("i path nei blocchi aprono la PreviewModal centralizzata dopo la validazione metadata", () => {
+  const chatBlock = app.slice(app.indexOf("function ChatBlockItem("), app.indexOf("function formatSize("));
+  assert.match(chatBlock, /PreviewPathText text=\{displayContent\} onPreviewPath=\{onPreviewPath\}/);
+  assert.match(chatBlock, /MarkdownContent content=\{displayContent\} onPreviewPath=\{onPreviewPath\}/);
+  assert.match(consoleView, /await fetchFileMetadata\(session\.id, path\)/);
+  assert.match(consoleView, /source=\{filePreviewSource\(/);
+  assert.match(consoleView, /<PreviewModal/);
+});

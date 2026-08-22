@@ -16,6 +16,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Command injection | argv, `shell=False`, operazioni tipizzate, regex sessioni/pane |
 | Input interpretato da tmux | `load-buffer -` + `paste-buffer`; tasti su endpoint separato |
 | Path traversal | nessun path dal client nello slice; poi resolve + `is_relative_to` allowlist |
+| Anteprime da path esterni | `MAC_PREVIEW_ROOTS` opt-in, mount read-only separato, risoluzione canonica e symlink confinati; nessuna directory/upload/download sulla root esterna |
 | Upload malevoli | nomi fisici UUID, tipi e signature allowlist, limite dimensione, nessuna estrazione archivi; anteprime immagine generate da Pillow in modo best-effort (eccezioni di decodifica non bloccano l'upload, semplicemente non producono thumbnail) |
 | Abuso risorse | limiti payload; rate limit in memoria separati per login e mutazioni; quota aggregata di byte allegati per sessione oltre al limite per singolo file |
 | WebSocket hijacking | cookie autenticato e Origin allowlist; nessun token nell'URL |
@@ -93,6 +94,14 @@ il server partirebbe dentro il container in modo silenzioso). I tre
 controlli di autenticazione e il bind loopback/Tailscale restano invariati
 e diventano più critici. Le user unit Compose non usano `PrivateTmp`, così
 il socket host in `/tmp/tmux-$UID` resta quello reale dell'utente.
+
+Le root esterne citate nei blocchi degli agenti non ampliano
+`MAC_ALLOWED_ROOTS`: `MAC_PREVIEW_ROOTS` autorizza soltanto metadata e
+anteprima dei media ammessi. La regex nel browser non è una capability: ogni
+path viene ricontrollato dal backend. Una root configurata rende comunque
+leggibili agli utenti autenticati tutti i file di tipo supportato al suo
+interno; va quindi mantenuta minima, montata read-only e mai impostata a `/`
+(ADR 014).
 
 Il cookie v2 include l'username nel payload firmato. Ogni richiesta
 ricontrolla nel database che l'account esista e sia attivo: disabilitare un

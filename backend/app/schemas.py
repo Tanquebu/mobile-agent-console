@@ -201,6 +201,14 @@ class FileView(BaseModel):
     truncated: bool = False
 
 
+class FileMetadataView(BaseModel):
+    session_id: str
+    path: str
+    size: int
+    modified_at: datetime
+    media_type: str
+
+
 class UploadResultView(BaseModel):
     session_id: str
     path: str

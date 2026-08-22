@@ -34,6 +34,7 @@ import {
   fetchDirectory,
   uploadDirectoryFile,
   fetchFile,
+  fetchFileMetadata,
   fetchHostObservability,
   fetchOrchestratorState,
   fetchProviderRateLimits,
@@ -43,6 +44,7 @@ import {
   fetchSessionTimeline,
   fileDownloadUrl,
   filePreviewUrl,
+  FileMetadata,
   errorMessage,
   login,
   logout,
@@ -148,9 +150,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Anteprime navigabili a schermo intero",
+  title: "Anteprime direttamente dai blocchi",
   description:
-    "Nelle viste Artefatti e Contenuto directory puoi espandere l’anteprima a tutto schermo, vedere la data dell’ultimo aggiornamento e passare tra i file anteprimabili della stessa cartella nell’ordinamento selezionato.",
+    "I percorsi di immagini, audio, video e Markdown mostrati dagli agenti nei blocchi sono ora apribili nella stessa anteprima centralizzata di Directory e Artefatti, anche da root esterne abilitate in sola lettura.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -427,6 +429,50 @@ type InlineToken =
   | { type: "link"; text: string; href: string }
   | { type: "url"; href: string };
 
+type PreviewPathHandler = (path: string) => void;
+
+const BLOCK_PREVIEW_PATH_RE = /\/[^\s<>"'`()\[\]{}]+?\.(?:md|markdown|mp3|m4a|mp4|jpe?g|png|webp)(?=$|[\s,.;:!?"'`)\]}])/gi;
+const EXACT_BLOCK_PREVIEW_PATH_RE = /^\/[^\n\0]+\.(?:md|markdown|mp3|m4a|mp4|jpe?g|png|webp)$/i;
+
+function previewPathParts(text: string) {
+  const parts: Array<{ value: string; path: string | null }> = [];
+  let lastIndex = 0;
+  BLOCK_PREVIEW_PATH_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = BLOCK_PREVIEW_PATH_RE.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ value: text.slice(lastIndex, match.index), path: null });
+    }
+    parts.push({ value: match[0], path: match[0] });
+    lastIndex = BLOCK_PREVIEW_PATH_RE.lastIndex;
+  }
+  if (lastIndex < text.length) parts.push({ value: text.slice(lastIndex), path: null });
+  return parts;
+}
+
+function PreviewPathText({
+  text,
+  onPreviewPath,
+}: {
+  text: string;
+  onPreviewPath?: PreviewPathHandler;
+}) {
+  if (!onPreviewPath) return <>{text}</>;
+  const t = translations[readLanguage()];
+  return previewPathParts(text).map((part, index) => part.path ? (
+    <button
+      type="button"
+      className="block-preview-link"
+      key={`${index}-${part.path}`}
+      onClick={() => onPreviewPath(part.path!)}
+      aria-label={`${t.openFilePreview}: ${part.path}`}
+      title={t.openFilePreview}
+    >
+      {part.value}
+    </button>
+  ) : <span key={index}>{part.value}</span>);
+}
+
 function parseInlineTokens(text: string): InlineToken[] {
   const tokens: InlineToken[] = [];
   const regex = /(```[^`\n]+```)|(`[^`\n]+`)|(\[[^\]\n]+\]\([^)\n]+\))|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(https?:\/\/[^\s<>"')]+)/g;
@@ -495,16 +541,44 @@ function handleHashLinkClick(event: React.MouseEvent<HTMLAnchorElement>, href: s
   target?.scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
-function MarkdownInline({ text }: { text: string }) {
+function MarkdownInline({ text, onPreviewPath }: { text: string; onPreviewPath?: PreviewPathHandler }) {
   const tokens = parseInlineTokens(text);
   return (
     <>
       {tokens.map((token, idx) => {
-        if (token.type === "code") return <code key={idx}>{token.value}</code>;
-        if (token.type === "bold") return <strong key={idx}>{token.value}</strong>;
-        if (token.type === "italic") return <em key={idx}>{token.value}</em>;
+        if (token.type === "code") {
+          if (onPreviewPath && EXACT_BLOCK_PREVIEW_PATH_RE.test(token.value)) {
+            return (
+              <button
+                type="button"
+                className="block-preview-link code"
+                key={idx}
+                onClick={() => onPreviewPath(token.value)}
+                aria-label={`${translations[readLanguage()].openFilePreview}: ${token.value}`}
+              >
+                <code>{token.value}</code>
+              </button>
+            );
+          }
+          return <code key={idx}>{token.value}</code>;
+        }
+        if (token.type === "bold") return <strong key={idx}><PreviewPathText text={token.value} onPreviewPath={onPreviewPath} /></strong>;
+        if (token.type === "italic") return <em key={idx}><PreviewPathText text={token.value} onPreviewPath={onPreviewPath} /></em>;
         if (token.type === "link") {
           const isHash = token.href.startsWith("#");
+          if (onPreviewPath && EXACT_BLOCK_PREVIEW_PATH_RE.test(token.href)) {
+            return (
+              <button
+                type="button"
+                className="block-preview-link"
+                key={idx}
+                onClick={() => onPreviewPath(token.href)}
+                aria-label={`${translations[readLanguage()].openFilePreview}: ${token.href}`}
+              >
+                {token.text}
+              </button>
+            );
+          }
           return (
             <a
               key={idx}
@@ -524,7 +598,7 @@ function MarkdownInline({ text }: { text: string }) {
             </a>
           );
         }
-        return <span key={idx}>{token.value}</span>;
+        return <PreviewPathText key={idx} text={token.value} onPreviewPath={onPreviewPath} />;
       })}
     </>
   );
@@ -752,7 +826,7 @@ function parseMarkdownBlocks(text: string): MarkdownBlockItem[] {
   return blocks;
 }
 
-function MarkdownContent({ content }: { content: string }) {
+function MarkdownContent({ content, onPreviewPath }: { content: string; onPreviewPath?: PreviewPathHandler }) {
   const blocks = parseMarkdownBlocks(content);
   // Namespace di slug locale a questo render: azzerato ad ogni chiamata così
   // istanze diverse di MarkdownContent (blocchi chat diversi) non si influenzano
@@ -774,15 +848,15 @@ function MarkdownContent({ content }: { content: string }) {
         if (block.type === "heading") {
           const id = slugFor(block.text);
           if (block.level === 1 || block.level === 2) {
-            return <h4 id={id} key={idx}><MarkdownInline text={block.text} /></h4>;
+            return <h4 id={id} key={idx}><MarkdownInline text={block.text} onPreviewPath={onPreviewPath} /></h4>;
           }
-          return <h5 id={id} key={idx}><MarkdownInline text={block.text} /></h5>;
+          return <h5 id={id} key={idx}><MarkdownInline text={block.text} onPreviewPath={onPreviewPath} /></h5>;
         }
         if (block.type === "ul") {
           return (
             <ul key={idx}>
               {block.items.map((item, itemIdx) => (
-                <li key={itemIdx}><MarkdownInline text={item} /></li>
+                <li key={itemIdx}><MarkdownInline text={item} onPreviewPath={onPreviewPath} /></li>
               ))}
             </ul>
           );
@@ -791,7 +865,7 @@ function MarkdownContent({ content }: { content: string }) {
           return (
             <ol key={idx}>
               {block.items.map((item, itemIdx) => (
-                <li key={itemIdx}><MarkdownInline text={item} /></li>
+                <li key={itemIdx}><MarkdownInline text={item} onPreviewPath={onPreviewPath} /></li>
               ))}
             </ol>
           );
@@ -799,7 +873,7 @@ function MarkdownContent({ content }: { content: string }) {
         if (block.type === "quote") {
           return (
             <blockquote key={idx}>
-              <MarkdownInline text={block.text} />
+              <MarkdownInline text={block.text} onPreviewPath={onPreviewPath} />
             </blockquote>
           );
         }
@@ -820,7 +894,7 @@ function MarkdownContent({ content }: { content: string }) {
                   <tr>
                     {block.header.map((cell, cellIdx) => (
                       <th key={cellIdx} style={cellStyle(cellIdx)}>
-                        <MarkdownInline text={cell} />
+                        <MarkdownInline text={cell} onPreviewPath={onPreviewPath} />
                       </th>
                     ))}
                   </tr>
@@ -830,7 +904,7 @@ function MarkdownContent({ content }: { content: string }) {
                     <tr key={rowIdx}>
                       {row.map((cell, cellIdx) => (
                         <td key={cellIdx} style={cellStyle(cellIdx)}>
-                          <MarkdownInline text={cell} />
+                          <MarkdownInline text={cell} onPreviewPath={onPreviewPath} />
                         </td>
                       ))}
                     </tr>
@@ -842,7 +916,7 @@ function MarkdownContent({ content }: { content: string }) {
         }
         return (
           <p key={idx}>
-            <MarkdownInline text={block.text} />
+            <MarkdownInline text={block.text} onPreviewPath={onPreviewPath} />
           </p>
         );
       })}
@@ -857,12 +931,14 @@ function ChatBlockItem({
   provider,
   onCopy,
   copiedKey,
+  onPreviewPath,
 }: {
   block: ChatBlock;
   index: number;
   provider: string;
   onCopy: (key: string, text: string) => void;
   copiedKey: string;
+  onPreviewPath: PreviewPathHandler;
 }) {
   const blockKey = `${index}-${block.content.slice(0, 20)}`;
   const isCollapsible = Boolean(block.collapsed ?? (block.content.length > BLOCK_COLLAPSE_THRESHOLD));
@@ -909,10 +985,10 @@ function ChatBlockItem({
         )}
       </div>
       {block.kind === "activity" ? (
-        <pre>{displayContent}</pre>
+        <pre><PreviewPathText text={displayContent} onPreviewPath={onPreviewPath} /></pre>
       ) : (
         <div className="chat-markdown">
-          <MarkdownContent content={displayContent} />
+          <MarkdownContent content={displayContent} onPreviewPath={onPreviewPath} />
         </div>
       )}
     </article>
@@ -1042,7 +1118,7 @@ function isDownloadable(name: string): boolean {
 // il backend leggendo i byte, e rifiuta con 400 tutto cio' che non e' un media ammesso.
 const PREVIEWABLE_VIDEO = /\.mp4$/i;
 const PREVIEWABLE_IMAGE = /\.(?:jpe?g|png|webp)$/i;
-const PREVIEWABLE_AUDIO = /\.m4a$/i;
+const PREVIEWABLE_AUDIO = /\.(?:m4a|mp3)$/i;
 const PREVIEWABLE_MARKDOWN = /\.(?:md|markdown)$/i;
 
 type PreviewKind = "image" | "video" | "audio" | "text" | "markdown";
@@ -1101,13 +1177,14 @@ function isPreviewableDirectoryEntry(entry: DirectoryEntry): boolean {
 // Adapter di directory: il tipo si decide dall'estensione perche' la directory
 // non espone un media type; i tag media caricano da soli e il flag `truncated`
 // arriva dalla risposta di `/file`.
-function directoryPreviewSource(
+function filePreviewSource(
   sessionId: string,
   path: string,
   modifiedAt: string | null,
+  mediaType: string | undefined,
   onBack: () => void,
 ): PreviewSource {
-  const kind = previewKindFor(path);
+  const kind = previewKindFor(path, mediaType);
   const isMedia = kind === "video" || kind === "image" || kind === "audio";
   return {
     kind,
@@ -1485,7 +1562,7 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
       >
         {openFile !== null ? (
           <PreviewModal
-            source={directoryPreviewSource(sessionId, openFile, openFileEntry?.modified_at ?? null, closeFilePreview)}
+            source={filePreviewSource(sessionId, openFile, openFileEntry?.modified_at ?? null, undefined, closeFilePreview)}
             navigation={directoryPreviewNavigation}
             fullscreen={previewFullscreen}
             onToggleFullscreen={() => setPreviewFullscreen((value) => !value)}
@@ -5687,6 +5764,8 @@ function Console({
   const [sendingArchiveSummaryPrompt, setSendingArchiveSummaryPrompt] = useState(false);
   const [showDirectory, setShowDirectory] = useState(false);
   const [showArtifacts, setShowArtifacts] = useState(false);
+  const [blockPreview, setBlockPreview] = useState<FileMetadata | null>(null);
+  const [blockPreviewFullscreen, setBlockPreviewFullscreen] = useState(false);
   const [fullscreenOutput, setFullscreenOutput] = useState(false);
   const [controlError, setControlError] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -5740,6 +5819,22 @@ function Console({
     if (!await copyToClipboard(cleanShareableOutput(text))) return;
     setCopiedAgentBlock(blockKey);
     window.setTimeout(() => setCopiedAgentBlock((value) => value === blockKey ? "" : value), 2_000);
+  }
+
+  async function openBlockPreview(path: string) {
+    setControlError("");
+    try {
+      const metadata = await fetchFileMetadata(session.id, path);
+      setBlockPreview(metadata);
+      setBlockPreviewFullscreen(false);
+    } catch (value) {
+      setControlError(errorMessage(value));
+    }
+  }
+
+  function closeBlockPreview() {
+    setBlockPreview(null);
+    setBlockPreviewFullscreen(false);
   }
   const fileInputRef = useRef<HTMLInputElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -6700,6 +6795,7 @@ function Console({
                   provider={session.current_command}
                   onCopy={copyAgentBlock}
                   copiedKey={copiedAgentBlock}
+                  onPreviewPath={(path) => void openBlockPreview(path)}
                 />
               ))
             ) : claude && historyEnabled && history && history.messages.length > 0 ? (
@@ -6723,6 +6819,7 @@ function Console({
                   provider={session.current_command}
                   onCopy={copyAgentBlock}
                   copiedKey={copiedAgentBlock}
+                  onPreviewPath={(path) => void openBlockPreview(path)}
                 />
               ))
             ) : content ? (
@@ -6734,6 +6831,7 @@ function Console({
                   provider={session.current_command}
                   onCopy={copyAgentBlock}
                   copiedKey={copiedAgentBlock}
+                  onPreviewPath={(path) => void openBlockPreview(path)}
                 />
               ))
             ) : (
@@ -6894,6 +6992,35 @@ function Console({
                 {closingPane ? translations[readLanguage()].closingPane : translations[readLanguage()].closePane}
               </button>
             )}
+          </div>
+        )}
+        {blockPreview && (
+          <div
+            className={`modal-backdrop${blockPreviewFullscreen ? " modal-backdrop-fullscreen" : ""}`}
+            role="presentation"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) closeBlockPreview();
+            }}
+          >
+            <section
+              className={`help-modal directory-modal${blockPreviewFullscreen ? " help-modal-fullscreen" : ""}`}
+              role="dialog"
+              aria-modal="true"
+              aria-label={translations[readLanguage()].filePreview}
+            >
+              <PreviewModal
+                source={filePreviewSource(
+                  session.id,
+                  blockPreview.path,
+                  blockPreview.modified_at,
+                  blockPreview.media_type,
+                  closeBlockPreview,
+                )}
+                navigation={{ index: 0, total: 1, onPrevious: null, onNext: null }}
+                fullscreen={blockPreviewFullscreen}
+                onToggleFullscreen={() => setBlockPreviewFullscreen((value) => !value)}
+              />
+            </section>
           </div>
         )}
         {showDirectory && (

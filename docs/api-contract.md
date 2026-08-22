@@ -296,6 +296,23 @@ la data usata per ordinamento e anteprima. Le directory con più di 2000 voci
 vengono troncate (`truncated:true`), elencando
 solo le prime 2000 in ordine cartelle-poi-file, alfabetico case-insensitive.
 
+## `GET /api/v1/sessions/{id}/file/metadata?path=...`
+
+Valida un file anteprimabile e restituisce path canonico, dimensione,
+`modified_at` e media type dedotto dai byte. Accetta file dentro
+`MAC_ALLOWED_ROOTS` oppure nelle root opt-in `MAC_PREVIEW_ROOTS`; queste ultime
+sono disponibili soltanto per anteprima e non diventano navigabili.
+
+```json
+{"session_id":"1","path":"/tmp/report.md","size":42,"modified_at":"2026-08-22T10:00:00Z","media_type":"text/markdown"}
+```
+
+I tipi ammessi sono Markdown UTF-8, JPEG, PNG, WebP, MP3, M4A e MP4. I symlink
+che escono dalla root autorizzata sono rifiutati. Gli endpoint `file` (per
+Markdown) e `file/preview` (per media inline) applicano la stessa risoluzione;
+`directory`, upload e download continuano a usare soltanto
+`MAC_ALLOWED_ROOTS`.
+
 ## `GET /api/v1/sessions/{id}/file/download?path=...`
 
 Scarica come allegato un file entro `MAC_ALLOWED_ROOTS`. Richiede il cookie di
