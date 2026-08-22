@@ -78,12 +78,15 @@ export const translations = {
     noEventsRecorded: "Nessun evento registrato.",
     noBackupsAvailable: "Nessun backup disponibile.",
     backToList: "Torna all'elenco",
+    enterFullscreen: "Schermo intero",
+    exitFullscreen: "Esci da schermo intero",
+    lastModified: "Ultimo aggiornamento",
     previewNavigation: "Navigazione anteprime",
     previousPreview: "File precedente",
     nextPreview: "File successivo",
     previous: "Precedente",
     next: "Successivo",
-    
+
     // Agent status legend
     stateActive: "In elaborazione",
     stateIdle: "Completato o inattivo",
@@ -274,6 +277,9 @@ export const translations = {
     noEventsRecorded: "No events recorded.",
     noBackupsAvailable: "No backups available.",
     backToList: "Back to list",
+    enterFullscreen: "Fullscreen",
+    exitFullscreen: "Exit fullscreen",
+    lastModified: "Last updated",
     previewNavigation: "Preview navigation",
     previousPreview: "Previous file",
     nextPreview: "Next file",

@@ -1268,6 +1268,8 @@ def test_create_session_requires_allowed_directory() -> None:
 
 def test_session_directory_lists_entries(tmp_path) -> None:
     (tmp_path / "notes.txt").write_text("hello")
+    notes_modified_at = datetime(2026, 7, 24, 10, 30, tzinfo=UTC)
+    os.utime(tmp_path / "notes.txt", (notes_modified_at.timestamp(), notes_modified_at.timestamp()))
     (tmp_path / "archive.tar.gz").write_bytes(b"0" * 42)
     (tmp_path / "src").mkdir()
     fake = FakeTmux()
@@ -1298,6 +1300,7 @@ def test_session_directory_lists_entries(tmp_path) -> None:
     assert by_name["archive.tar.gz"]["type"] == "file"
     assert by_name["archive.tar.gz"]["size"] == 42
     assert by_name["notes.txt"]["created_at"] is not None
+    assert by_name["notes.txt"]["modified_at"] == "2026-07-24T10:30:00Z"
 
 
 def test_session_directory_requires_allowed_root(tmp_path) -> None:

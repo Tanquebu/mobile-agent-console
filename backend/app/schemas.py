@@ -181,6 +181,7 @@ class DirectoryEntryView(BaseModel):
     type: Literal["file", "dir", "other"]
     size: int | None = None
     created_at: datetime | None = None
+    modified_at: datetime | None = None
 
 
 class DirectoryView(BaseModel):

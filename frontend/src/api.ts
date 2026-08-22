@@ -995,6 +995,7 @@ export type DirectoryEntry = {
   type: "dir" | "file" | "other";
   size: number | null;
   created_at: string | null;
+  modified_at: string | null;
 };
 
 export type DirectoryListing = {

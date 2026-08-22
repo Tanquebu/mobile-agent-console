@@ -235,6 +235,7 @@ def _list_directory(directory: Path) -> tuple[list[DirectoryEntryView], bool]:
                 type=kind,
                 size=info.st_size if kind == "file" else None,
                 created_at=datetime.fromtimestamp(created, tz=UTC),
+                modified_at=datetime.fromtimestamp(info.st_mtime, tz=UTC),
             )
         )
     return entries, truncated

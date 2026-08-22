@@ -148,9 +148,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Navigazione tra le anteprime dei file",
+  title: "Anteprime navigabili a schermo intero",
   description:
-    "Nelle viste Artefatti e Contenuto directory puoi passare al file anteprimabile precedente o successivo della stessa cartella, seguendo l’ordinamento selezionato senza tornare ogni volta all’elenco.",
+    "Nelle viste Artefatti e Contenuto directory puoi espandere l’anteprima a tutto schermo, vedere la data dell’ultimo aggiornamento e passare tra i file anteprimabili della stessa cartella nell’ordinamento selezionato.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -402,18 +402,18 @@ function chatBlocks(content: string, provider: string): ChatBlock[] {
     else if (
       /^\s*(?:✔|✘|✱|✻|✽|⏺|─{3,}|Ran\b|Explored\b|Read\b|Edited\b)/.test(visible)
     ) kind = "activity";
-    else if (afterUserBreak && line.trim()) kind = "agent";
+    else if (afterUserBreak && visible.trim()) kind = "agent";
 
-    if (!current || (line.trim() && kind !== current.kind)) {
-      append(kind, line);
+    if (!current || (visible.trim() && kind !== current.kind)) {
+      append(kind, visible);
     } else {
-      current.content += `${current.content ? "\n" : ""}${line}`;
+      current.content += `${current.content ? "\n" : ""}${visible}`;
       if (!current.collapsed && current.content.length > BLOCK_COLLAPSE_THRESHOLD) {
         current.collapsed = true;
       }
     }
     if (current) {
-      afterUserBreak = current.kind === "user" && !line.trim();
+      afterUserBreak = current.kind === "user" && !visible.trim();
     }
   }
   return blocks.filter((block) => block.content.trim());
@@ -650,6 +650,14 @@ function parseMarkdownBlocks(text: string): MarkdownBlockItem[] {
         i = j;
         continue;
       }
+      // Riga con `|` ma senza un vero separatore GFM dopo (es. barra di stato
+      // di una TUI, "cmd | grep foo"): niente tabella. Va comunque consumata
+      // qui come paragrafo semplice, altrimenti il while esterno resterebbe
+      // bloccato per sempre su questa riga — il loop dei paragrafi qui sotto
+      // si ferma subito perché la riga corrente soddisfa ancora `tableRowRe`.
+      blocks.push({ type: "paragraph", text: line });
+      i += 1;
+      continue;
     }
 
     if (horizontalRuleRe.test(line)) {
@@ -859,6 +867,15 @@ function ChatBlockItem({
   const blockKey = `${index}-${block.content.slice(0, 20)}`;
   const isCollapsible = Boolean(block.collapsed ?? (block.content.length > BLOCK_COLLAPSE_THRESHOLD));
   const [isExpanded, setIsExpanded] = useState(false);
+  // Un blocco collassato mostra solo ~120px (CSS, vedi styles.css) prima della
+  // dissolvenza: passare comunque l'intero contenuto al parser markdown è
+  // lavoro sincrono sprecato che scala con la dimensione del blocco, non con
+  // quella visibile. Per contenuto grosso (es. tool output non troncato) può
+  // bloccare il thread principale prima ancora che l'utente scelga di
+  // espandere. Si parsa per intero solo quando serve davvero.
+  const displayContent = isCollapsible && !isExpanded
+    ? block.content.slice(0, BLOCK_COLLAPSE_THRESHOLD)
+    : block.content;
 
   return (
     <article className={`chat-block ${block.kind} ${isCollapsible && !isExpanded ? "collapsed" : ""}`} key={blockKey}>
@@ -892,10 +909,10 @@ function ChatBlockItem({
         )}
       </div>
       {block.kind === "activity" ? (
-        <pre>{block.content}</pre>
+        <pre>{displayContent}</pre>
       ) : (
         <div className="chat-markdown">
-          <MarkdownContent content={block.content} />
+          <MarkdownContent content={displayContent} />
         </div>
       )}
     </article>
@@ -1038,6 +1055,7 @@ type PreviewContent = {
 type PreviewSource = {
   kind: PreviewKind;
   name: string;
+  modifiedAt: string | null;
   url: string | null;
   fetchContent: () => Promise<PreviewContent>;
   onBack: () => void;
@@ -1070,7 +1088,7 @@ function sortDirectoryEntries(entries: DirectoryEntry[], sort: BrowserSort): Dir
     }
     if (sort === "name-asc") return a.name.localeCompare(b.name);
     if (sort === "name-desc") return b.name.localeCompare(a.name);
-    const dateOrder = compareNullableDates(a.created_at, b.created_at, sort === "date-asc");
+    const dateOrder = compareNullableDates(a.modified_at, b.modified_at, sort === "date-asc");
     return dateOrder || a.name.localeCompare(b.name);
   });
 }
@@ -1083,12 +1101,18 @@ function isPreviewableDirectoryEntry(entry: DirectoryEntry): boolean {
 // Adapter di directory: il tipo si decide dall'estensione perche' la directory
 // non espone un media type; i tag media caricano da soli e il flag `truncated`
 // arriva dalla risposta di `/file`.
-function directoryPreviewSource(sessionId: string, path: string, onBack: () => void): PreviewSource {
+function directoryPreviewSource(
+  sessionId: string,
+  path: string,
+  modifiedAt: string | null,
+  onBack: () => void,
+): PreviewSource {
   const kind = previewKindFor(path);
   const isMedia = kind === "video" || kind === "image" || kind === "audio";
   return {
     kind,
     name: path,
+    modifiedAt,
     url: isMedia ? filePreviewUrl(sessionId, path) : null,
     fetchContent: () => fetchFile(sessionId, path).then((file) => ({ content: file.content, truncated: file.truncated })),
     eyebrow: translations[readLanguage()].readOnlyFile,
@@ -1102,6 +1126,7 @@ function artifactPreviewSource(sessionId: string, item: Artifact, onBack: () => 
   return {
     kind,
     name: item.name,
+    modifiedAt: item.modified_at,
     url: isMedia ? artifactDownloadUrl(sessionId, item.name) : null,
     fetchContent: () => fetchArtifactContent(sessionId, item.name).then((text) => ({ content: text, truncated: false })),
     onBack,
@@ -1118,9 +1143,13 @@ type PreviewNavigation = {
 function PreviewModal({
   source,
   navigation,
+  fullscreen,
+  onToggleFullscreen,
 }: {
   source: PreviewSource;
   navigation: PreviewNavigation;
+  fullscreen: boolean;
+  onToggleFullscreen: () => void;
 }) {
   const [content, setContent] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
@@ -1175,8 +1204,24 @@ function PreviewModal({
         <div>
           <span className="eyebrow">{source.eyebrow ?? t.preview}</span>
           <h2 className="directory-path" title={source.name}>{source.name}</h2>
+          {source.modifiedAt && (
+            <p className="preview-modified">
+              {t.lastModified}: <time dateTime={source.modifiedAt}>{formatDate(source.modifiedAt)}</time>
+            </p>
+          )}
         </div>
-        <button className="modal-close" onClick={source.onBack} aria-label={t.backToList}>‹</button>
+        <div className="modal-header-actions">
+          <button
+            type="button"
+            className="modal-fullscreen"
+            onClick={onToggleFullscreen}
+            aria-pressed={fullscreen}
+            aria-label={fullscreen ? t.exitFullscreen : t.enterFullscreen}
+          >
+            {fullscreen ? "⤡" : "⤢"}
+          </button>
+          <button className="modal-close" onClick={source.onBack} aria-label={t.backToList}>‹</button>
+        </div>
       </header>
       <nav className="preview-navigation" aria-label={t.previewNavigation}>
         <button
@@ -1198,10 +1243,10 @@ function PreviewModal({
         </button>
       </nav>
       {source.kind === "video" && (
-        <video className="file-media" src={source.url ?? undefined} controls playsInline preload="metadata" />
+        <video className={`file-media${fullscreen ? " is-fullscreen" : ""}`} src={source.url ?? undefined} controls playsInline preload="metadata" />
       )}
       {source.kind === "image" && (
-        <img className="file-media" src={source.url ?? undefined} alt={source.name} />
+        <img className={`file-media${fullscreen ? " is-fullscreen" : ""}`} src={source.url ?? undefined} alt={source.name} />
       )}
       {source.kind === "audio" && (
         <audio className="file-media" src={source.url ?? undefined} controls preload="metadata" />
@@ -1217,12 +1262,12 @@ function PreviewModal({
           )}
           {source.kind === "markdown" ? (
             content ? (
-              <div className="chat-markdown markdown-preview"><MarkdownContent content={content} /></div>
+              <div className={`chat-markdown markdown-preview${fullscreen ? " is-fullscreen" : ""}`}><MarkdownContent content={content} /></div>
             ) : (
               <p className="empty">{t.emptyFile}</p>
             )
           ) : (
-            <pre className="file-preview">{content || t.emptyFile}</pre>
+            <pre className={`file-preview${fullscreen ? " is-fullscreen" : ""}`}>{content || t.emptyFile}</pre>
           )}
           {truncated && <small>{t.truncatedPreview}</small>}
         </>
@@ -1238,6 +1283,7 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   const [loading, setLoading] = useState(true);
   const [copiedName, setCopiedName] = useState("");
   const [openFile, setOpenFile] = useState<string | null>(null);
+  const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadNotice, setUploadNotice] = useState("");
@@ -1322,6 +1368,7 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   function closeFilePreview() {
     restoreScrollRef.current = true;
     setOpenFile(null);
+    setPreviewFullscreen(false);
   }
 
   function downloadEntry(entry: DirectoryEntry) {
@@ -1364,6 +1411,9 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
       .map((entry) => joinPath(listing.path, entry.name))
     : [];
   const openFileIndex = openFile === null ? -1 : previewPaths.indexOf(openFile);
+  const openFileEntry = openFile === null || listing === null
+    ? null
+    : sortedDirectoryEntries.find((entry) => joinPath(listing.path, entry.name) === openFile) ?? null;
   const directoryPreviewNavigation: PreviewNavigation = {
     index: openFileIndex,
     total: previewPaths.length,
@@ -1418,7 +1468,7 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
 
   return (
     <div
-      className="modal-backdrop"
+      className={`modal-backdrop${openFile !== null && previewFullscreen ? " modal-backdrop-fullscreen" : ""}`}
       role="presentation"
       onMouseDown={(event) => {
         if (event.target !== event.currentTarget) return;
@@ -1426,11 +1476,19 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
         else onClose();
       }}
     >
-      <section ref={modalRef} className="help-modal directory-modal" role="dialog" aria-modal="true" aria-labelledby="directory-title">
+      <section
+        ref={modalRef}
+        className={`help-modal directory-modal${openFile !== null && previewFullscreen ? " help-modal-fullscreen" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="directory-title"
+      >
         {openFile !== null ? (
           <PreviewModal
-            source={directoryPreviewSource(sessionId, openFile, closeFilePreview)}
+            source={directoryPreviewSource(sessionId, openFile, openFileEntry?.modified_at ?? null, closeFilePreview)}
             navigation={directoryPreviewNavigation}
+            fullscreen={previewFullscreen}
+            onToggleFullscreen={() => setPreviewFullscreen((value) => !value)}
           />
         ) : (
           <>
@@ -1517,7 +1575,7 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                           {entry.type === "dir" ? "DIR" : entry.type === "file" ? "FILE" : "?"}
                         </span>
                         <span className="directory-name" title={entry.name}>{entry.name}</span>
-                        <span className="directory-meta">{formatSize(entry.size)} · {formatDate(entry.created_at)}</span>
+                        <span className="directory-meta">{formatSize(entry.size)} · {formatDate(entry.modified_at)}</span>
                       </button>
                       <button type="button" className="directory-copy" onClick={() => void copy(entry)}>
                         {copiedName === entry.name ? translations[readLanguage()].copied : "Copy"}
@@ -1596,6 +1654,7 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [previewItem, setPreviewItem] = useState<Artifact | null>(null);
+  const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [artifactQuery, setArtifactQuery] = useState("");
   const [artifactSort, setArtifactSort] = useState<ArtifactSort>("name-asc");
   const [artifactDirectory, setArtifactDirectory] = useState("");
@@ -1627,7 +1686,7 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (previewItem !== null) setPreviewItem(null);
+      if (previewItem !== null) closePreview();
       else onClose();
     };
     window.addEventListener("keydown", closeOnEscape);
@@ -1718,19 +1777,31 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     setCurrentPath(currentPath ? `${currentPath}/${folder}` : folder);
   };
 
+  function closePreview() {
+    setPreviewItem(null);
+    setPreviewFullscreen(false);
+  }
+
   return (
     <div
-      className="modal-backdrop"
+      className={`modal-backdrop${previewItem !== null && previewFullscreen ? " modal-backdrop-fullscreen" : ""}`}
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <section className="help-modal directory-modal" role="dialog" aria-modal="true" aria-labelledby="artifacts-title">
+      <section
+        className={`help-modal directory-modal${previewItem !== null && previewFullscreen ? " help-modal-fullscreen" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="artifacts-title"
+      >
         {previewItem !== null ? (
           <PreviewModal
-            source={artifactPreviewSource(sessionId, previewItem, () => setPreviewItem(null))}
+            source={artifactPreviewSource(sessionId, previewItem, closePreview)}
             navigation={artifactPreviewNavigation}
+            fullscreen={previewFullscreen}
+            onToggleFullscreen={() => setPreviewFullscreen((value) => !value)}
           />
         ) : (
           <>

@@ -281,8 +281,8 @@ stessa validazione di `POST /sessions`. Utile per popolare comandi come
   "path": "/workspace/demo",
   "truncated": false,
   "entries": [
-    {"name": "src", "type": "dir", "size": null, "created_at": "2026-07-20T09:00:00Z"},
-    {"name": "notes.txt", "type": "file", "size": 42, "created_at": "2026-07-24T10:00:00Z"}
+    {"name": "src", "type": "dir", "size": null, "created_at": "2026-07-20T09:00:00Z", "modified_at": "2026-07-24T09:00:00Z"},
+    {"name": "notes.txt", "type": "file", "size": 42, "created_at": "2026-07-20T10:00:00Z", "modified_at": "2026-07-24T10:00:00Z"}
   ]
 }
 ```
@@ -290,8 +290,10 @@ stessa validazione di `POST /sessions`. Utile per popolare comandi come
 `type` è `dir`, `file` o `other` (socket, symlink rotto, ecc.); `size` è
 `null` per le voci non-file. `created_at` è il birth time del filesystem
 quando disponibile, altrimenti il ctime (data dell'ultima modifica dei
-metadati) come approssimazione — non garantito su tutti i filesystem. Le
-directory con più di 2000 voci vengono troncate (`truncated:true`), elencando
+metadati) come approssimazione — non garantito su tutti i filesystem.
+`modified_at` è invece l'ultima modifica esposta dal filesystem (`mtime`) ed è
+la data usata per ordinamento e anteprima. Le directory con più di 2000 voci
+vengono troncate (`truncated:true`), elencando
 solo le prime 2000 in ordine cartelle-poi-file, alfabetico case-insensitive.
 
 ## `GET /api/v1/sessions/{id}/file/download?path=...`

@@ -49,9 +49,9 @@ try {
         parent: null,
         truncated: false,
         entries: [
-          { name: "alpha.txt", type: "file", size: 5, created_at: "2026-08-20T10:00:00Z" },
-          { name: "manual.pdf", type: "file", size: 6, created_at: "2026-08-23T10:00:00Z" },
-          { name: "zeta.md", type: "file", size: 4, created_at: "2026-08-22T10:00:00Z" },
+          { name: "alpha.txt", type: "file", size: 5, created_at: "2026-08-19T10:00:00Z", modified_at: "2026-08-20T10:00:00Z" },
+          { name: "manual.pdf", type: "file", size: 6, created_at: "2026-08-19T10:00:00Z", modified_at: "2026-08-23T10:00:00Z" },
+          { name: "zeta.md", type: "file", size: 4, created_at: "2026-08-19T10:00:00Z", modified_at: "2026-08-22T10:00:00Z" },
         ],
       });
     }
@@ -74,11 +74,20 @@ try {
   await page.getByLabel("Ordina").selectOption("date-desc");
   await page.locator(".directory-open", { hasText: "zeta.md" }).click();
   await assertPosition(page, "1 / 2");
+  await page.locator(".preview-modified", { hasText: "Ultimo aggiornamento" }).waitFor();
+  assert.match(await page.locator(".preview-modified").innerText(), /22\/08\/2026/);
+  await page.getByRole("button", { name: "Schermo intero", exact: true }).click();
+  await page.locator(".help-modal-fullscreen").waitFor();
+  assert.equal(await page.getByRole("button", { name: "Esci da schermo intero", exact: true }).getAttribute("aria-pressed"), "true");
   assert.equal(await page.getByRole("button", { name: "File precedente" }).isDisabled(), true);
   await page.getByRole("button", { name: "File successivo" }).click();
   await assertPosition(page, "2 / 2");
+  await page.locator(".help-modal-fullscreen").waitFor();
   await page.locator("h2.directory-path", { hasText: "alpha.txt" }).waitFor();
+  assert.match(await page.locator(".preview-modified").innerText(), /20\/08\/2026/);
   assert.equal(await page.getByRole("button", { name: "File successivo" }).isDisabled(), true);
+  await page.getByRole("button", { name: "Esci da schermo intero", exact: true }).click();
+  assert.equal(await page.locator(".help-modal-fullscreen").count(), 0);
 
   await page.getByRole("button", { name: "Torna all'elenco" }).click();
   await page.getByRole("button", { name: "Chiudi" }).click();
@@ -86,9 +95,11 @@ try {
   await page.getByLabel("Ordina").selectOption("date-desc");
   await page.locator(".directory-open", { hasText: "zeta.txt" }).click();
   await assertPosition(page, "1 / 2");
+  assert.match(await page.locator(".preview-modified").innerText(), /22\/08\/2026/);
   await page.getByRole("button", { name: "File successivo" }).click();
   await assertPosition(page, "2 / 2");
   await page.locator("h2.directory-path", { hasText: "alpha.md" }).waitFor();
+  assert.match(await page.locator(".preview-modified").innerText(), /20\/08\/2026/);
 
   const layout = await page.locator(".preview-navigation").evaluate((node) => ({
     scrollWidth: node.scrollWidth,

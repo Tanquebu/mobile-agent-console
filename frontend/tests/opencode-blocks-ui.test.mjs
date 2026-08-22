@@ -72,6 +72,24 @@ test("chatBlocks indirizza il provider opencode al parser dedicato", () => {
   assert.match(app, /if \(\/opencode\/i\.test\(provider\)\) return opencodeChatBlocks\(content\);/);
 });
 
+test("chatBlocks rimuove ANSI anche dal contenuto salvato nei blocchi generici", () => {
+  const ansiStart = app.indexOf("const ANSI_SEQUENCE =");
+  const ansi = app.slice(ansiStart, app.indexOf("\n", ansiStart));
+  const thresholdStart = app.indexOf("const BLOCK_COLLAPSE_THRESHOLD =");
+  const threshold = app.slice(thresholdStart, app.indexOf("\n", thresholdStart));
+  const chat = extractFunction(app, "chatBlocks");
+  const snippet = `${ansi}\n${threshold}\nconst opencodeChatBlocks = () => [];\nconst chatLines = (content) => content.split("\\n");\n${chat}\nmodule.exports = { chatBlocks };\n`;
+  const { outputText } = tsModule.transpileModule(snippet, {
+    compilerOptions: { module: tsModule.ModuleKind.CommonJS, target: tsModule.ScriptTarget.ES2022 },
+  });
+  const module = { exports: {} };
+  // eslint-disable-next-line no-new-func
+  new Function("module", "exports", outputText)(module, module.exports);
+  const blocks = module.exports.chatBlocks("\u001b[32m• risposta visibile\u001b[0m", "codex");
+  assert.equal(blocks[0].content, "• risposta visibile");
+  assert.doesNotMatch(blocks[0].content, /\u001b/);
+});
+
 test("turno completato: utente, esecuzione tool, risposta e attività in blocchi distinti", () => {
   const blocks = opencode.opencodeChatBlocks(fixture("04-completato.txt"));
   assert.deepEqual(blocks.map((block) => block.kind), ["user", "activity", "agent", "activity"]);
@@ -202,3 +220,24 @@ test("il parser Markdown a blocchi riconosce tabelle GFM e righe orizzontali", (
   assert.deepEqual(hrBlocks.map((block) => block.type), ["paragraph", "hr", "paragraph"]);
 });
 
+test("una riga con pipe senza separatore GFM resta un paragrafo e il parser avanza", () => {
+  const blockFn = extractFunction(app, "parseMarkdownBlocks");
+  const { outputText } = tsModule.transpileModule(`${blockFn}\nmodule.exports = { parseMarkdownBlocks };\n`, {
+    compilerOptions: { module: tsModule.ModuleKind.CommonJS, target: tsModule.ScriptTarget.ES2022 },
+  });
+  const module = { exports: {} };
+  // eslint-disable-next-line no-new-func
+  new Function("module", "exports", outputText)(module, module.exports);
+  const blocks = module.exports.parseMarkdownBlocks("cmd | grep foo\n\nTesto successivo");
+  assert.deepEqual(blocks.map((block) => block.type), ["paragraph", "paragraph"]);
+  assert.equal(blocks[0].text, "cmd | grep foo");
+  assert.equal(blocks[1].text, "Testo successivo");
+});
+
+test("un blocco collassato parsa solo l'anteprima ma copia il contenuto completo", () => {
+  const chatBlock = app.slice(app.indexOf("function ChatBlockItem("), app.indexOf("function formatSize("));
+  assert.match(chatBlock, /const displayContent = isCollapsible && !isExpanded/);
+  assert.match(chatBlock, /block\.content\.slice\(0, BLOCK_COLLAPSE_THRESHOLD\)/);
+  assert.match(chatBlock, /<MarkdownContent content=\{displayContent\}/);
+  assert.match(chatBlock, /onCopy\(blockKey, block\.content\)/);
+});

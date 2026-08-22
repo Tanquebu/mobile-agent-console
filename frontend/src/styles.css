@@ -346,14 +346,19 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .login input { min-height: 48px; border: 1px solid #344b3b; border-radius: 12px; padding: 10px 12px; background: #0c110e; color: white; }
 .login button { border: 0; border-radius: 12px; background: #75d493; color: #092111; font-weight: 750; }
 .modal-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: end center; padding: 16px; background: #000a; }
-.help-modal { width: min(100%, 560px); max-height: min(84dvh, 720px); overflow: auto; border: 1px solid #3a5142; border-radius: 22px; padding: 20px; background: #141d17; box-shadow: 0 20px 60px #000a; }
+.modal-backdrop-fullscreen { place-items: stretch; padding: 0; }
+.help-modal { width: min(100%, 560px); max-height: min(84dvh, 720px); overflow: auto; border: 1px solid #3a5142; border-radius: 22px; padding: 20px; background: #141d17; box-shadow: 0 20px 60px #000a; transition: max-height .18s ease, width .18s ease, border-radius .18s ease; }
+.help-modal-fullscreen { width: 100%; max-height: 100dvh; height: 100%; border-radius: 0; }
 .directory-modal { overflow-anchor: none; }
 .help-modal > header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
 .help-modal h2 { margin: 4px 0 0; font-size: 1.55rem; }
 .help-modal ol { display: grid; gap: 12px; margin: 22px 0; padding-left: 22px; color: #b8c9bd; }
 .help-modal li { padding-left: 4px; line-height: 1.45; }
 .help-modal li strong { color: #edf5ef; }
-.modal-close { width: 44px; border: 0; border-radius: 12px; background: #1d2921; color: white; font-size: 1.6rem; }
+.modal-header-actions { display: flex; flex: 0 0 auto; gap: 8px; }
+.modal-close, .modal-fullscreen { width: 44px; border: 0; border-radius: 12px; background: #1d2921; color: white; font-size: 1.6rem; }
+.modal-fullscreen { font-size: 1.15rem; }
+.modal-fullscreen[aria-pressed="true"] { background: #2a3f30; color: #8ee2aa; }
 .preference-field { display: grid; gap: 10px; margin: 18px 0; border: 1px solid #293a30; border-radius: 14px; padding: 14px; }
 .preference-field legend { padding: 0 4px; color: #7ea58c; font-size: .68rem; letter-spacing: .1em; font-weight: 700; text-transform: uppercase; }
 .preference-field label { display: flex; align-items: center; gap: 10px; min-height: 44px; color: #d2e3d7; }
@@ -361,6 +366,7 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .whats-new h3 { margin: 7px 0 5px; font-size: 1rem; }
 .whats-new p { margin: 0; color: #a9bcaf; line-height: 1.45; }
 .directory-path { margin: 4px 0 0; font-size: .95rem; font-family: ui-monospace, monospace; word-break: break-all; color: #b8c9bd; }
+.preview-modified { margin: 6px 0 0; color: #91a397; font-size: .74rem; }
 .artifact-directory { display: grid; grid-template-columns: 1fr auto; gap: 7px 10px; align-items: center; margin-top: 14px; padding: 11px 12px; border: 1px solid #31533c; border-radius: 12px; background: #101a13; }
 .artifact-directory > span { grid-column: 1 / -1; color: #8faf99; font-size: .68rem; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
 .artifact-directory > code { min-width: 0; overflow-wrap: anywhere; color: #d7e5dc; font: .78rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -392,6 +398,7 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .preview-navigation button span { font-size: .76rem; }
 .preview-navigation > span { color: #91a397; font-size: .75rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .file-preview { margin: 14px 0 0; padding: 14px; border: 1px solid #263b2d; border-radius: 14px; background: #090d0a; color: #d7e5dc; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 60vh; overflow: auto; }
+.file-preview.is-fullscreen, .markdown-preview.is-fullscreen { max-height: calc(100dvh - 170px); }
 .snapshot-create { display: grid; gap: 12px; margin-top: 18px; }
 .snapshot-create > label { display: grid; gap: 6px; color: #a9bcaf; font-size: .78rem; }
 .snapshot-create > label input, .snapshot-session select { width: 100%; min-height: 42px; border: 1px solid #344b3b; border-radius: 10px; padding: 8px 10px; background: #18231c; color: white; }
@@ -720,6 +727,9 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 
 /* Anteprima inline dei media nel browser di directory: la finestra e'
    la stessa del file di testo, quindi il media non deve poterla far crescere. */
+.file-media.is-fullscreen {
+  max-height: calc(100dvh - 110px);
+}
 .file-media {
   display: block;
   width: 100%;

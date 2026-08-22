@@ -20,6 +20,7 @@ test("la directory espone ricerca e ordinamento senza mutare il listing autorevo
   assert.match(directoryModal, /directoryQuery/);
   assert.match(directoryModal, /directorySort/);
   assert.match(directoryModal, /sortDirectoryEntries\(listing\.entries, directorySort\)/);
+  assert.match(app, /compareNullableDates\(a\.modified_at, b\.modified_at/);
   assert.match(directoryModal, /sortedDirectoryEntries\.filter/);
   assert.match(directoryModal, /sortDirectoryEntries/);
   assert.match(directoryModal, /displayedEntries\.map/);
@@ -72,6 +73,26 @@ test("l'anteprima naviga tra i file anteprimabili della stessa directory nell'or
   assert.match(artifactsModal, /sortArtifacts\([\s\S]*artifactSort/);
   assert.match(artifactsModal, /previewItems\[previewItemIndex - 1\]/);
   assert.match(artifactsModal, /previewItems\[previewItemIndex \+ 1\]/);
+});
+
+test("l'anteprima può espandersi e torna alla dimensione normale quando viene chiusa", () => {
+  assert.match(app, /className="modal-fullscreen"/);
+  assert.match(app, /aria-pressed=\{fullscreen\}/);
+  assert.match(app, /fullscreen \? t\.exitFullscreen : t\.enterFullscreen/);
+  assert.match(directoryModal, /modal-backdrop-fullscreen/);
+  assert.match(directoryModal, /help-modal-fullscreen/);
+  assert.match(directoryModal, /setPreviewFullscreen\(false\)/);
+  assert.match(artifactsModal, /modal-backdrop-fullscreen/);
+  assert.match(artifactsModal, /help-modal-fullscreen/);
+  assert.match(artifactsModal, /setPreviewFullscreen\(false\)/);
+});
+
+test("l'anteprima mostra la data di ultimo aggiornamento del file corrente", () => {
+  assert.match(app, /className="preview-modified"/);
+  assert.match(app, /dateTime=\{source\.modifiedAt\}/);
+  assert.match(app, /formatDate\(source\.modifiedAt\)/);
+  assert.match(directoryModal, /openFileEntry\?\.modified_at \?\? null/);
+  assert.match(app, /modifiedAt: item\.modified_at/);
 });
 
 test("il selettore progetto mostra ricerca, ordinamento e risultati accessibili", () => {
