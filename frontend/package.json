@@ -13,6 +13,7 @@
     "test:opencode": "node --test tests/opencode-blocks-ui.test.mjs",
     "test:session-guard": "node --test tests/session-termination-guard.test.mjs",
     "test:directory": "node --test tests/directory-project-ui.test.mjs",
+    "test:directory:browser": "node tests/directory-preview-browser.mjs",
     "test:ui": "npm run test:host && npm run test:budget && npm run test:console && npm run test:admin && npm run test:timeline && npm run test:opencode && npm run test:session-guard && npm run test:directory",
     "test:host:browser": "node tests/host-observability-browser.mjs",
     "test:console:browser": "node tests/session-console-browser.mjs",

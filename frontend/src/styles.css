@@ -385,6 +385,12 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .directory-copy, .directory-download { flex: 0 0 auto; min-height: 36px; padding: 0 10px; border: 1px solid #3a5142; border-radius: 10px; background: #1b2820; color: #d2e3d7; font-size: .72rem; font-weight: 700; }
 .directory-download { border-color: #41664d; color: #9be5b3; }
 .directory-list li.empty { border: 0; background: none; padding: 8px 0; }
+.preview-navigation { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; margin: 14px 0; }
+.preview-navigation button { min-height: 40px; border: 1px solid #3a5142; border-radius: 10px; padding: 0 10px; background: #1b2820; color: #d2e3d7; font-size: 1.15rem; font-weight: 750; }
+.preview-navigation button:last-child { justify-self: stretch; }
+.preview-navigation button:disabled { opacity: .4; cursor: default; }
+.preview-navigation button span { font-size: .76rem; }
+.preview-navigation > span { color: #91a397; font-size: .75rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .file-preview { margin: 14px 0 0; padding: 14px; border: 1px solid #263b2d; border-radius: 14px; background: #090d0a; color: #d7e5dc; white-space: pre-wrap; overflow-wrap: anywhere; font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 60vh; overflow: auto; }
 .snapshot-create { display: grid; gap: 12px; margin-top: 18px; }
 .snapshot-create > label { display: grid; gap: 6px; color: #a9bcaf; font-size: .78rem; }

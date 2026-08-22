@@ -78,6 +78,11 @@ export const translations = {
     noEventsRecorded: "Nessun evento registrato.",
     noBackupsAvailable: "Nessun backup disponibile.",
     backToList: "Torna all'elenco",
+    previewNavigation: "Navigazione anteprime",
+    previousPreview: "File precedente",
+    nextPreview: "File successivo",
+    previous: "Precedente",
+    next: "Successivo",
     
     // Agent status legend
     stateActive: "In elaborazione",
@@ -269,6 +274,11 @@ export const translations = {
     noEventsRecorded: "No events recorded.",
     noBackupsAvailable: "No backups available.",
     backToList: "Back to list",
+    previewNavigation: "Preview navigation",
+    previousPreview: "Previous file",
+    nextPreview: "Next file",
+    previous: "Previous",
+    next: "Next",
 
     // Agent status legend
     stateActive: "Processing",

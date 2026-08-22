@@ -148,9 +148,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Progetto master in cima alla lista progetti",
+  title: "Navigazione tra le anteprime dei file",
   description:
-    "Nel form di creazione di una nuova sessione il progetto «master» è mostrato sempre per primo nella lista dei preset, che restano ordinati alfabeticamente, così da poterlo selezionare al volo senza doverlo cercare nella lista.",
+    "Nelle viste Artefatti e Contenuto directory puoi passare al file anteprimabile precedente o successivo della stessa cartella, seguendo l’ordinamento selezionato senza tornare ogni volta all’elenco.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1075,6 +1075,11 @@ function sortDirectoryEntries(entries: DirectoryEntry[], sort: BrowserSort): Dir
   });
 }
 
+function isPreviewableDirectoryEntry(entry: DirectoryEntry): boolean {
+  if (entry.type !== "file") return false;
+  return previewKindFor(entry.name) !== "text" || !isDownloadable(entry.name);
+}
+
 // Adapter di directory: il tipo si decide dall'estensione perche' la directory
 // non espone un media type; i tag media caricano da soli e il flag `truncated`
 // arriva dalla risposta di `/file`.
@@ -1103,7 +1108,20 @@ function artifactPreviewSource(sessionId: string, item: Artifact, onBack: () => 
   };
 }
 
-function PreviewModal({ source }: { source: PreviewSource }) {
+type PreviewNavigation = {
+  index: number;
+  total: number;
+  onPrevious: (() => void) | null;
+  onNext: (() => void) | null;
+};
+
+function PreviewModal({
+  source,
+  navigation,
+}: {
+  source: PreviewSource;
+  navigation: PreviewNavigation;
+}) {
   const [content, setContent] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState("");
@@ -1160,6 +1178,25 @@ function PreviewModal({ source }: { source: PreviewSource }) {
         </div>
         <button className="modal-close" onClick={source.onBack} aria-label={t.backToList}>‹</button>
       </header>
+      <nav className="preview-navigation" aria-label={t.previewNavigation}>
+        <button
+          type="button"
+          disabled={navigation.onPrevious === null}
+          onClick={() => navigation.onPrevious?.()}
+          aria-label={t.previousPreview}
+        >
+          ‹ <span>{t.previous}</span>
+        </button>
+        <span aria-live="polite">{navigation.index + 1} / {navigation.total}</span>
+        <button
+          type="button"
+          disabled={navigation.onNext === null}
+          onClick={() => navigation.onNext?.()}
+          aria-label={t.nextPreview}
+        >
+          <span>{t.next}</span> ›
+        </button>
+      </nav>
       {source.kind === "video" && (
         <video className="file-media" src={source.url ?? undefined} controls playsInline preload="metadata" />
       )}
@@ -1272,14 +1309,12 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
       setCurrentPath(fullPath);
       return;
     }
-    if (entry.type !== "file") return;
     // I file scaricabili non anteprima (gif, pdf, docx, …) si scaricano col
     // browser; testo, markdown e media si aprono in anteprima.
-    const previewable = previewKindFor(entry.name) !== "text" || !isDownloadable(entry.name);
-    if (previewable) {
+    if (isPreviewableDirectoryEntry(entry)) {
       savedScrollTopRef.current = modalRef.current?.scrollTop ?? 0;
       setOpenFile(fullPath);
-    } else {
+    } else if (entry.type === "file") {
       downloadEntry(entry);
     }
   }
@@ -1319,12 +1354,24 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   const maxUploadBytes = appConfig?.max_upload_bytes || 10 * 1024 * 1024;
   const acceptAttr = allowedExtensions.join(",");
   const normalizedDirectoryQuery = directoryQuery.trim().toLocaleLowerCase();
-  const displayedEntries = listing
-    ? sortDirectoryEntries(
-      listing.entries.filter((entry) => entry.name.toLocaleLowerCase().includes(normalizedDirectoryQuery)),
-      directorySort,
-    )
+  const sortedDirectoryEntries = listing ? sortDirectoryEntries(listing.entries, directorySort) : [];
+  const displayedEntries = sortedDirectoryEntries.filter(
+    (entry) => entry.name.toLocaleLowerCase().includes(normalizedDirectoryQuery),
+  );
+  const previewPaths = listing
+    ? sortedDirectoryEntries
+      .filter(isPreviewableDirectoryEntry)
+      .map((entry) => joinPath(listing.path, entry.name))
     : [];
+  const openFileIndex = openFile === null ? -1 : previewPaths.indexOf(openFile);
+  const directoryPreviewNavigation: PreviewNavigation = {
+    index: openFileIndex,
+    total: previewPaths.length,
+    onPrevious: openFileIndex > 0 ? () => setOpenFile(previewPaths[openFileIndex - 1]) : null,
+    onNext: openFileIndex >= 0 && openFileIndex < previewPaths.length - 1
+      ? () => setOpenFile(previewPaths[openFileIndex + 1])
+      : null,
+  };
 
   async function handleFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -1381,7 +1428,10 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     >
       <section ref={modalRef} className="help-modal directory-modal" role="dialog" aria-modal="true" aria-labelledby="directory-title">
         {openFile !== null ? (
-          <PreviewModal source={directoryPreviewSource(sessionId, openFile, closeFilePreview)} />
+          <PreviewModal
+            source={directoryPreviewSource(sessionId, openFile, closeFilePreview)}
+            navigation={directoryPreviewNavigation}
+          />
         ) : (
           <>
             <header>
@@ -1534,6 +1584,11 @@ function sortArtifacts(list: Artifact[], sort: ArtifactSort): Artifact[] {
   return sorted;
 }
 
+function artifactParentPath(name: string): string {
+  const separator = name.lastIndexOf("/");
+  return separator < 0 ? "" : name.slice(0, separator);
+}
+
 function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
   // State for current path within artifacts (empty string = root)
   const [currentPath, setCurrentPath] = useState<string>('');
@@ -1612,6 +1667,29 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   });
 
   const displayedItems = sortArtifacts(isSearching ? searchResults : visibleItems, artifactSort);
+  const previewParentPath = previewItem === null ? null : artifactParentPath(previewItem.name);
+  const previewItems = previewParentPath === null
+    ? []
+    : sortArtifacts(
+      items.filter((item) => (
+        artifactParentPath(item.name) === previewParentPath
+        && isPreviewableArtifact(item.name, item.media_type)
+      )),
+      artifactSort,
+    );
+  const previewItemIndex = previewItem === null
+    ? -1
+    : previewItems.findIndex((item) => item.name === previewItem.name);
+  const artifactPreviewNavigation: PreviewNavigation = {
+    index: previewItemIndex,
+    total: previewItems.length,
+    onPrevious: previewItemIndex > 0
+      ? () => setPreviewItem(previewItems[previewItemIndex - 1])
+      : null,
+    onNext: previewItemIndex >= 0 && previewItemIndex < previewItems.length - 1
+      ? () => setPreviewItem(previewItems[previewItemIndex + 1])
+      : null,
+  };
 
   // Compute subfolders in the current directory (always sorted by name;
   // folders have no date of their own to sort by).
@@ -1650,7 +1728,10 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     >
       <section className="help-modal directory-modal" role="dialog" aria-modal="true" aria-labelledby="artifacts-title">
         {previewItem !== null ? (
-          <PreviewModal source={artifactPreviewSource(sessionId, previewItem, () => setPreviewItem(null))} />
+          <PreviewModal
+            source={artifactPreviewSource(sessionId, previewItem, () => setPreviewItem(null))}
+            navigation={artifactPreviewNavigation}
+          />
         ) : (
           <>
             <header>

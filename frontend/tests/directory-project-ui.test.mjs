@@ -19,7 +19,8 @@ const artifactsModal = app.slice(
 test("la directory espone ricerca e ordinamento senza mutare il listing autorevole", () => {
   assert.match(directoryModal, /directoryQuery/);
   assert.match(directoryModal, /directorySort/);
-  assert.match(directoryModal, /listing\.entries\.filter/);
+  assert.match(directoryModal, /sortDirectoryEntries\(listing\.entries, directorySort\)/);
+  assert.match(directoryModal, /sortedDirectoryEntries\.filter/);
   assert.match(directoryModal, /sortDirectoryEntries/);
   assert.match(directoryModal, /displayedEntries\.map/);
 });
@@ -29,7 +30,8 @@ test("immagini e video aprono l'anteprima prima del ramo download", () => {
     directoryModal.indexOf("function openEntry("),
     directoryModal.indexOf("function closeFilePreview("),
   );
-  assert.ok(openEntry.indexOf("mediaPreviewKind") < openEntry.indexOf("isDownloadable"));
+  assert.match(openEntry, /if \(isPreviewableDirectoryEntry\(entry\)\)/);
+  assert.match(app, /function isPreviewableDirectoryEntry[\s\S]*previewKindFor\(entry\.name\)[\s\S]*!isDownloadable\(entry\.name\)/);
   assert.match(openEntry, /setOpenFile\(fullPath\)/);
 });
 
@@ -56,6 +58,20 @@ test("la chiusura dell'anteprima conserva scroll, path e filtri della directory"
     directoryModal.indexOf("function downloadEntry("),
   );
   assert.doesNotMatch(closePreview, /setCurrentPath|setDirectoryQuery|setDirectorySort|fetchDirectory/);
+});
+
+test("l'anteprima naviga tra i file anteprimabili della stessa directory nell'ordine selezionato", () => {
+  assert.match(app, /type PreviewNavigation =/);
+  assert.match(app, /aria-label=\{t\.previousPreview\}/);
+  assert.match(app, /aria-label=\{t\.nextPreview\}/);
+  assert.match(app, /navigation\.index \+ 1\} \/ \{navigation\.total/);
+  assert.match(directoryModal, /sortedDirectoryEntries\.filter\([\s\S]*\.filter\(isPreviewableDirectoryEntry\)/);
+  assert.match(directoryModal, /previewPaths\[openFileIndex - 1\]/);
+  assert.match(directoryModal, /previewPaths\[openFileIndex \+ 1\]/);
+  assert.match(artifactsModal, /artifactParentPath\(item\.name\) === previewParentPath/);
+  assert.match(artifactsModal, /sortArtifacts\([\s\S]*artifactSort/);
+  assert.match(artifactsModal, /previewItems\[previewItemIndex - 1\]/);
+  assert.match(artifactsModal, /previewItems\[previewItemIndex \+ 1\]/);
 });
 
 test("il selettore progetto mostra ricerca, ordinamento e risultati accessibili", () => {
