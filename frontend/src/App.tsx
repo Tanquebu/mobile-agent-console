@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
 import {
@@ -1353,13 +1353,14 @@ function parseArtifactBreadcrumbs(currentPath: string): Array<{ name: string; pa
 // Adapter di directory: il tipo si decide dall'estensione perche' la directory
 // non espone un media type; i tag media caricano da soli e il flag `truncated`
 // arriva dalla risposta di `/file`.
+type PreviewSourceInput = Omit<PreviewSource, "onBack">;
+
 function filePreviewSource(
   sessionId: string,
   path: string,
   modifiedAt: string | null,
-  mediaType: string | undefined,
-  onBack: () => void,
-): PreviewSource {
+  mediaType?: string,
+): PreviewSourceInput {
   const kind = previewKindFor(path, mediaType);
   const isMedia = kind === "video" || kind === "image" || kind === "audio";
   return {
@@ -1369,11 +1370,10 @@ function filePreviewSource(
     url: isMedia ? filePreviewUrl(sessionId, path) : null,
     fetchContent: () => fetchFile(sessionId, path).then((file) => ({ content: file.content, truncated: file.truncated })),
     eyebrow: translations[readLanguage()].readOnlyFile,
-    onBack,
   };
 }
 
-function artifactPreviewSource(sessionId: string, item: Artifact, onBack: () => void): PreviewSource {
+function artifactPreviewSource(sessionId: string, item: Artifact): PreviewSourceInput {
   const kind = previewKindFor(item.name, item.media_type);
   const isMedia = kind === "video" || kind === "image" || kind === "audio";
   return {
@@ -1382,7 +1382,6 @@ function artifactPreviewSource(sessionId: string, item: Artifact, onBack: () => 
     modifiedAt: item.modified_at,
     url: isMedia ? artifactDownloadUrl(sessionId, item.name) : null,
     fetchContent: () => fetchArtifactContent(sessionId, item.name).then((text) => ({ content: text, truncated: false })),
-    onBack,
   };
 }
 
@@ -1392,6 +1391,149 @@ type PreviewNavigation = {
   onPrevious: (() => void) | null;
   onNext: (() => void) | null;
 };
+
+// Window manager delle anteprime: solleva lo stato "quale file è aperto" da
+// tre useState locali (DirectoryModal.openFile, ArtifactsModal.previewItem,
+// Console.blockPreview) a un unico Context montato in App(). Così una
+// finestra di anteprima sopravvive allo smontaggio del componente che l'ha
+// aperta (chiudere il browser directory, tornare alla dashboard, cambiare
+// sessione con Console rimontata via key={session.id}). Vedi
+// docs/adr/015-preview-window-manager.md.
+type PreviewWindowState = {
+  id: string;
+  resolveSource: (path: string) => PreviewSourceInput;
+  siblings: string[];
+  currentPath: string;
+  fullscreen: boolean;
+};
+
+type PreviewWindowsContextValue = {
+  hasActivePreviewWindow: boolean;
+  openPreviewWindow: (init: {
+    resolveSource: (path: string) => PreviewSourceInput;
+    siblings: string[];
+    initialPath: string;
+  }) => void;
+  closePreviewWindow: (id: string) => void;
+  toggleWindowFullscreen: (id: string) => void;
+  navigateWindow: (id: string, direction: -1 | 1) => void;
+};
+
+const PreviewWindowsContext = createContext<PreviewWindowsContextValue | null>(null);
+
+function usePreviewWindows(): PreviewWindowsContextValue {
+  const ctx = useContext(PreviewWindowsContext);
+  if (!ctx) throw new Error("usePreviewWindows usato fuori da PreviewWindowsProvider");
+  return ctx;
+}
+
+let previewWindowSeq = 0;
+
+function PreviewWindowsProvider({ children, active }: { children: ReactNode; active: boolean }) {
+  const [windows, setWindows] = useState<PreviewWindowState[]>([]);
+
+  useEffect(() => {
+    if (!active) setWindows([]);
+  }, [active]);
+
+  const openPreviewWindow = useCallback((init: {
+    resolveSource: (path: string) => PreviewSourceInput;
+    siblings: string[];
+    initialPath: string;
+  }) => {
+    previewWindowSeq += 1;
+    const id = `preview-${previewWindowSeq}`;
+    setWindows((current) => [...current, {
+      id,
+      resolveSource: init.resolveSource,
+      siblings: init.siblings,
+      currentPath: init.initialPath,
+      fullscreen: false,
+    }]);
+  }, []);
+
+  const closePreviewWindow = useCallback((id: string) => {
+    setWindows((current) => current.filter((entry) => entry.id !== id));
+  }, []);
+
+  const toggleWindowFullscreen = useCallback((id: string) => {
+    setWindows((current) => current.map((entry) => (
+      entry.id === id ? { ...entry, fullscreen: !entry.fullscreen } : entry
+    )));
+  }, []);
+
+  const navigateWindow = useCallback((id: string, direction: -1 | 1) => {
+    setWindows((current) => current.map((entry) => {
+      if (entry.id !== id) return entry;
+      const index = entry.siblings.indexOf(entry.currentPath);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= entry.siblings.length) return entry;
+      return { ...entry, currentPath: entry.siblings[nextIndex] };
+    }));
+  }, []);
+
+  const activeWindow = windows.length > 0 ? windows[windows.length - 1] : null;
+
+  const value = useMemo<PreviewWindowsContextValue>(() => ({
+    hasActivePreviewWindow: activeWindow !== null,
+    openPreviewWindow,
+    closePreviewWindow,
+    toggleWindowFullscreen,
+    navigateWindow,
+  }), [activeWindow, openPreviewWindow, closePreviewWindow, toggleWindowFullscreen, navigateWindow]);
+
+  return (
+    <PreviewWindowsContext.Provider value={value}>
+      {children}
+      {activeWindow && <PreviewWindowHost key={activeWindow.id} entry={activeWindow} />}
+    </PreviewWindowsContext.Provider>
+  );
+}
+
+function PreviewWindowHost({ entry }: { entry: PreviewWindowState }) {
+  const { closePreviewWindow, toggleWindowFullscreen, navigateWindow } = usePreviewWindows();
+  const index = entry.siblings.indexOf(entry.currentPath);
+  const close = useCallback(() => closePreviewWindow(entry.id), [closePreviewWindow, entry.id]);
+  const source: PreviewSource = { ...entry.resolveSource(entry.currentPath), onBack: close };
+  const navigation: PreviewNavigation = {
+    index,
+    total: entry.siblings.length,
+    onPrevious: index > 0 ? () => navigateWindow(entry.id, -1) : null,
+    onNext: index >= 0 && index < entry.siblings.length - 1 ? () => navigateWindow(entry.id, 1) : null,
+  };
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [close]);
+
+  return (
+    <div
+      className={`modal-backdrop${entry.fullscreen ? " modal-backdrop-fullscreen" : ""}`}
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) close();
+      }}
+    >
+      <section
+        className={`help-modal directory-modal${entry.fullscreen ? " help-modal-fullscreen" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={translations[readLanguage()].filePreview}
+      >
+        <PreviewModal
+          source={source}
+          navigation={navigation}
+          fullscreen={entry.fullscreen}
+          onToggleFullscreen={() => toggleWindowFullscreen(entry.id)}
+        />
+      </section>
+    </div>
+  );
+}
 
 function PreviewModal({
   source,
@@ -1652,8 +1794,6 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [copiedName, setCopiedName] = useState("");
-  const [openFile, setOpenFile] = useState<string | null>(null);
-  const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadNotice, setUploadNotice] = useState("");
@@ -1662,8 +1802,7 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   const [categoryFilter, setCategoryFilter] = useState<EntryCategory>("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLElement>(null);
-  const savedScrollTopRef = useRef(0);
-  const restoreScrollRef = useRef(false);
+  const { openPreviewWindow, hasActivePreviewWindow } = usePreviewWindows();
 
   const dirStats = useMemo(() => {
     if (!listing) return null;
@@ -1698,31 +1837,12 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (openFile !== null) closeFilePreview();
-      else onClose();
+      if (event.key !== "Escape" || hasActivePreviewWindow) return;
+      onClose();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose, openFile]);
-
-  useEffect(() => {
-    if (openFile !== null || !restoreScrollRef.current) return;
-    restoreScrollRef.current = false;
-    let restoreFrame = 0;
-    const layoutFrame = window.requestAnimationFrame(() => {
-      // Il primo frame completa lo scambio anteprima/lista; il secondo applica
-      // lo scroll dopo il layout definitivo, evitando che il browser lo
-      // corregga in seguito in base all'altezza del media appena smontato.
-      restoreFrame = window.requestAnimationFrame(() => {
-        if (modalRef.current) modalRef.current.scrollTop = savedScrollTopRef.current;
-      });
-    });
-    return () => {
-      window.cancelAnimationFrame(layoutFrame);
-      window.cancelAnimationFrame(restoreFrame);
-    };
-  }, [openFile]);
+  }, [onClose, hasActivePreviewWindow]);
 
   const [copiedKey, setCopiedKey] = useState("");
 
@@ -1790,17 +1910,17 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     // I file scaricabili non anteprima (gif, pdf, docx, …) si scaricano col
     // browser; testo, markdown e media si aprono in anteprima.
     if (isPreviewableDirectoryEntry(entry)) {
-      savedScrollTopRef.current = modalRef.current?.scrollTop ?? 0;
-      setOpenFile(fullPath);
+      openPreviewWindow({
+        resolveSource: (path) => {
+          const match = sortedDirectoryEntries.find((candidate) => joinPath(listing!.path, candidate.name) === path);
+          return filePreviewSource(sessionId, path, match?.modified_at ?? null);
+        },
+        siblings: previewPaths,
+        initialPath: fullPath,
+      });
     } else if (entry.type === "file") {
       downloadEntry(entry);
     }
-  }
-
-  function closeFilePreview() {
-    restoreScrollRef.current = true;
-    setOpenFile(null);
-    setPreviewFullscreen(false);
   }
 
   function downloadEntry(entry: DirectoryEntry) {
@@ -1850,18 +1970,6 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
       .filter(isPreviewableDirectoryEntry)
       .map((entry) => joinPath(listing.path, entry.name))
     : [];
-  const openFileIndex = openFile === null ? -1 : previewPaths.indexOf(openFile);
-  const openFileEntry = openFile === null || listing === null
-    ? null
-    : sortedDirectoryEntries.find((entry) => joinPath(listing.path, entry.name) === openFile) ?? null;
-  const directoryPreviewNavigation: PreviewNavigation = {
-    index: openFileIndex,
-    total: previewPaths.length,
-    onPrevious: openFileIndex > 0 ? () => setOpenFile(previewPaths[openFileIndex - 1]) : null,
-    onNext: openFileIndex >= 0 && openFileIndex < previewPaths.length - 1
-      ? () => setOpenFile(previewPaths[openFileIndex + 1])
-      : null,
-  };
 
   async function handleFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -1908,30 +2016,21 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
 
   return (
     <div
-      className={`modal-backdrop${openFile !== null && previewFullscreen ? " modal-backdrop-fullscreen" : ""}`}
+      className="modal-backdrop"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target !== event.currentTarget) return;
-        if (openFile !== null) closeFilePreview();
-        else onClose();
+        onClose();
       }}
     >
       <section
         ref={modalRef}
-        className={`help-modal directory-modal${openFile !== null && previewFullscreen ? " help-modal-fullscreen" : ""}`}
+        className="help-modal directory-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="directory-title"
       >
-        {openFile !== null ? (
-          <PreviewModal
-            source={filePreviewSource(sessionId, openFile, openFileEntry?.modified_at ?? null, undefined, closeFilePreview)}
-            navigation={directoryPreviewNavigation}
-            fullscreen={previewFullscreen}
-            onToggleFullscreen={() => setPreviewFullscreen((value) => !value)}
-          />
-        ) : (
-          <>
+        <>
             <header>
               <div className="directory-header-main">
                 <span className="eyebrow">{translations[readLanguage()].directoryContent}</span>
@@ -2210,8 +2309,7 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                 {listing.truncated && <small>Elenco troncato alle prime 2000 voci.</small>}
               </>
             )}
-          </>
-        )}
+        </>
       </section>
     </div>
   );
@@ -2261,13 +2359,12 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   const [items, setItems] = useState<Artifact[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [previewItem, setPreviewItem] = useState<Artifact | null>(null);
-  const [previewFullscreen, setPreviewFullscreen] = useState(false);
   const [artifactQuery, setArtifactQuery] = useState("");
   const [artifactSort, setArtifactSort] = useState<ArtifactSort>("name-asc");
   const [artifactDirectory, setArtifactDirectory] = useState("");
   const [artifactDirectoryError, setArtifactDirectoryError] = useState(false);
   const [directoryCopied, setDirectoryCopied] = useState(false);
+  const { openPreviewWindow, hasActivePreviewWindow } = usePreviewWindows();
   const t = translations[readLanguage()];
 
   useEffect(() => {
@@ -2293,13 +2390,12 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (previewItem !== null) closePreview();
-      else onClose();
+      if (event.key !== "Escape" || hasActivePreviewWindow) return;
+      onClose();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose, previewItem]);
+  }, [onClose, hasActivePreviewWindow]);
 
   function downloadArtifact(item: Artifact) {
     const anchor = document.createElement("a");
@@ -2334,29 +2430,6 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   });
 
   const displayedItems = sortArtifacts(isSearching ? searchResults : visibleItems, artifactSort);
-  const previewParentPath = previewItem === null ? null : artifactParentPath(previewItem.name);
-  const previewItems = previewParentPath === null
-    ? []
-    : sortArtifacts(
-      items.filter((item) => (
-        artifactParentPath(item.name) === previewParentPath
-        && isPreviewableArtifact(item.name, item.media_type)
-      )),
-      artifactSort,
-    );
-  const previewItemIndex = previewItem === null
-    ? -1
-    : previewItems.findIndex((item) => item.name === previewItem.name);
-  const artifactPreviewNavigation: PreviewNavigation = {
-    index: previewItemIndex,
-    total: previewItems.length,
-    onPrevious: previewItemIndex > 0
-      ? () => setPreviewItem(previewItems[previewItemIndex - 1])
-      : null,
-    onNext: previewItemIndex >= 0 && previewItemIndex < previewItems.length - 1
-      ? () => setPreviewItem(previewItems[previewItemIndex + 1])
-      : null,
-  };
 
   // Compute subfolders in the current directory (always sorted by name;
   // folders have no date of their own to sort by).
@@ -2385,34 +2458,40 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     setCurrentPath(currentPath ? `${currentPath}/${folder}` : folder);
   };
 
-  function closePreview() {
-    setPreviewItem(null);
-    setPreviewFullscreen(false);
+  function openArtifactPreview(item: Artifact) {
+    const parentPath = artifactParentPath(item.name);
+    const siblingItems = sortArtifacts(
+      items.filter((candidate) => (
+        artifactParentPath(candidate.name) === parentPath
+        && isPreviewableArtifact(candidate.name, candidate.media_type)
+      )),
+      artifactSort,
+    );
+    openPreviewWindow({
+      resolveSource: (path) => {
+        const match = items.find((candidate) => candidate.name === path);
+        return artifactPreviewSource(sessionId, match ?? item);
+      },
+      siblings: siblingItems.map((candidate) => candidate.name),
+      initialPath: item.name,
+    });
   }
 
   return (
     <div
-      className={`modal-backdrop${previewItem !== null && previewFullscreen ? " modal-backdrop-fullscreen" : ""}`}
+      className="modal-backdrop"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
     >
       <section
-        className={`help-modal directory-modal${previewItem !== null && previewFullscreen ? " help-modal-fullscreen" : ""}`}
+        className="help-modal directory-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="artifacts-title"
       >
-        {previewItem !== null ? (
-          <PreviewModal
-            source={artifactPreviewSource(sessionId, previewItem, closePreview)}
-            navigation={artifactPreviewNavigation}
-            fullscreen={previewFullscreen}
-            onToggleFullscreen={() => setPreviewFullscreen((value) => !value)}
-          />
-        ) : (
-          <>
+        <>
             <header>
               <div>
                 <span className="eyebrow">{translations[readLanguage()].artifactsTitle}</span>
@@ -2547,7 +2626,7 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                       type="button"
                       className="directory-open"
                       disabled={!isPreviewableArtifact(item.name, item.media_type)}
-                      onClick={() => setPreviewItem(item)}
+                      onClick={() => openArtifactPreview(item)}
                     >
                       <FileTypeIcon type="file" name={item.name} mediaType={item.media_type} />
                       <span className="directory-name" title={item.name}>{isSearching ? item.name : item.name.split("/").pop()}</span>
@@ -2575,8 +2654,7 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                 )}
               </ul>
             )}
-          </>
-        )}
+        </>
       </section>
     </div>
   );
@@ -6356,8 +6434,6 @@ function Console({
   const [sendingArchiveSummaryPrompt, setSendingArchiveSummaryPrompt] = useState(false);
   const [showDirectory, setShowDirectory] = useState(false);
   const [showArtifacts, setShowArtifacts] = useState(false);
-  const [blockPreview, setBlockPreview] = useState<FileMetadata | null>(null);
-  const [blockPreviewFullscreen, setBlockPreviewFullscreen] = useState(false);
   const [fullscreenOutput, setFullscreenOutput] = useState(false);
   const [controlError, setControlError] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -6413,20 +6489,20 @@ function Console({
     window.setTimeout(() => setCopiedAgentBlock((value) => value === blockKey ? "" : value), 2_000);
   }
 
+  const { openPreviewWindow } = usePreviewWindows();
+
   async function openBlockPreview(path: string) {
     setControlError("");
     try {
       const metadata = await fetchFileMetadata(session.id, path);
-      setBlockPreview(metadata);
-      setBlockPreviewFullscreen(false);
+      openPreviewWindow({
+        resolveSource: () => filePreviewSource(session.id, metadata.path, metadata.modified_at, metadata.media_type),
+        siblings: [metadata.path],
+        initialPath: metadata.path,
+      });
     } catch (value) {
       setControlError(errorMessage(value));
     }
-  }
-
-  function closeBlockPreview() {
-    setBlockPreview(null);
-    setBlockPreviewFullscreen(false);
   }
   const fileInputRef = useRef<HTMLInputElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -7762,35 +7838,6 @@ function Console({
             </div>
           </div>
         )}
-        {blockPreview && (
-          <div
-            className={`modal-backdrop${blockPreviewFullscreen ? " modal-backdrop-fullscreen" : ""}`}
-            role="presentation"
-            onClick={(event) => {
-              if (event.target === event.currentTarget) closeBlockPreview();
-            }}
-          >
-            <section
-              className={`help-modal directory-modal${blockPreviewFullscreen ? " help-modal-fullscreen" : ""}`}
-              role="dialog"
-              aria-modal="true"
-              aria-label={translations[readLanguage()].filePreview}
-            >
-              <PreviewModal
-                source={filePreviewSource(
-                  session.id,
-                  blockPreview.path,
-                  blockPreview.modified_at,
-                  blockPreview.media_type,
-                  closeBlockPreview,
-                )}
-                navigation={{ index: 0, total: 1, onPrevious: null, onNext: null }}
-                fullscreen={blockPreviewFullscreen}
-                onToggleFullscreen={() => setBlockPreviewFullscreen((value) => !value)}
-              />
-            </section>
-          </div>
-        )}
         {showDirectory && (
           <DirectoryModal sessionId={session.id} onClose={() => setShowDirectory(false)} />
         )}
@@ -7954,13 +8001,15 @@ export default function App() {
       : <SessionList identity={identity} onOpen={openSession} onLogout={() => setIdentity(null)} />;
   }
   return (
-    <>
-      {!online && (
-        <p className="offline-banner" role="status">
-          Connessione assente: in attesa di rete, alcune funzioni sono sospese.
-        </p>
-      )}
-      {content}
-    </>
+    <PreviewWindowsProvider active={identity != null}>
+      <>
+        {!online && (
+          <p className="offline-banner" role="status">
+            Connessione assente: in attesa di rete, alcune funzioni sono sospese.
+          </p>
+        )}
+        {content}
+      </>
+    </PreviewWindowsProvider>
   );
 }

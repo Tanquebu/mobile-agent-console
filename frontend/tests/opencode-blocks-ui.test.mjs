@@ -8,6 +8,13 @@ const tsModule = ts.default ?? ts;
 const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 const fixturesDir = new URL("fixtures/opencode-tui/", import.meta.url);
 const consoleView = app.slice(app.indexOf("function Console("), app.indexOf("export default function App()"));
+// IMP-PW-01: l'apertura/rendering della preview dai blocchi è stata sollevata
+// dallo stato locale di Console a un unico window manager, colocato subito
+// prima di PreviewModal.
+const previewWindowManager = app.slice(
+  app.indexOf("type PreviewWindowState ="),
+  app.indexOf("function PreviewModal("),
+);
 
 // Stessa convenzione di budget-view.test.mjs: il parser opencode è una
 // funzione pura senza JSX/React, quindi la estraiamo dal sorgente e la
@@ -264,6 +271,12 @@ test("i path nei blocchi aprono la PreviewModal centralizzata dopo la validazion
   assert.match(chatBlock, /PreviewPathText text=\{displayContent\} onPreviewPath=\{onPreviewPath\}/);
   assert.match(chatBlock, /MarkdownContent content=\{displayContent\} onPreviewPath=\{onPreviewPath\}/);
   assert.match(consoleView, /await fetchFileMetadata\(session\.id, path\)/);
-  assert.match(consoleView, /source=\{filePreviewSource\(/);
-  assert.match(consoleView, /<PreviewModal/);
+  // IMP-PW-01: Console non renderizza più <PreviewModal> inline — apre una
+  // finestra nel window manager globale, che la renderizza altrove (fratello
+  // dello switch SessionList/Console in App()), così sopravvive al remount
+  // di Console stessa.
+  assert.match(consoleView, /openPreviewWindow\(\{/);
+  assert.match(consoleView, /resolveSource: \(\) => filePreviewSource\(session\.id, metadata\.path, metadata\.modified_at, metadata\.media_type\)/);
+  assert.doesNotMatch(consoleView, /<PreviewModal/);
+  assert.match(previewWindowManager, /<PreviewModal/);
 });

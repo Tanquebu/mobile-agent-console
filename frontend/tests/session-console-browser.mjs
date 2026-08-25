@@ -51,6 +51,7 @@ try {
   });
   const commands = [];
   let attachmentSequence = 0;
+  let forceSessionExpired = false;
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -58,7 +59,10 @@ try {
     if (path === "/api/v1/auth/session") return json(route, { username: "admin", role: "admin", csrf_token: "csrf" });
     if (path === "/api/v1/config") return json(route, { allowed_roots: ["/workspace"], workspace_presets: {}, claude_history_enabled: false, host_observability_enabled: false });
     if (path === "/api/v1/sessions") return json(route, { sessions });
-    if (path === "/api/v1/agent-statuses") return json(route, { statuses: [] });
+    if (path === "/api/v1/agent-statuses") {
+      if (forceSessionExpired) return json(route, { detail: "Sessione scaduta" }, 401);
+      return json(route, { statuses: [] });
+    }
     if (path === "/api/v1/provider-rate-limits") return json(route, null);
     if (path === "/api/v1/orchestrator-state") return json(route, null);
     if (/^\/api\/v1\/sessions\/\d+\/panes$/.test(path)) return json(route, {
@@ -115,6 +119,30 @@ try {
   await previewDialog.waitFor();
   assert.match(await previewDialog.locator(".preview-modified").innerText(), /22\/08\/2026/);
   await previewDialog.getByRole("heading", { name: "Report esterno" }).waitFor();
+
+  // IMP-PW-01: la finestra di preview vive ora nel window manager globale
+  // (fratello dello switch SessionList/Console in App()), non più nello
+  // stato locale di Console — quindi sopravvive al remount di Console che
+  // avviene con key={session.id} quando si cambia sessione dal menu di
+  // cambio rapido. Il backdrop della preview intercetta di proposito i
+  // click sul resto della UI finché resta aperta (comportamento invariato
+  // rispetto a prima di questa fase: niente tray/minimizzazione ancora); i
+  // due controlli sottostanti sono quindi raggiunti con dispatchEvent
+  // invece di un click reale, per azionare lo stesso handler React che un
+  // successivo layout con tray renderebbe cliccabile, senza anticipare qui
+  // quella fase.
+  await page.getByRole("button", { name: "Cambia sessione" }).dispatchEvent("click");
+  await page.locator(".session-switcher-item", { hasText: "analisi qualità" }).dispatchEvent("click");
+  await previewDialog.waitFor();
+  await previewDialog.getByRole("heading", { name: "Report esterno" }).waitFor();
+  assert.match(await previewDialog.locator(".preview-modified").innerText(), /22\/08\/2026/);
+  // Torna alla sessione originale prima di proseguire con le verifiche che
+  // seguono (fanno riferimento alla sessione "1").
+  await page.getByRole("button", { name: "Cambia sessione" }).dispatchEvent("click");
+  await page.locator(".session-switcher-item", { hasText: "osservabilità" }).dispatchEvent("click");
+  await previewDialog.waitFor();
+  await previewDialog.getByRole("heading", { name: "Report esterno" }).waitFor();
+
   const copyPreviewPath = previewDialog.getByRole("button", {
     name: "Copia percorso: /tmp/mac-preview-browser/report.md",
   });
@@ -160,6 +188,23 @@ try {
   assert.equal(await page.locator(".composer").evaluate((node) => getComputedStyle(node).overflowX), "visible");
   assert.equal(widths.textarea[0] <= widths.textarea[1], true, `textarea overflow: ${JSON.stringify(widths)}`);
   assert.equal(widths[".attachments"][0] > widths[".attachments"][1], true, "gli allegati devono scorrere dentro il form");
+
+  // IMP-PW-01-R1: una finestra di preview aperta non deve sopravvivere alla
+  // perdita di identity. Riapriamo la preview (chiusa sopra) e simuliamo una
+  // sessione scaduta facendo rispondere 401 al prossimo poll di
+  // /api/v1/agent-statuses (già attivo in background per questa sessione
+  // "codex"), esattamente il percorso di produzione che innesca
+  // setUnauthorizedHandler → setIdentity(null) in App(). Nessuna chiamata
+  // diretta a setIdentity: il 401 arriva da una richiesta reale già
+  // intercettata sopra.
+  await previewLink.dispatchEvent("click");
+  await previewDialog.waitFor();
+  await previewDialog.getByRole("heading", { name: "Report esterno" }).waitFor();
+  forceSessionExpired = true;
+  await page.getByRole("heading", { name: "Accedi", level: 1 }).waitFor({ timeout: 8_000 });
+  assert.equal(await page.locator(".modal-backdrop").count(), 0, "la preview deve sparire quando la sessione scade");
+  assert.equal(await previewDialog.count(), 0, "la preview non deve restare montata sopra il login");
+
   await context.close();
 } finally {
   await browser.close();

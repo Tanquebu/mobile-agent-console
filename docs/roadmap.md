@@ -352,3 +352,13 @@ condiviso e mappatura pane ↔ session id.
 - [ ] Multi-host con daemon su Tailscale.
 - [ ] App Android riusando i contratti TypeScript.
 - [ ] Orchestrazione agentica, solo dopo la stabilizzazione del core.
+- [ ] Finestre di sessione nel window manager delle anteprime (vedi la
+  proposta per anteprime multi-finestra/preferiti): stessa astruzione a
+  "finestra" applicata a `Console` invece che a `PreviewModal`, per
+  cambiare rapidamente fra due sessioni affiancate invece che tramite il
+  selettore attuale. Effort maggiore rispetto alle anteprime perché ogni
+  riquadro aprirebbe una propria connessione WebSocket/poll — la stessa
+  moltiplicazione di carico per cui una vista multi-pane simultanea era
+  già stata valutata e scartata in M4 per l'impatto mobile-first. Solo
+  roadmap: nessuno scaffolding finché le anteprime multi-finestra non sono
+  stabili.
