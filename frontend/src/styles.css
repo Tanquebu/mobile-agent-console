@@ -554,6 +554,16 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .help-modal h2.preview-file-name { flex: 1; min-width: 0; margin: 0; overflow-wrap: anywhere; font-size: 1rem; }
 .preview-file-dir { min-width: 0; margin: 4px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #778a7d; font: .7rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .preview-path-copy { flex: 0 0 auto; min-height: 32px; border: 1px solid #3a5142; border-radius: 9px; padding: 0 9px; background: #1b2820; color: #9be5b3; font-size: .68rem; font-weight: 750; }
+.preview-favorite-toggle { flex: 0 0 auto; min-width: 32px; min-height: 32px; border: 1px solid #3a5142; border-radius: 9px; background: #1b2820; color: #e8c766; font-size: .95rem; }
+.preview-favorite-toggle[aria-pressed="true"] { background: #2a3f30; }
+.favorites-list { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.favorites-item { display: flex; align-items: center; gap: 8px; border: 1px solid #26352c; border-radius: 10px; padding: 4px 4px 4px 10px; }
+.favorites-item-open { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; color: #d2e3d7; font: inherit; text-align: left; padding: 6px 0; }
+.favorites-item-open:disabled { opacity: .5; cursor: default; }
+.favorites-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.favorites-item-remove { flex: 0 0 auto; min-width: 36px; min-height: 36px; border: 0; background: transparent; color: #91a397; font-size: 1.2rem; }
+.favorites-empty, .favorites-hint { color: #91a397; font-size: .78rem; margin: 10px 0 0; }
+.favorites-error { color: #e29a9a; font-size: .78rem; margin: 10px 0 0; }
 .preview-modified { margin: 6px 0 0; color: #91a397; font-size: .74rem; }
 .artifact-directory { display: grid; grid-template-columns: 1fr auto; gap: 7px 10px; align-items: center; margin-top: 14px; padding: 11px 12px; border: 1px solid #31533c; border-radius: 12px; background: #101a13; }
 .artifact-directory > span { grid-column: 1 / -1; color: #8faf99; font-size: .68rem; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }

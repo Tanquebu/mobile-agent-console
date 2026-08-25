@@ -11,9 +11,25 @@ const sessionList = app.slice(
   app.indexOf("function SessionList("),
   app.indexOf("function Console("),
 );
+const console_ = app.slice(
+  app.indexOf("function Console("),
+  app.indexOf("export default function App("),
+);
 const artifactsModal = app.slice(
   app.indexOf("function ArtifactsModal("),
   app.indexOf("function suggestedSnapshotMode("),
+);
+// IMP-PW-04-FRONTEND: PreviewModal ospita solo la stella dei preferiti (il
+// bottone copia-path resta invariato); FavoritesContext/useFavorites/
+// FavoritesProvider/FavoritesModal sono colocati subito dopo, prima di
+// DirectoryModal.
+const previewModal = app.slice(
+  app.indexOf("function PreviewModal("),
+  app.indexOf("type FavoritesContextValue ="),
+);
+const favoritesBlock = app.slice(
+  app.indexOf("type FavoritesContextValue ="),
+  app.indexOf("function DirectoryModal("),
 );
 // IMP-PW-01: apertura/navigazione/fullscreen delle anteprime sono state
 // sollevate dai tre modal (DirectoryModal, ArtifactsModal, blocchi in
@@ -197,4 +213,92 @@ test("il tray resta nascosto in modalità solitaria e riappare nel workspace con
     /\{minimizedWindows\.length > 0 && <PreviewTray windows=\{minimizedWindows\} \/>\}/,
   );
   assert.match(previewWindowManager, /function PreviewWorkspace\(/);
+});
+
+// IMP-PW-04-FRONTEND: Preferiti (Fase 4, ADR 015, GATE-PW-04). La stella
+// compare solo sulle preview aperte tramite path assoluto di filesystem
+// (filePreviewSource: DirectoryModal e blocchi agente in Console), mai su
+// quelle aperte da ArtifactsModal (artifactPreviewSource) — decisione di
+// scope vincolante di questa voce.
+
+test("filePreviewSource imposta favoritePath, artifactPreviewSource no", () => {
+  const filePreviewSource = app.slice(
+    app.indexOf("function filePreviewSource("),
+    app.indexOf("function artifactPreviewSource("),
+  );
+  const artifactPreviewSource = app.slice(
+    app.indexOf("function artifactPreviewSource("),
+    app.indexOf("type PreviewNavigation ="),
+  );
+  assert.match(filePreviewSource, /favoritePath: path,/);
+  assert.doesNotMatch(artifactPreviewSource, /favoritePath/);
+  assert.match(app, /favoritePath\?: string \| null;/);
+});
+
+test("FavoritesProvider/useFavorites esistono con reset su !active, stesso pattern di PreviewWindowsProvider", () => {
+  assert.match(favoritesBlock, /const FavoritesContext = createContext<FavoritesContextValue \| null>\(null\);/);
+  assert.match(favoritesBlock, /function useFavorites\(\): FavoritesContextValue \{/);
+  assert.match(favoritesBlock, /throw new Error\("useFavorites usato fuori da FavoritesProvider"\);/);
+  assert.match(favoritesBlock, /function FavoritesProvider\(\{ children, active \}: \{ children: ReactNode; active: boolean \}\) \{/);
+  assert.match(
+    favoritesBlock,
+    /if \(!active\) \{\s*setFavorites\(\[\]\);\s*setFavoritesError\(""\);\s*return;\s*\}/,
+  );
+  assert.match(favoritesBlock, /listFavorites\(\)/);
+  assert.match(favoritesBlock, /toggleFavorite = useCallback\(async \(path: string\) => \{/);
+  assert.match(favoritesBlock, /removeFavoriteById = useCallback\(async \(id: string\) => \{/);
+});
+
+test("la stella dei preferiti compare solo quando source.favoritePath è impostato", () => {
+  assert.match(previewModal, /const \{ isFavorite, toggleFavorite \} = useFavorites\(\);/);
+  assert.match(previewModal, /\{source\.favoritePath && \(/);
+  assert.match(previewModal, /className="preview-favorite-toggle"/);
+  assert.match(previewModal, /aria-pressed=\{isFavorite\(source\.favoritePath\)\}/);
+  assert.match(previewModal, /aria-label=\{isFavorite\(source\.favoritePath\) \? t\.removeFavorite : t\.addFavorite\}/);
+  // Il bottone resta nella riga del nome file, non nel gruppo di azioni del
+  // modal-header (già affollato di 3 bottoni dalla Fase 2).
+  const pathRow = previewModal.slice(
+    previewModal.indexOf('<div className="preview-path-row">'),
+    previewModal.indexOf('<div className="modal-header-actions">'),
+  );
+  assert.match(pathRow, /preview-favorite-toggle/);
+});
+
+test("FavoritesModal apre un preferito tramite fetchFileMetadata + openPreviewWindow e permette la rimozione", () => {
+  assert.match(favoritesBlock, /function FavoritesModal\(\{ onClose, sessionId \}: \{ onClose: \(\) => void; sessionId: string \| null \}\) \{/);
+  assert.match(favoritesBlock, /const \{ openPreviewWindow \} = usePreviewWindows\(\);/);
+  assert.match(favoritesBlock, /const metadata = await fetchFileMetadata\(sessionId, favorite\.path\);/);
+  assert.match(favoritesBlock, /resolveSource: \(path\) => filePreviewSource\(sessionId, path, metadata\.modified_at, metadata\.media_type\),/);
+  assert.match(favoritesBlock, /siblings: \[favorite\.path\],/);
+  assert.match(favoritesBlock, /className="favorites-item-remove"/);
+  assert.match(favoritesBlock, /onClick=\{\(\) => void removeFavoriteById\(favorite\.id\)\}/);
+});
+
+test("il bottone \"apri\" resta disabilitato senza sessione e mostra favoritesNoSession", () => {
+  assert.match(favoritesBlock, /className="favorites-item-open"/);
+  assert.match(favoritesBlock, /disabled=\{!sessionId \|\| opening === favorite\.id\}/);
+  assert.match(favoritesBlock, /\{!sessionId && <p className="favorites-hint">\{t\.favoritesNoSession\}<\/p>\}/);
+  assert.match(favoritesBlock, /async function openFavorite\(favorite: Favorite\) \{\s*if \(!sessionId\) return;/);
+});
+
+test("api.ts espone listFavorites/addFavorite/deleteFavorite", () => {
+  const api = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
+  assert.match(api, /export type Favorite = \{/);
+  assert.match(api, /export async function listFavorites\(\): Promise<Favorite\[\]> \{/);
+  assert.match(api, /export async function addFavorite\(path: string, label\?: string \| null\): Promise<Favorite> \{/);
+  assert.match(api, /export async function deleteFavorite\(id: string\): Promise<void> \{/);
+  assert.match(api, /await request\(`\/api\/v1\/favorites\/\$\{encodeURIComponent\(id\)\}`, \{ method: "DELETE" \}\);/);
+});
+
+test("i punti di ingresso dashboard e Console aprono FavoritesModal, non ristretti per ruolo", () => {
+  assert.match(sessionList, /const \[showFavorites, setShowFavorites\] = useState\(false\);/);
+  assert.match(sessionList, /setShowFavorites\(true\); \}\} aria-label=\{t\.favorites\}/);
+  assert.match(sessionList, /<FavoritesModal onClose=\{\(\) => setShowFavorites\(false\)\} sessionId=\{sessions\[0\]\?\.id \?\? null\}/);
+  assert.match(console_, /const \[showFavorites, setShowFavorites\] = useState\(false\);/);
+  assert.match(console_, /onClick=\{\(\) => setShowFavorites\(true\)\}/);
+  assert.match(console_, /<FavoritesModal onClose=\{\(\) => setShowFavorites\(false\)\} sessionId=\{session\.id\}/);
+});
+
+test("App() avvolge il contenuto sia in FavoritesProvider sia in PreviewWindowsProvider", () => {
+  assert.match(app, /<FavoritesProvider active=\{identity != null\}>\s*<PreviewWindowsProvider active=\{identity != null\}>/);
 });

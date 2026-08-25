@@ -7168,18 +7168,738 @@ systemctl --user status mobile-agent-console-provider-session-states.service
   chiude `PASSED`; `IMP-PW-04-FRONTEND` può passare da `BLOCKED` a `READY`
   (decisione di ROOT, fuori da questa voce).
 
-- [ ] IMP-PW-04-FRONTEND | OWNER: SA-IMP | STATUS: BLOCKED | **Fase 4,
-  parte frontend — UI dei preferiti.** Sbloccato solo da `PASSED` di
-  `TEST-PW-04-BACKEND-T1` (endpoint reali necessari per collaudare
-  l'integrazione, non solo mock). Specifica dettagliata da scrivere da
-  ROOT al momento dello sblocco (fuori scope di questa voce): stella in
-  `PreviewModal` (toggle su `POST`/`DELETE /api/v1/favorites`, stato
-  iniziale da `GET`), nuovo `FavoritesModal` condiviso fra dashboard
-  (`SessionList`, stesso trattamento di Archivio/Audit/Backup) e menu
-  sessione (`Console`, stesso trattamento di `DirectoryModal`/`ArtifactsModal`),
-  apertura di un preferito tramite `openPreviewWindow` + `fetchFileMetadata`
-  per dati freschi (mai fidarsi di valori persistiti), pulsante disabilitato
-  con messaggio esplicito quando non c'è alcuna sessione viva disponibile
-  per aprire (`GATE-PW-04`, punto 5). Vedi `GATE-PW-04` per le decisioni di
-  scope vincolanti (nessun `kind`, nessuna validazione path lato client
-  oltre quella già presente in `PreviewModal`).
+- [x] IMP-PW-04-FRONTEND | OWNER: SA-IMP | STATUS: DONE | **Fase 4, parte
+  frontend — UI dei preferiti, in `frontend/src/api.ts`,
+  `frontend/src/App.tsx`, `frontend/src/i18n.ts`, `frontend/src/styles.css`.**
+  Sbloccata da `PASSED` di `TEST-PW-04-BACKEND-T1` (endpoint reali già
+  disponibili, commit `44674f5`). Legge prima
+  `docs/adr/015-preview-window-manager.md` e questa voce per intero
+  (incluso `GATE-PW-04`, vincolante).
+
+  **Decisione di scope aggiuntiva presa da ROOT, vincolante:** la stella
+  compare solo sulle preview aperte tramite path assoluto di filesystem
+  (`DirectoryModal` e i blocchi agente in `Console`, entrambe basate su
+  `filePreviewSource`), **mai** su quelle aperte da `ArtifactsModal`
+  (`artifactPreviewSource`). Motivazione: un artefatto vive sotto la
+  cartella della sessione che lo ha generato (`fetchArtifactContent(sessionId,
+  item.name)`), mentre un preferito deve poter essere riaperto in seguito
+  da una sessione qualunque (esattamente il vincolo di
+  `_resolve_preview_file` citato nell'ADR) — un path di artefatto salvato
+  come preferito e riaperto da un'altra sessione punterebbe alla cartella
+  sbagliata. Per distinguere i due casi si aggiunge un campo esplicito
+  (`favoritePath`) al posto di dedurlo da un euristica su `url`/`eyebrow`.
+
+  **1. `frontend/src/api.ts`** — nuovo tipo e tre funzioni, vicino a
+  `ArchivedSession`/`listArchives`/`deleteArchive`:
+  ```ts
+  export type Favorite = {
+    id: string;
+    path: string;
+    label: string | null;
+    added_by: string;
+    added_at: string;
+  };
+
+  export async function listFavorites(): Promise<Favorite[]> {
+    const response = await request("/api/v1/favorites");
+    return (await response.json()).favorites;
+  }
+
+  export async function addFavorite(path: string, label?: string | null): Promise<Favorite> {
+    const response = await request("/api/v1/favorites", {
+      method: "POST",
+      body: JSON.stringify({ path, label: label ?? null }),
+    });
+    return response.json();
+  }
+
+  export async function deleteFavorite(id: string): Promise<void> {
+    await request(`/api/v1/favorites/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
+  ```
+
+  **2. `PreviewSource`/`PreviewSourceInput`** (`frontend/src/App.tsx`,
+  vicino a `type PreviewSource = {...}`) — nuovo campo opzionale:
+  ```ts
+  type PreviewSource = {
+    kind: PreviewKind;
+    name: string;
+    modifiedAt: string | null;
+    url: string | null;
+    fetchContent: () => Promise<PreviewContent>;
+    onBack: () => void;
+    eyebrow?: string;
+    favoritePath?: string | null;
+  };
+  ```
+  In `filePreviewSource` (usata sia da `DirectoryModal` sia dai blocchi
+  agente in `Console`), aggiungere `favoritePath: path,` all'oggetto
+  restituito. **Non toccare `artifactPreviewSource`**: deve continuare a
+  non impostare `favoritePath` (resta `undefined`), è la parte
+  implementativa della decisione di scope sopra.
+
+  **3. Nuovo `FavoritesContext`/`useFavorites`/`FavoritesProvider`**,
+  colocati subito dopo la chiusura di `function PreviewModal(...)` (prima
+  di `const PREVIEWABLE_TEXT_TYPES`) — stato indipendente dal window
+  manager delle anteprime, stesso pattern di reset su logout già usato da
+  `PreviewWindowsProvider`:
+  ```tsx
+  type FavoritesContextValue = {
+    favorites: Favorite[];
+    favoritesLoading: boolean;
+    favoritesError: string;
+    isFavorite: (path: string) => boolean;
+    toggleFavorite: (path: string) => Promise<void>;
+    removeFavoriteById: (id: string) => Promise<void>;
+  };
+
+  const FavoritesContext = createContext<FavoritesContextValue | null>(null);
+
+  function useFavorites(): FavoritesContextValue {
+    const ctx = useContext(FavoritesContext);
+    if (!ctx) throw new Error("useFavorites usato fuori da FavoritesProvider");
+    return ctx;
+  }
+
+  function FavoritesProvider({ children, active }: { children: ReactNode; active: boolean }) {
+    const [favorites, setFavorites] = useState<Favorite[]>([]);
+    const [favoritesLoading, setFavoritesLoading] = useState(false);
+    const [favoritesError, setFavoritesError] = useState("");
+
+    useEffect(() => {
+      if (!active) {
+        setFavorites([]);
+        setFavoritesError("");
+        return;
+      }
+      let cancelled = false;
+      setFavoritesLoading(true);
+      listFavorites()
+        .then((items) => { if (!cancelled) setFavorites(items); })
+        .catch((err) => { if (!cancelled) setFavoritesError(errorMessage(err)); })
+        .finally(() => { if (!cancelled) setFavoritesLoading(false); });
+      return () => { cancelled = true; };
+    }, [active]);
+
+    const isFavorite = useCallback(
+      (path: string) => favorites.some((item) => item.path === path),
+      [favorites],
+    );
+
+    const toggleFavorite = useCallback(async (path: string) => {
+      const existing = favorites.find((item) => item.path === path);
+      setFavoritesError("");
+      try {
+        if (existing) {
+          await deleteFavorite(existing.id);
+          setFavorites((current) => current.filter((item) => item.id !== existing.id));
+        } else {
+          const created = await addFavorite(path);
+          setFavorites((current) => [created, ...current.filter((item) => item.id !== created.id)]);
+        }
+      } catch (err) {
+        setFavoritesError(errorMessage(err));
+      }
+    }, [favorites]);
+
+    const removeFavoriteById = useCallback(async (id: string) => {
+      setFavoritesError("");
+      try {
+        await deleteFavorite(id);
+        setFavorites((current) => current.filter((item) => item.id !== id));
+      } catch (err) {
+        setFavoritesError(errorMessage(err));
+      }
+    }, []);
+
+    const value = useMemo<FavoritesContextValue>(() => ({
+      favorites, favoritesLoading, favoritesError, isFavorite, toggleFavorite, removeFavoriteById,
+    }), [favorites, favoritesLoading, favoritesError, isFavorite, toggleFavorite, removeFavoriteById]);
+
+    return <FavoritesContext.Provider value={value}>{children}</FavoritesContext.Provider>;
+  }
+  ```
+
+  **4. Stella in `PreviewModal`** — nella riga `.preview-path-row`
+  (`frontend/src/App.tsx`), **non** in `.modal-header-actions` (già
+  affollato di 3 bottoni dalla Fase 2, con una regressione di layout già
+  corretta una volta — non ripetere l'errore aggiungendone un quarto).
+  Aggiungere `const { isFavorite, toggleFavorite } = useFavorites();` in
+  cima al corpo di `PreviewModal`, poi:
+  ```tsx
+  <div className="preview-path-row">
+    <h2 className="preview-file-name" title={source.name}>{fileName}</h2>
+    {source.favoritePath && (
+      <button
+        type="button"
+        className="preview-favorite-toggle"
+        onClick={() => void toggleFavorite(source.favoritePath)}
+        aria-pressed={isFavorite(source.favoritePath)}
+        aria-label={isFavorite(source.favoritePath) ? t.removeFavorite : t.addFavorite}
+        title={isFavorite(source.favoritePath) ? t.removeFavorite : t.addFavorite}
+      >
+        {isFavorite(source.favoritePath) ? "★" : "☆"}
+      </button>
+    )}
+    <button
+      type="button"
+      className="preview-path-copy"
+      ...
+  ```
+  (il resto del bottone copia-path e quanto segue restano invariati; se
+  TypeScript si lamenta della narrowing di `source.favoritePath` dentro le
+  callback, usa `source.favoritePath!` solo lì dove serve, non cambiare il
+  tipo).
+
+  **5. Nuovo componente `FavoritesModal`**, colocato subito dopo
+  `FavoritesProvider`:
+  ```tsx
+  function FavoritesModal({ onClose, sessionId }: { onClose: () => void; sessionId: string | null }) {
+    const { favorites, favoritesLoading, favoritesError, removeFavoriteById } = useFavorites();
+    const { openPreviewWindow } = usePreviewWindows();
+    const t = translations[readLanguage()];
+    const [opening, setOpening] = useState<string | null>(null);
+    const [openError, setOpenError] = useState("");
+
+    async function openFavorite(favorite: Favorite) {
+      if (!sessionId) return;
+      setOpening(favorite.id);
+      setOpenError("");
+      try {
+        const metadata = await fetchFileMetadata(sessionId, favorite.path);
+        openPreviewWindow({
+          resolveSource: (path) => filePreviewSource(sessionId, path, metadata.modified_at, metadata.media_type),
+          siblings: [favorite.path],
+          initialPath: favorite.path,
+        });
+        onClose();
+      } catch (err) {
+        setOpenError(errorMessage(err));
+      } finally {
+        setOpening(null);
+      }
+    }
+
+    return (
+      <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+        <section className="help-modal" role="dialog" aria-modal="true" aria-label={t.favorites}>
+          <header>
+            <h2>{t.favorites}</h2>
+            <div className="modal-header-actions">
+              <button type="button" className="modal-close" onClick={onClose} aria-label={t.close}>×</button>
+            </div>
+          </header>
+          {!sessionId && <p className="favorites-hint">{t.favoritesNoSession}</p>}
+          {openError && <p className="favorites-error">{openError}</p>}
+          {favoritesLoading ? (
+            <p>{t.loading}</p>
+          ) : favoritesError ? (
+            <p className="favorites-error">{favoritesError}</p>
+          ) : favorites.length === 0 ? (
+            <p className="favorites-empty">{t.favoritesEmpty}</p>
+          ) : (
+            <ul className="favorites-list">
+              {favorites.map((favorite) => (
+                <li key={favorite.id} className="favorites-item">
+                  <button
+                    type="button"
+                    className="favorites-item-open"
+                    onClick={() => void openFavorite(favorite)}
+                    disabled={!sessionId || opening === favorite.id}
+                    title={favorite.path}
+                  >
+                    <FileTypeIcon type="file" name={favorite.path} />
+                    <span className="favorites-item-name">{favorite.label || favorite.path}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="favorites-item-remove"
+                    onClick={() => void removeFavoriteById(favorite.id)}
+                    aria-label={`${t.removeFavorite}: ${favorite.label || favorite.path}`}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    );
+  }
+  ```
+  Verifica che `t.loading` esista già (usato altrove per stati di
+  caricamento); se il nome della chiave reale è diverso, usane uno
+  esistente equivalente invece di introdurne uno nuovo solo per questo.
+
+  **6. Verifica il tipo `Favorite`**: importalo da `./api` dove serve
+  (`FavoritesProvider`, `FavoritesModal`) insieme a
+  `listFavorites`/`addFavorite`/`deleteFavorite`/`fetchFileMetadata`
+  (quest'ultima già importata altrove nel file).
+
+  **7. Punto di ingresso dashboard** (`SessionList`, vicino a
+  `showAudit`/`showBackups`): aggiungere `const [showFavorites,
+  setShowFavorites] = useState(false);`, un bottone nel blocco
+  `dashboard-secondary-actions` (stesso trattamento di
+  `hiddenSessions`/`budget`, **non** ristretto per ruolo — è un elenco
+  personale, la scrittura resta comunque protetta da `require_operator`
+  lato backend), subito dopo il bottone `hiddenSessions`:
+  ```tsx
+  <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowFavorites(true); }} aria-label={t.favorites} title={t.favorites}>{compactDashboard ? "★" : t.favorites}</button>
+  ```
+  e il render della modale vicino a `{showAudit && <AuditModal .../>}`:
+  ```tsx
+  {showFavorites && (
+    <FavoritesModal onClose={() => setShowFavorites(false)} sessionId={sessions[0]?.id ?? null} />
+  )}
+  ```
+
+  **8. Punto di ingresso sessione** (`Console`, vicino a
+  `showDirectory`/`showArtifacts`): aggiungere `const [showFavorites,
+  setShowFavorites] = useState(false);`, un bottone in `.special-grid`
+  subito dopo quello di `showArtifacts` (icona SVG a piacere, coerente con
+  le altre — o il glifo `★` come in dashboard, è accettabile misto vista
+  la varietà già presente altrove nel file):
+  ```tsx
+  <button type="button" onClick={() => setShowFavorites(true)}>
+    <span className="action-icon-sm" aria-hidden="true">★</span>
+    <span>{t.favorites}</span>
+  </button>
+  ```
+  e il render vicino a `{showArtifacts && <ArtifactsModal .../>}`:
+  ```tsx
+  {showFavorites && (
+    <FavoritesModal onClose={() => setShowFavorites(false)} sessionId={session.id} />
+  )}
+  ```
+
+  **9. `App()`**: avvolgere il `return` finale in
+  `<FavoritesProvider active={identity != null}>`, fuori da
+  `<PreviewWindowsProvider>` (l'ordine fra i due provider non è
+  significativo, entrambi devono contenere `content`):
+  ```tsx
+  return (
+    <FavoritesProvider active={identity != null}>
+      <PreviewWindowsProvider active={identity != null}>
+        <>
+          {!online && (...)}
+          {content}
+        </>
+      </PreviewWindowsProvider>
+    </FavoritesProvider>
+  );
+  ```
+
+  **10. i18n** (`frontend/src/i18n.ts`, entrambi i blocchi `it`/`en`,
+  subito dopo `previewWorkspace`):
+  ```ts
+  // it
+  favorites: "Preferiti",
+  addFavorite: "Aggiungi ai preferiti",
+  removeFavorite: "Rimuovi dai preferiti",
+  favoritesEmpty: "Nessun preferito salvato.",
+  favoritesNoSession: "Serve una sessione attiva per aprire un preferito.",
+  // en
+  favorites: "Favorites",
+  addFavorite: "Add to favorites",
+  removeFavorite: "Remove from favorites",
+  favoritesEmpty: "No favorites saved yet.",
+  favoritesNoSession: "An active session is required to open a favorite.",
+  ```
+
+  **11. CSS** (`frontend/src/styles.css`), riusa i toni già usati per
+  `.preview-path-copy`/`.favorites-item`/liste esistenti (es.
+  `.audit-optional-features li`):
+  ```css
+  .preview-favorite-toggle { flex: 0 0 auto; min-width: 32px; min-height: 32px; border: 1px solid #3a5142; border-radius: 9px; background: #1b2820; color: #e8c766; font-size: .95rem; }
+  .preview-favorite-toggle[aria-pressed="true"] { background: #2a3f30; }
+  .favorites-list { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+  .favorites-item { display: flex; align-items: center; gap: 8px; border: 1px solid #26352c; border-radius: 10px; padding: 4px 4px 4px 10px; }
+  .favorites-item-open { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; color: #d2e3d7; font: inherit; text-align: left; padding: 6px 0; }
+  .favorites-item-open:disabled { opacity: .5; cursor: default; }
+  .favorites-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .favorites-item-remove { flex: 0 0 auto; min-width: 36px; min-height: 36px; border: 0; background: transparent; color: #91a397; font-size: 1.2rem; }
+  .favorites-empty, .favorites-hint { color: #91a397; font-size: .78rem; margin: 10px 0 0; }
+  .favorites-error { color: #e29a9a; font-size: .78rem; margin: 10px 0 0; }
+  ```
+
+  **File da NON toccare**: `DirectoryModal`, `ArtifactsModal` (a parte
+  nessuna modifica: `artifactPreviewSource` resta senza `favoritePath`),
+  `PreviewWindowsProvider`/`PreviewWindowHost`/`PreviewTray`/`PreviewWorkspace`/
+  `PreviewTile`/`PreviewLayoutSwitcher` (nessuna interazione con i
+  preferiti in questa fase), backend. Non fare `git commit`. Siamo su un
+  branch (`feat/preview-window-manager`).
+
+  **Test**: aggiungi test statici in
+  `frontend/tests/directory-project-ui.test.mjs` (o un nuovo file
+  `favorites-ui.test.mjs` se preferisci isolarli) che verifichino:
+  `filePreviewSource` imposta `favoritePath: path`,
+  `artifactPreviewSource` NON lo imposta (`doesNotMatch` mirato),
+  `FavoritesProvider`/`useFavorites` esistono con reset su `!active`
+  (stesso pattern di `PreviewWindowsProvider`), il bottone stella compare
+  solo dentro `{source.favoritePath && (...)}`, `api.ts` esporta
+  `listFavorites`/`addFavorite`/`deleteFavorite`. Aggiungi almeno un test
+  browser nuovo in `frontend/tests/directory-preview-browser.mjs` (mock di
+  `GET/POST/DELETE /api/v1/favorites`) che: apre un file dalla directory,
+  clicca la stella (verifica `aria-pressed="true"` e che sia partita la
+  `POST` con il path corretto), riclicca (verifica `DELETE` con l'id
+  corretto e ritorno ad `aria-pressed="false"`). Aggiungi un secondo test
+  (qui o in `session-console-browser.mjs`, quello più naturale) che: apre
+  `FavoritesModal` dal menu Funzioni di `Console` con un preferito già
+  presente nel mock, clicca "apri" e verifica che la preview si apra con
+  il contenuto corretto (mock di `/file/metadata` e `/file`), poi lo
+  rimuove dal pulsante × e verifica che sparisca dalla lista. Verifica
+  anche via test statico (non serve un browser test dedicato) che il
+  bottone "apri" abbia `disabled` quando `sessionId` è `null` e che compaia
+  `t.favoritesNoSession`. Esegui `npm run build`, `npm run test:ui`, `npm
+  run test:directory:browser`, `npm run test:console:browser` (nota
+  ambiente: `vite preview` si lega solo a `::1` in questo sandbox, avviare
+  con `--host 127.0.0.1 --strictPort` sulle porte lette da
+  `MAC_BROWSER_BASE_URL` nei due file browser prima di rilanciare).
+
+  Scansione dati personali obbligatoria sul diff prima di dichiarare
+  finito. Chiudi con `STATUS: DONE`, stesso livello di dettaglio delle
+  chiusure precedenti, poi porta `TEST-PW-04-FRONTEND-T1` (da creare tu
+  stesso in coda a questa sezione, `OWNER: SA-TEST`, `STATUS:
+  READY_FOR_TEST`, stessa forma delle voci `TEST-PW-0*-T1` precedenti) —
+  non chiuderla tu, la chiude SA-TEST.
+
+  **Chiusura (SA-IMP). Verdetto: `DONE`.**
+
+  Letti per intero `docs/adr/015-preview-window-manager.md` e l'intera
+  sezione PW-04 (`GATE-PW-04`, `IMP-PW-04-BACKEND`, questa voce inclusa la
+  decisione di scope aggiuntiva su `favoritePath`) prima di scrivere
+  qualunque riga. Verificato `git status` a inizio round: solo
+  `docs/backlog.md` modificato (lo stato appena portato a `IN_PROGRESS`),
+  nessun residuo di round precedenti.
+
+  **Implementato, punto per punto:**
+
+  1. **`frontend/src/api.ts`** — tipo `Favorite` e le tre funzioni
+     `listFavorites`/`addFavorite`/`deleteFavorite`, inserite subito dopo
+     `deleteArchive` (vicino ad `ArchivedSession`/`listArchives`), copiate
+     letteralmente dallo snippet della specifica. Confermato contro le
+     risposte reali del backend (`backend/app/schemas.py` `FavoriteView`/
+     `FavoriteList`/`FavoriteInput`, `backend/app/main.py` righe
+     1586-1618): forma identica, nessun adattamento necessario.
+  2. **`PreviewSource`/`PreviewSourceInput`** — aggiunto `favoritePath?:
+     string | null;` al tipo. `filePreviewSource` imposta `favoritePath:
+     path,`. `artifactPreviewSource` **non** toccato: resta senza il campo,
+     verificato anche da un `assert.doesNotMatch` dedicato nel test statico.
+  3. **`FavoritesContext`/`useFavorites`/`FavoritesProvider`** — colocati
+     subito dopo la chiusura di `function PreviewModal(...)` e prima di
+     `function DirectoryModal(...)` (quindi anche prima di
+     `const PREVIEWABLE_TEXT_TYPES`, come richiesto, dato che
+     `DirectoryModal` sta nel mezzo fra i due punti citati dalla specifica —
+     inserire subito dopo `PreviewModal` era l'unica lettura che rispetta
+     insieme "subito dopo PreviewModal" e "senza toccare `DirectoryModal`").
+     Codice identico allo snippet della specifica.
+  4. **Stella in `PreviewModal`** — `const { isFavorite, toggleFavorite } =
+     useFavorites();` in cima al corpo; bottone `.preview-favorite-toggle`
+     dentro `.preview-path-row`, condizionato a `source.favoritePath`,
+     **non** in `.modal-header-actions`. Un solo scostamento tipografico:
+     `toggleFavorite(source.favoritePath!)` con `!` sul punto d'uso (narrowing
+     TS dentro l'arrow function), come esplicitamente autorizzato dalla
+     specifica stessa.
+  5. **`FavoritesModal`** — colocato subito dopo `FavoritesProvider`, codice
+     identico allo snippet. Verificato che `t.loading` esiste già
+     (`i18n.ts`, chiave `loading: "Caricamento…"`, usata altrove per stati di
+     attesa) — nessuna nuova chiave introdotta per questo, come richiesto.
+  6. **Import** — `Favorite`, `listFavorites`, `addFavorite`, `deleteFavorite`
+     aggiunti al blocco import da `./api` in `App.tsx` (vicino agli import
+     `ArchivedSession`/`listArchives`/`deleteArchive` già presenti);
+     `fetchFileMetadata` era già importato.
+  7. **Punto di ingresso dashboard** (`SessionList`) — `showFavorites`
+     aggiunto vicino a `showHiddenSessions`; bottone in
+     `dashboard-secondary-actions` subito dopo quello di `hiddenSessions`,
+     **non** ristretto per ruolo (nessun controllo `identity.role`, a
+     differenza dei bottoni admin-only accanto); render di `FavoritesModal`
+     vicino ad `AuditModal`, con `sessionId={sessions[0]?.id ?? null}`.
+  8. **Punto di ingresso sessione** (`Console`) — `showFavorites` vicino a
+     `showDirectory`/`showArtifacts`; bottone in `.special-grid` subito dopo
+     quello di `showArtifacts`, glifo `★` come suggerito dalla specifica
+     (icona SVG non necessaria, il glifo è già lo stile misto usato altrove
+     nel file per elementi minori). **Scostamento minore documentato**:
+     `Console` non ha una `const t = translations[readLanguage()];` locale
+     (usa `translations[readLanguage()].xxx` inline ovunque, verificato con
+     grep — 28 occorrenze nella sola funzione `Console`), quindi il bottone e
+     il render di `FavoritesModal` usano `translations[readLanguage()].favorites`
+     invece di `t.favorites` come nello pseudocodice della specifica —
+     stesso valore, stile coerente con il resto della funzione che lo ospita
+     (la specifica stessa autorizza questo tipo di adattamento quando un
+     dettaglio non torna col codice reale). Render vicino ad
+     `ArtifactsModal`, con `sessionId={session.id}`.
+  9. **`App()`** — `return` finale avvolto in `<FavoritesProvider
+     active={identity != null}>`, fuori da `<PreviewWindowsProvider>`,
+     esattamente come nello snippet.
+  10. **i18n** — le 5 chiavi (`favorites`/`addFavorite`/`removeFavorite`/
+      `favoritesEmpty`/`favoritesNoSession`) aggiunte a entrambi i blocchi
+      `it`/`en`, subito dopo `previewWorkspace`, valori identici alla
+      specifica.
+  11. **CSS** — le 11 regole della specifica aggiunte in
+      `frontend/src/styles.css` subito dopo `.preview-path-copy`, invariate.
+
+  **File NON toccati** (verificato sul diff finale): `DirectoryModal`,
+  `ArtifactsModal` (nessuna riga cambiata, `artifactPreviewSource` incluso),
+  `PreviewWindowsProvider`/`PreviewWindowHost`/`PreviewTray`/`PreviewWorkspace`/
+  `PreviewTile`/`PreviewLayoutSwitcher`, nessun file backend.
+
+  **Test.** Aggiunti 8 test statici in
+  `frontend/tests/directory-project-ui.test.mjs` (non un file separato: la
+  suite `directory` è già inclusa in `npm run test:ui` senza toccare
+  `package.json`, mentre un nuovo file avrebbe richiesto una nuova voce
+  `test:*` per essere eseguito dagli stessi comandi standard) — copertura di
+  tutti i punti richiesti dalla sotto-sezione "Test": `filePreviewSource`
+  imposta `favoritePath: path`, `artifactPreviewSource` non lo imposta,
+  `FavoritesProvider`/`useFavorites` con reset su `!active`, la stella
+  compare solo dentro `{source.favoritePath && (...)}` e resta nella
+  `preview-path-row` (non in `modal-header-actions`), `FavoritesModal`
+  (apertura via `fetchFileMetadata`+`openPreviewWindow`, rimozione via
+  `removeFavoriteById`, bottone "apri" `disabled` senza sessione +
+  `favoritesNoSession`), `api.ts` esporta le tre funzioni, i due punti di
+  ingresso (dashboard non ristretto per ruolo, Console), `App()` avvolto in
+  entrambi i provider.
+
+  Due nuovi test browser: in `frontend/tests/directory-preview-browser.mjs`,
+  un blocco isolato (sessione dedicata `"favorites-star"`, mock di
+  `GET/POST/DELETE /api/v1/favorites` con store in-memory) che apre
+  `favme.txt` dal browser directory, clicca la stella (verifica
+  `aria-pressed="true"`, `POST` con `path: "/workspace/favme.txt"`), riclicca
+  (verifica `DELETE` su `fav-1` e ritorno ad `aria-pressed="false"`). In
+  `frontend/tests/session-console-browser.mjs`, un blocco che apre
+  `FavoritesModal` dal menu Funzioni di `Console` con un preferito già
+  presente nel mock (`/workspace/notes.md`), verifica che il bottone "apri"
+  non sia disabilitato, lo apre (verifica contenuto via `/file/metadata` +
+  `/file` già mockati per gli altri test di questo file, heading "Report
+  esterno" e nome file nel titolo), torna all'elenco, riapre la modale,
+  rimuove il preferito dal pulsante × e verifica che sparisca dalla lista
+  (`.favorites-empty` visibile) e che l'unica chiamata verso l'API preferiti
+  sia stata la `DELETE` (l'apertura non crea un doppione).
+
+  **Comandi eseguiti (esiti reali):**
+  - `npm run build` → `tsc -b && vite build`, nessun errore, `✓ 36 modules
+    transformed`.
+  - `npm run test:ui` → 8 suite, tutte verdi: 25+24+7+5+10+17+2+26 = 116
+    test, 0 fallimenti (la suite `directory` è salita da 18 a 26 test con le
+    8 nuove verifiche statiche di questa fase; le altre 7 suite invariate,
+    nessuna regressione).
+  - `npm run test:directory:browser` (con `vite preview --host 127.0.0.1
+    --port 4173 --strictPort` avviato a parte, nota ambiente confermata:
+    `vite preview` senza `--host` si lega solo a `::1` in questo sandbox) →
+    `Directory/artifact preview navigation browser checks passed`, incluso
+    tutto il flusso Fase 1-3 invariato più il nuovo blocco toggle stella.
+  - `npm run test:console:browser` (con `vite preview --host 127.0.0.1
+    --port 4174 --strictPort`, avviato con il binario locale
+    `./node_modules/.bin/vite` dopo che un primo tentativo con `npx vite`
+    aveva risolto per errore un binario vite diverso da un altro percorso di
+    cache npx, rispondendo 404 su `/` — non un problema del codice
+    applicativo, solo dell'invocazione dello script di verifica) →
+    `Session console browser checks passed (block preview, Unicode, drafts,
+    Clear, attachment overflow)`, incluso il nuovo blocco `FavoritesModal`.
+  - Scansione dati personali sul diff (comando del protocollo, sui file
+    toccati in questo round): **nessuna occorrenza** (grep vuoto su
+    `frontend/src/api.ts`, `frontend/src/App.tsx`, `frontend/src/i18n.ts`,
+    `frontend/src/styles.css`, `frontend/tests/directory-preview-browser.mjs`,
+    `frontend/tests/directory-project-ui.test.mjs`,
+    `frontend/tests/session-console-browser.mjs`).
+
+  File toccati: `frontend/src/api.ts`, `frontend/src/App.tsx`,
+  `frontend/src/i18n.ts`, `frontend/src/styles.css`,
+  `frontend/tests/directory-project-ui.test.mjs`,
+  `frontend/tests/directory-preview-browser.mjs`,
+  `frontend/tests/session-console-browser.mjs`, `docs/backlog.md`. Working
+  tree pulito a parte questi file (`git status` verificato: nessun altro
+  file toccato). Nessun commit creato (compito di ROOT dopo la verifica
+  indipendente di SA-TEST).
+
+- [x] TEST-PW-04-FRONTEND-T1 | OWNER: SA-TEST | STATUS: PASSED |
+  Verifica indipendente di `IMP-PW-04-FRONTEND`: rieseguire `npm run build`,
+  `npm run test:ui`, `npm run test:directory:browser`, `npm run
+  test:console:browser` (stessa nota ambiente: avviare `vite preview` con
+  `--host 127.0.0.1 --strictPort` sulle porte lette da
+  `MAC_BROWSER_BASE_URL`/default nei due file browser — usare il binario
+  locale `./node_modules/.bin/vite` se `npx vite preview` dovesse risolvere
+  un binario diverso da cache, come osservato in questo round). Rileggere
+  per intero `docs/adr/015-preview-window-manager.md` e l'intera sezione
+  PW-04 (`GATE-PW-04`, `IMP-PW-04-BACKEND`, `IMP-PW-04-FRONTEND` incluso lo
+  scostamento documentato) prima di scrivere qualunque test, poi rileggere
+  il diff reale (`git diff -- frontend/src/api.ts frontend/src/App.tsx
+  frontend/src/i18n.ts frontend/src/styles.css frontend/tests/`) per
+  confermare quanto dichiarato riga per riga, non solo sul testo del
+  backlog. Con script Playwright scritti da zero (non riusare
+  `directory-preview-browser.mjs`/`session-console-browser.mjs`), verificare
+  almeno:
+  - **Toggle stella end-to-end**: apri un file dal browser directory, clicca
+    la stella (`aria-pressed` passa a `"true"`, `POST /api/v1/favorites` con
+    il `path` assoluto corretto nel body), riclicca (`DELETE
+    /api/v1/favorites/{id}` con l'id restituito dalla `POST`, `aria-pressed`
+    torna a `"false"`). Verificare anche che aprire lo stesso file una
+    seconda volta e ricliccare la stella non generi una seconda `POST` se il
+    preferito è già presente nello store del mock (idempotenza lato UI, non
+    solo lato backend — `isFavorite`/`toggleFavorite` devono riflettere lo
+    stato reale restituito da `GET /api/v1/favorites`, non uno stato locale
+    ottimistico scollegato).
+  - **Ciclo apri/rimuovi da `FavoritesModal`**: apri il menu Funzioni di
+    `Console`, apri "Preferiti" con almeno un preferito già nel mock,
+    clicca "apri" e verifica che si apra la preview corretta (contenuto e
+    nome file), poi riapri la modale e rimuovilo dal pulsante × verificando
+    che sparisca dalla lista e che compaia lo stato vuoto
+    (`favoritesEmpty`) quando non ne restano altri.
+  - **La stella non deve mai comparire per le preview aperte da
+    `ArtifactsModal`**: apri un artefatto dalla modale Artefatti e verifica
+    che `.preview-favorite-toggle` non sia presente nel DOM per quella
+    finestra (né visibile né renderizzato), a differenza della stessa
+    verifica ripetuta su un file aperto da `DirectoryModal` o da un blocco
+    agente in `Console`, dove deve comparire.
+  - **Sessione assente da dashboard**: apri "Preferiti" dalla dashboard
+    quando non esiste nessuna sessione viva (mock `GET /api/v1/sessions`
+    con lista vuota) e verifica che il messaggio `favoritesNoSession`
+    compaia e che il bottone "apri" di ogni riga sia `disabled`, senza
+    tentativi di richiesta a `/file/metadata`.
+  - **Non regressione**: i flussi già coperti da
+    `directory-preview-browser.mjs`/`session-console-browser.mjs` (fasi
+    1-3 del window manager) restano verdi, nessun cambiamento di
+    comportamento sulla stella esclusa.
+  - Passa a `PASSED`/`FAILED` chiudendo questa voce; se `FAILED`, riapre
+    `IMP-PW-04-FRONTEND` con un round `IMP-PW-04-FRONTEND-R1` dedicato al
+    difetto trovato, stesso schema delle correzioni precedenti
+    (`IMP-PW-01-R1`/`IMP-PW-02-R1`).
+
+  **Procedura seguita**: letti per intero `docs/adr/015-preview-window-manager.md`
+  e l'intera sezione PW-04 (`GATE-PW-04`, `IMP-PW-04-BACKEND`,
+  `IMP-PW-04-FRONTEND` incluso lo scostamento dichiarato su `Console` senza
+  `const t` locale) prima di scrivere qualunque test. Riletto poi il diff
+  reale (`git diff -- frontend/src/api.ts frontend/src/App.tsx
+  frontend/src/i18n.ts frontend/src/styles.css frontend/tests/`), non solo
+  il testo del backlog: corrisponde punto per punto a quanto dichiarato
+  (tipo `Favorite` e tre funzioni in `api.ts`; `favoritePath?: string |
+  null` in `PreviewSource`; `favoritePath: path,` in `filePreviewSource`;
+  nessuna modifica a `artifactPreviewSource`; `FavoritesContext`/
+  `useFavorites`/`FavoritesProvider`/`FavoritesModal` colocati fra
+  `PreviewModal` e `DirectoryModal`; stella in `.preview-path-row` con
+  `toggleFavorite(source.favoritePath!)`; punti di ingresso in
+  `SessionList`/`Console`; `App()` avvolto in entrambi i provider; 5 chiavi
+  i18n; 11 regole CSS; 8 test statici + 2 blocchi browser nuovi).
+
+  Confermato via lettura diretta (non solo dichiarazione) che `Console`
+  (righe 6763-8372 circa) non ha mai una `const t = translations[...]`
+  locale — 31 occorrenze di `translations[readLanguage()]` inline nella
+  sola funzione — coerente con lo scostamento dichiarato da
+  `IMP-PW-04-FRONTEND` sul bottone "Preferiti"/render di `FavoritesModal`.
+  Confermato inoltre via `grep`/lettura diretta che `artifactPreviewSource`
+  (righe 1382-1392) restituisce un oggetto letterale senza il campo
+  `favoritePath` in nessuna forma, a differenza di `filePreviewSource` che
+  lo imposta esplicitamente a `path` — la distinzione di scope più delicata
+  di questa fase è implementata esattamente come dichiarato.
+
+  **1 — Comandi standard, esiti reali** (eseguiti da `frontend/`, `vite
+  preview` avviato con `--host 127.0.0.1 --strictPort` tramite
+  `./node_modules/.bin/vite` su 4173/4174, nota ambiente confermata:
+  `::1`-only di default in questo sandbox):
+  - `npm run build` → `tsc -b && vite build`, nessun errore, `✓ 36 modules
+    transformed` — stesso numero dichiarato.
+  - `npm run test:ui` → **116/116 pass, 0 fail**: host 25, budget 24,
+    console 7, admin 5, timeline 10, opencode 17, session-guard 2,
+    directory 26 (25+24+7+5+10+17+2+26 = 116) — conteggio identico a quello
+    dichiarato da `IMP-PW-04-FRONTEND`, nessuna regressione sulle 7 suite
+    invariate.
+  - `npm run test:directory:browser` → `Directory/artifact preview
+    navigation browser checks passed`.
+  - `npm run test:console:browser` → `Session console browser checks
+    passed (block preview, Unicode, drafts, Clear, attachment overflow)`.
+  Nessuna non regressione: entrambe le suite browser esistenti (fasi 1-3 del
+  window manager, incluso tray/minimizzazione/layout) restano verdi senza
+  alcuna modifica di comportamento imputabile alla stella.
+
+  **2 — Script Playwright indipendenti**, scritti da zero (non riuso di
+  `directory-preview-browser.mjs`/`session-console-browser.mjs`, solo
+  ispirati nel pattern di mock `page.route`), eseguiti temporaneamente da
+  `frontend/tests/` (per la risoluzione del modulo `playwright`) e rimossi
+  al termine — non rimasti nel working tree (confermato da `git status`
+  sotto).
+
+  **Script 1 (`DirectoryModal`/`ArtifactsModal`, viewport 375×700)**:
+  - **Toggle stella end-to-end**: apre `plain.txt` (mai preferito), stella
+    parte `aria-pressed="false"`; click → `POST /api/v1/favorites` con
+    `body.path === "/workspace/plain.txt"` (path assoluto corretto),
+    `aria-pressed` passa a `"true"`; riclick → `DELETE
+    /api/v1/favorites/fav-new-1` (id esattamente quello restituito dalla
+    `POST`, non inventato), `aria-pressed` torna a `"false"`.
+  - **Idempotenza lato UI in senso stretto** (non solo visiva): rifavorisce
+    lo stesso `plain.txt` (nuova `POST`, id `fav-new-2`), chiude la preview,
+    la riapre (stesso file, stesso `FavoritesProvider` mai smontato) —
+    verificato che la sola riapertura non generi **alcuna** nuova richiesta
+    verso `/favorites` e che la stella rifletta subito lo stato reale
+    (`aria-pressed="true"`, nessun click necessario); un click successivo
+    produce una `DELETE` (id `fav-new-2`), mai una seconda `POST` per lo
+    stesso path — conferma diretta che `isFavorite`/`toggleFavorite`
+    leggono lo stato reale del contesto, non uno stato locale scollegato.
+  - **Idempotenza visiva su un preferito preesistente**: apre
+    `already-starred.txt`, presente fin dall'inizio nello store del mock
+    (`GET /api/v1/favorites`) — stella parte già `aria-pressed="true"` senza
+    click, nessuna nuova richiesta generata dalla sola apertura.
+  - **Stella assente da `ArtifactsModal`**: apre `report.md` dalla modale
+    Artefatti (sessione/mock separati, nessun preferito nello store) —
+    `document.querySelectorAll(".preview-favorite-toggle").length === 0`
+    (verificato con `.count()` su tutto il DOM, non un controllo di
+    visibilità CSS), mentre `.preview-path-copy` (sempre presente) conferma
+    che la preview è comunque montata correttamente.
+
+  **Script 2 (`FavoritesModal` da `Console` e da dashboard, viewport
+  375×700)**:
+  - **Ciclo apri/rimuovi da `Console`**: menu Funzioni → "Preferiti" con
+    `/workspace/report.md` già nel mock; bottone "apri" non disabilitato;
+    click → `GET .../file/metadata?path=/workspace/report.md` (path del
+    preferito, verificato con array esatto `["/workspace/report.md"]`),
+    modale si chiude, preview si apre con `h2.preview-file-name` che
+    contiene `report.md` e contenuto reale renderizzato (heading "Verifica
+    SA-TEST" dal mock di `/file`); tornati all'elenco e riaperta la modale,
+    click su × → `DELETE /api/v1/favorites/fav-abc` (id reale, non
+    inventato), l'elemento sparisce dalla lista e compare `.favorites-empty`;
+    verificato che l'unica richiesta verso `/favorites` in tutto il flusso
+    sia stata la `DELETE` (l'apertura non genera mai una `POST` spuria).
+  - **Nessuna sessione disponibile (dashboard)**: `GET /api/v1/sessions`
+    con lista vuota, apertura di "Preferiti" da "Altre azioni" in
+    dashboard — compare `.favorites-hint` con il testo di
+    `favoritesNoSession` ("Serve una sessione attiva…"), il bottone "apri"
+    del preferito presente nel mock è `disabled` (verificato con
+    `isDisabled()`, non solo assenza di handler); un click forzato
+    (`force: true`) sul bottone disabilitato non genera **alcuna** richiesta
+    verso `/file/metadata` e la modale resta aperta senza errori — non è
+    quindi solo una dichiarazione statica, il comportamento runtime reale
+    coincide con quanto scritto nel codice (`disabled={!sessionId ||
+    opening === favorite.id}`, `{!sessionId && <p
+    className="favorites-hint">{t.favoritesNoSession}</p>}`,
+    `async function openFavorite(favorite) { if (!sessionId) return; ...}`
+    in `frontend/src/App.tsx`).
+
+  **3 — Scansione dati personali** (`grep -inE` per path assoluti
+  `/home/...`, IP, `massimiliano`/`nicosia`, `@gmail.com`, `tailscale`) su
+  `git diff -- frontend/src/api.ts frontend/src/App.tsx frontend/src/i18n.ts
+  frontend/src/styles.css frontend/tests/directory-preview-browser.mjs
+  frontend/tests/directory-project-ui.test.mjs
+  frontend/tests/session-console-browser.mjs`: **nessuna occorrenza** (grep
+  vuoto, exit code 1).
+
+  **4 — `git status`**: solo i file dichiarati da `IMP-PW-04-FRONTEND`
+  (`frontend/src/api.ts`, `frontend/src/App.tsx`, `frontend/src/i18n.ts`,
+  `frontend/src/styles.css`, `frontend/tests/directory-preview-browser.mjs`,
+  `frontend/tests/directory-project-ui.test.mjs`,
+  `frontend/tests/session-console-browser.mjs`) più `docs/backlog.md`.
+  Nessuna modifica preesistente alterata. I due script Playwright scritti
+  per la verifica sono stati copiati temporaneamente in `frontend/tests/`
+  (necessario per la risoluzione ESM del modulo `playwright`, non
+  disponibile da `node_modules` fuori dall'albero del progetto) ed eseguiti
+  da lì; rimossi subito dopo l'esecuzione — nessun file temporaneo rimasto
+  nel repo, confermato da `git status` sopra.
+
+  **Verdetto: `PASSED`, nessun difetto trovato.** `IMP-PW-04-FRONTEND`
+  corrisponde punto per punto al codice reale ispezionato (non solo al
+  testo del backlog); la decisione di scope più delicata (nessuna stella su
+  preview da `ArtifactsModal`) è implementata correttamente e verificata sia
+  da lettura del codice sorgente sia da verifica runtime nel DOM;
+  l'idempotenza (sia visiva sia in senso stretto: riapertura dello stesso
+  file preferito senza richieste spurie) è confermata; il caso "nessuna
+  sessione" è disabled con messaggio corretto e nessuna richiesta di rete
+  indesiderata, confermato sia a codice sia a runtime. Nessuna regressione
+  sulle fasi 1-3 del window manager.

@@ -10,18 +10,21 @@ import {
   Artifact,
   Backup,
   ClaudeHistory,
+  Favorite,
   archiveSession,
   artifactDownloadUrl,
   attachmentPreviewUrl,
   fetchArtifactContent,
   fetchArtifactDirectory,
   fetchArchiveDraft,
+  addFavorite,
   backupDownloadUrl,
   createBackup,
   createUser,
   createSnapshot,
   createSession,
   deleteArchive,
+  deleteFavorite,
   deleteSnapshot,
   deleteAttachment,
   deleteBackup,
@@ -56,6 +59,7 @@ import {
   listSessions,
   listArchives,
   listAgentStatuses,
+  listFavorites,
   listArtifacts,
   listAudit,
   listBackups,
@@ -1162,6 +1166,7 @@ type PreviewSource = {
   fetchContent: () => Promise<PreviewContent>;
   onBack: () => void;
   eyebrow?: string;
+  favoritePath?: string | null;
 };
 
 function previewKindFor(name: string, mediaType?: string): PreviewKind {
@@ -1370,6 +1375,7 @@ function filePreviewSource(
     url: isMedia ? filePreviewUrl(sessionId, path) : null,
     fetchContent: () => fetchFile(sessionId, path).then((file) => ({ content: file.content, truncated: file.truncated })),
     eyebrow: translations[readLanguage()].readOnlyFile,
+    favoritePath: path,
   };
 }
 
@@ -1735,6 +1741,7 @@ function PreviewModal({
   const [viewMode, setViewMode] = useState<"rendered" | "source">("rendered");
   const [showLineNumbers, setShowLineNumbers] = useState(false);
   const t = translations[readLanguage()];
+  const { isFavorite, toggleFavorite } = useFavorites();
   const isText = source.kind === "text" || source.kind === "markdown";
   const lastSlash = source.name.lastIndexOf("/");
   const fileName = lastSlash >= 0 ? source.name.slice(lastSlash + 1) : source.name;
@@ -1801,6 +1808,18 @@ function PreviewModal({
           <span className="eyebrow">{source.eyebrow ?? t.preview}</span>
           <div className="preview-path-row">
             <h2 className="preview-file-name" title={source.name}>{fileName}</h2>
+            {source.favoritePath && (
+              <button
+                type="button"
+                className="preview-favorite-toggle"
+                onClick={() => void toggleFavorite(source.favoritePath!)}
+                aria-pressed={isFavorite(source.favoritePath)}
+                aria-label={isFavorite(source.favoritePath) ? t.removeFavorite : t.addFavorite}
+                title={isFavorite(source.favoritePath) ? t.removeFavorite : t.addFavorite}
+              >
+                {isFavorite(source.favoritePath) ? "★" : "☆"}
+              </button>
+            )}
             <button
               type="button"
               className="preview-path-copy"
@@ -1968,6 +1987,159 @@ function PreviewModal({
         </div>
       )}
     </>
+  );
+}
+
+// Preferiti (Fase 4, ADR 015): stato indipendente dal window manager delle
+// anteprime sopra — persistenza lato backend per utente
+// (`GET/POST/DELETE /api/v1/favorites`), non `localStorage`. Stesso pattern
+// di reset su logout già usato da `PreviewWindowsProvider`.
+type FavoritesContextValue = {
+  favorites: Favorite[];
+  favoritesLoading: boolean;
+  favoritesError: string;
+  isFavorite: (path: string) => boolean;
+  toggleFavorite: (path: string) => Promise<void>;
+  removeFavoriteById: (id: string) => Promise<void>;
+};
+
+const FavoritesContext = createContext<FavoritesContextValue | null>(null);
+
+function useFavorites(): FavoritesContextValue {
+  const ctx = useContext(FavoritesContext);
+  if (!ctx) throw new Error("useFavorites usato fuori da FavoritesProvider");
+  return ctx;
+}
+
+function FavoritesProvider({ children, active }: { children: ReactNode; active: boolean }) {
+  const [favorites, setFavorites] = useState<Favorite[]>([]);
+  const [favoritesLoading, setFavoritesLoading] = useState(false);
+  const [favoritesError, setFavoritesError] = useState("");
+
+  useEffect(() => {
+    if (!active) {
+      setFavorites([]);
+      setFavoritesError("");
+      return;
+    }
+    let cancelled = false;
+    setFavoritesLoading(true);
+    listFavorites()
+      .then((items) => { if (!cancelled) setFavorites(items); })
+      .catch((err) => { if (!cancelled) setFavoritesError(errorMessage(err)); })
+      .finally(() => { if (!cancelled) setFavoritesLoading(false); });
+    return () => { cancelled = true; };
+  }, [active]);
+
+  const isFavorite = useCallback(
+    (path: string) => favorites.some((item) => item.path === path),
+    [favorites],
+  );
+
+  const toggleFavorite = useCallback(async (path: string) => {
+    const existing = favorites.find((item) => item.path === path);
+    setFavoritesError("");
+    try {
+      if (existing) {
+        await deleteFavorite(existing.id);
+        setFavorites((current) => current.filter((item) => item.id !== existing.id));
+      } else {
+        const created = await addFavorite(path);
+        setFavorites((current) => [created, ...current.filter((item) => item.id !== created.id)]);
+      }
+    } catch (err) {
+      setFavoritesError(errorMessage(err));
+    }
+  }, [favorites]);
+
+  const removeFavoriteById = useCallback(async (id: string) => {
+    setFavoritesError("");
+    try {
+      await deleteFavorite(id);
+      setFavorites((current) => current.filter((item) => item.id !== id));
+    } catch (err) {
+      setFavoritesError(errorMessage(err));
+    }
+  }, []);
+
+  const value = useMemo<FavoritesContextValue>(() => ({
+    favorites, favoritesLoading, favoritesError, isFavorite, toggleFavorite, removeFavoriteById,
+  }), [favorites, favoritesLoading, favoritesError, isFavorite, toggleFavorite, removeFavoriteById]);
+
+  return <FavoritesContext.Provider value={value}>{children}</FavoritesContext.Provider>;
+}
+
+function FavoritesModal({ onClose, sessionId }: { onClose: () => void; sessionId: string | null }) {
+  const { favorites, favoritesLoading, favoritesError, removeFavoriteById } = useFavorites();
+  const { openPreviewWindow } = usePreviewWindows();
+  const t = translations[readLanguage()];
+  const [opening, setOpening] = useState<string | null>(null);
+  const [openError, setOpenError] = useState("");
+
+  async function openFavorite(favorite: Favorite) {
+    if (!sessionId) return;
+    setOpening(favorite.id);
+    setOpenError("");
+    try {
+      const metadata = await fetchFileMetadata(sessionId, favorite.path);
+      openPreviewWindow({
+        resolveSource: (path) => filePreviewSource(sessionId, path, metadata.modified_at, metadata.media_type),
+        siblings: [favorite.path],
+        initialPath: favorite.path,
+      });
+      onClose();
+    } catch (err) {
+      setOpenError(errorMessage(err));
+    } finally {
+      setOpening(null);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="help-modal" role="dialog" aria-modal="true" aria-label={t.favorites}>
+        <header>
+          <h2>{t.favorites}</h2>
+          <div className="modal-header-actions">
+            <button type="button" className="modal-close" onClick={onClose} aria-label={t.close}>×</button>
+          </div>
+        </header>
+        {!sessionId && <p className="favorites-hint">{t.favoritesNoSession}</p>}
+        {openError && <p className="favorites-error">{openError}</p>}
+        {favoritesLoading ? (
+          <p>{t.loading}</p>
+        ) : favoritesError ? (
+          <p className="favorites-error">{favoritesError}</p>
+        ) : favorites.length === 0 ? (
+          <p className="favorites-empty">{t.favoritesEmpty}</p>
+        ) : (
+          <ul className="favorites-list">
+            {favorites.map((favorite) => (
+              <li key={favorite.id} className="favorites-item">
+                <button
+                  type="button"
+                  className="favorites-item-open"
+                  onClick={() => void openFavorite(favorite)}
+                  disabled={!sessionId || opening === favorite.id}
+                  title={favorite.path}
+                >
+                  <FileTypeIcon type="file" name={favorite.path} />
+                  <span className="favorites-item-name">{favorite.label || favorite.path}</span>
+                </button>
+                <button
+                  type="button"
+                  className="favorites-item-remove"
+                  onClick={() => void removeFavoriteById(favorite.id)}
+                  aria-label={`${t.removeFavorite}: ${favorite.label || favorite.path}`}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -5736,6 +5908,7 @@ function SessionList({
   const [showPreferences, setShowPreferences] = useState(false);
   const [showDashboardActions, setShowDashboardActions] = useState(false);
   const [showHiddenSessions, setShowHiddenSessions] = useState(false);
+  const [showFavorites, setShowFavorites] = useState(false);
   const [showHost, setShowHost] = useState(false);
   const [restoreHostFocus, setRestoreHostFocus] = useState(false);
   const [hostObservabilityEnabled, setHostObservabilityEnabled] = useState(false);
@@ -6131,6 +6304,7 @@ function SessionList({
               <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowArchives(true); }} aria-label={t.archivedSessions} title={t.archivedSessions}>{compactDashboard ? "▣" : t.archivedSessions}</button>
             )}
             <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowHiddenSessions(true); }} aria-label={t.hiddenSessions} title={t.hiddenSessions}>{compactDashboard ? "◌" : t.hiddenSessions}</button>
+            <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowFavorites(true); }} aria-label={t.favorites} title={t.favorites}>{compactDashboard ? "★" : t.favorites}</button>
             <button ref={budgetTriggerRef} className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowBudget(true); }} aria-label={t.budget} title={t.budget}>{compactDashboard ? "◔" : t.budget}</button>
             {identity.role === "admin" && (
               <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowUsers(true); }} aria-label={t.users} title={t.users}>{compactDashboard ? "♟" : t.users}</button>
@@ -6547,6 +6721,9 @@ function SessionList({
       )}
       {showUsers && <UserModal onClose={() => setShowUsers(false)} />}
       {showAudit && <AuditModal onClose={() => setShowAudit(false)} />}
+      {showFavorites && (
+        <FavoritesModal onClose={() => setShowFavorites(false)} sessionId={sessions[0]?.id ?? null} />
+      )}
       {showBackups && <BackupModal onClose={() => setShowBackups(false)} />}
       {showHiddenSessions && (
         <HiddenSessionsModal
@@ -6617,6 +6794,7 @@ function Console({
   const [sendingArchiveSummaryPrompt, setSendingArchiveSummaryPrompt] = useState(false);
   const [showDirectory, setShowDirectory] = useState(false);
   const [showArtifacts, setShowArtifacts] = useState(false);
+  const [showFavorites, setShowFavorites] = useState(false);
   const [fullscreenOutput, setFullscreenOutput] = useState(false);
   const [controlError, setControlError] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -7804,6 +7982,13 @@ function Console({
                     <span>{translations[readLanguage()].artifactsBtn}</span>
                   </button>
                   <button
+                    type="button"
+                    onClick={() => setShowFavorites(true)}
+                  >
+                    <span className="action-icon-sm" aria-hidden="true">★</span>
+                    <span>{translations[readLanguage()].favorites}</span>
+                  </button>
+                  <button
                     disabled={connection === "closed" || sendingArtifactPrompt}
                     type="button"
                     onClick={() => void sendArtifactInstructions()}
@@ -8027,6 +8212,9 @@ function Console({
         {showArtifacts && (
           <ArtifactsModal sessionId={session.id} onClose={() => setShowArtifacts(false)} />
         )}
+        {showFavorites && (
+          <FavoritesModal onClose={() => setShowFavorites(false)} sessionId={session.id} />
+        )}
         <div className="actions">
           <button
             type="button"
@@ -8184,15 +8372,17 @@ export default function App() {
       : <SessionList identity={identity} onOpen={openSession} onLogout={() => setIdentity(null)} />;
   }
   return (
-    <PreviewWindowsProvider active={identity != null}>
-      <>
-        {!online && (
-          <p className="offline-banner" role="status">
-            Connessione assente: in attesa di rete, alcune funzioni sono sospese.
-          </p>
-        )}
-        {content}
-      </>
-    </PreviewWindowsProvider>
+    <FavoritesProvider active={identity != null}>
+      <PreviewWindowsProvider active={identity != null}>
+        <>
+          {!online && (
+            <p className="offline-banner" role="status">
+              Connessione assente: in attesa di rete, alcune funzioni sono sospese.
+            </p>
+          )}
+          {content}
+        </>
+      </PreviewWindowsProvider>
+    </FavoritesProvider>
   );
 }

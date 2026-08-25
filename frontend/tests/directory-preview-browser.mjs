@@ -367,6 +367,96 @@ try {
 
     await mobileContext.close();
   }
+
+  // IMP-PW-04-FRONTEND: toggle stella dei preferiti dal browser directory
+  // (ADR 015, GATE-PW-04). Sessione dedicata con mock di
+  // GET/POST/DELETE /api/v1/favorites.
+  {
+    const favoritesRequests = [];
+    let favoritesStore = [];
+    let favoriteSeq = 0;
+    const favContext = await browser.newContext({ viewport: { width: 375, height: 667 }, locale: "it-IT" });
+    const favPage = await favContext.newPage();
+    favPage.setDefaultTimeout(7_000);
+    await favPage.route("**/api/v1/**", async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      const path = url.pathname;
+      if (path === "/api/v1/auth/session") return json(route, { username: "admin", role: "admin", csrf_token: "csrf" });
+      if (path === "/api/v1/config") return json(route, { allowed_roots: ["/workspace"], workspace_presets: {} });
+      if (path === "/api/v1/sessions") return json(route, { sessions: [{ ...session, id: "9", name: "favorites-star" }] });
+      if (path === "/api/v1/agent-statuses") return json(route, { statuses: [] });
+      if (path === "/api/v1/provider-rate-limits" || path === "/api/v1/orchestrator-state") return json(route, null);
+      if (path === "/api/v1/sessions/9/panes") return json(route, { panes: [] });
+      if (path === "/api/v1/sessions/9/directory") {
+        return json(route, {
+          session_id: "9",
+          root: "/workspace",
+          path: "/workspace",
+          parent: null,
+          truncated: false,
+          entries: [
+            { name: "favme.txt", type: "file", size: 4, created_at: "2026-08-19T10:00:00Z", modified_at: "2026-08-20T10:00:00Z" },
+          ],
+        });
+      }
+      if (path === "/api/v1/sessions/9/file") {
+        const filePath = url.searchParams.get("path");
+        return json(route, { session_id: "9", path: filePath, size: 4, content: filePath, truncated: false });
+      }
+      if (path === "/api/v1/favorites" && request.method() === "GET") {
+        return json(route, { favorites: favoritesStore });
+      }
+      if (path === "/api/v1/favorites" && request.method() === "POST") {
+        const body = request.postDataJSON();
+        favoriteSeq += 1;
+        const created = {
+          id: `fav-${favoriteSeq}`,
+          path: body.path,
+          label: body.label ?? null,
+          added_by: "admin",
+          added_at: "2026-08-25T10:00:00Z",
+        };
+        favoritesStore = [created, ...favoritesStore];
+        favoritesRequests.push({ method: "POST", path, body });
+        return json(route, created, 201);
+      }
+      if (path.startsWith("/api/v1/favorites/") && request.method() === "DELETE") {
+        const id = decodeURIComponent(path.slice("/api/v1/favorites/".length));
+        favoritesStore = favoritesStore.filter((item) => item.id !== id);
+        favoritesRequests.push({ method: "DELETE", path, id });
+        return json(route, { accepted: true }, 200);
+      }
+      return json(route, { detail: "not found" }, 404);
+    });
+
+    await favPage.goto(baseUrl);
+    await favPage.locator("button.session-card", { hasText: "favorites-star" }).click();
+    await favPage.getByRole("button", { name: "Funzioni", exact: true }).click();
+    await favPage.locator(".special-section-toggle").click();
+    await favPage.getByRole("button", { name: "Contenuto directory", exact: true }).click();
+    await favPage.locator(".directory-open", { hasText: "favme.txt" }).click();
+    await favPage.locator("h2.preview-file-name", { hasText: "favme.txt" }).waitFor();
+
+    const star = favPage.getByRole("button", { name: "Aggiungi ai preferiti" });
+    await star.waitFor();
+    assert.equal(await star.getAttribute("aria-pressed"), "false");
+    await star.click();
+    await favPage.getByRole("button", { name: "Rimuovi dai preferiti" }).waitFor();
+    assert.equal(favoritesRequests.length, 1);
+    assert.equal(favoritesRequests[0].method, "POST");
+    assert.equal(favoritesRequests[0].body.path, "/workspace/favme.txt");
+    assert.equal(await favPage.getByRole("button", { name: "Rimuovi dai preferiti" }).getAttribute("aria-pressed"), "true");
+
+    await favPage.getByRole("button", { name: "Rimuovi dai preferiti" }).click();
+    await favPage.getByRole("button", { name: "Aggiungi ai preferiti" }).waitFor();
+    assert.equal(favoritesRequests.length, 2);
+    assert.equal(favoritesRequests[1].method, "DELETE");
+    assert.equal(favoritesRequests[1].id, "fav-1");
+    assert.equal(await favPage.getByRole("button", { name: "Aggiungi ai preferiti" }).getAttribute("aria-pressed"), "false");
+
+    await favContext.close();
+  }
 } finally {
   await browser.close();
 }

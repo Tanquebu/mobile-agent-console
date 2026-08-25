@@ -52,6 +52,10 @@ try {
   const commands = [];
   let attachmentSequence = 0;
   let forceSessionExpired = false;
+  let favoritesStore = [
+    { id: "fav-existing", path: "/workspace/notes.md", label: null, added_by: "admin", added_at: "2026-08-20T09:00:00Z" },
+  ];
+  const favoritesRequests = [];
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -96,6 +100,22 @@ try {
     if (/^\/api\/v1\/sessions\/\d+\/(input|keys)$/.test(path) && request.method() === "POST") {
       commands.push({ path, body: request.postDataJSON() });
       return route.fulfill({ status: 202, body: "" });
+    }
+    if (path === "/api/v1/favorites" && request.method() === "GET") {
+      return json(route, { favorites: favoritesStore });
+    }
+    if (path === "/api/v1/favorites" && request.method() === "POST") {
+      const body = request.postDataJSON();
+      const created = { id: "fav-new", path: body.path, label: body.label ?? null, added_by: "admin", added_at: "2026-08-25T10:00:00Z" };
+      favoritesStore = [created, ...favoritesStore];
+      favoritesRequests.push({ method: "POST", path, body });
+      return json(route, created, 201);
+    }
+    if (path.startsWith("/api/v1/favorites/") && request.method() === "DELETE") {
+      const id = decodeURIComponent(path.slice("/api/v1/favorites/".length));
+      favoritesStore = favoritesStore.filter((item) => item.id !== id);
+      favoritesRequests.push({ method: "DELETE", path, id });
+      return json(route, { accepted: true }, 200);
     }
     return json(route, { detail: "not found" }, 404);
   });
@@ -188,6 +208,39 @@ try {
   assert.equal(await page.locator(".composer").evaluate((node) => getComputedStyle(node).overflowX), "visible");
   assert.equal(widths.textarea[0] <= widths.textarea[1], true, `textarea overflow: ${JSON.stringify(widths)}`);
   assert.equal(widths[".attachments"][0] > widths[".attachments"][1], true, "gli allegati devono scorrere dentro il form");
+
+  // IMP-PW-04-FRONTEND: FavoritesModal dal menu Funzioni di Console (ADR
+  // 015, GATE-PW-04) — apre un preferito già presente nel mock, poi lo
+  // rimuove dalla lista.
+  await page.getByRole("button", { name: "Preferiti", exact: true }).click();
+  const favoritesModal = page.getByRole("dialog", { name: "Preferiti" });
+  await favoritesModal.waitFor();
+  const favoriteOpenButton = favoritesModal.locator(".favorites-item-open", { hasText: "/workspace/notes.md" });
+  await favoriteOpenButton.waitFor();
+  assert.equal(await favoriteOpenButton.isDisabled(), false, "con una sessione attiva il bottone apri non deve essere disabilitato");
+  await favoriteOpenButton.click();
+  await favoritesModal.waitFor({ state: "detached" });
+  const favoritePreviewDialog = page.getByRole("dialog", { name: "Anteprima file" });
+  await favoritePreviewDialog.waitFor();
+  await favoritePreviewDialog.getByRole("heading", { name: "Report esterno" }).waitFor();
+  assert.match(await favoritePreviewDialog.locator("h2.preview-file-name").innerText(), /notes\.md/);
+  await favoritePreviewDialog.getByRole("button", { name: "Torna all'elenco" }).click();
+  assert.equal(await favoritePreviewDialog.count(), 0);
+
+  await page.getByRole("button", { name: "Preferiti", exact: true }).click();
+  await favoritesModal.waitFor();
+  await favoritesModal.locator(".favorites-item", { hasText: "/workspace/notes.md" })
+    .getByRole("button", { name: /Rimuovi dai preferiti/ })
+    .click();
+  await favoritesModal.locator(".favorites-empty").waitFor();
+  assert.equal(await favoritesModal.locator(".favorites-item").count(), 0, "il preferito rimosso deve sparire dalla lista");
+  assert.deepEqual(
+    favoritesRequests.map((entry) => entry.method),
+    ["DELETE"],
+    "solo la DELETE del preferito esistente: l'apertura non crea un nuovo preferito",
+  );
+  await page.getByRole("button", { name: "Chiudi", exact: true }).click();
+  assert.equal(await favoritesModal.count(), 0);
 
   // IMP-PW-01-R1: una finestra di preview aperta non deve sopravvivere alla
   // perdita di identity. Riapriamo la preview (chiusa sopra) e simuliamo una

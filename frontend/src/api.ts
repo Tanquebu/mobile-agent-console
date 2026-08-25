@@ -914,6 +914,31 @@ export async function deleteArchive(id: string): Promise<void> {
   });
 }
 
+export type Favorite = {
+  id: string;
+  path: string;
+  label: string | null;
+  added_by: string;
+  added_at: string;
+};
+
+export async function listFavorites(): Promise<Favorite[]> {
+  const response = await request("/api/v1/favorites");
+  return (await response.json()).favorites;
+}
+
+export async function addFavorite(path: string, label?: string | null): Promise<Favorite> {
+  const response = await request("/api/v1/favorites", {
+    method: "POST",
+    body: JSON.stringify({ path, label: label ?? null }),
+  });
+  return response.json();
+}
+
+export async function deleteFavorite(id: string): Promise<void> {
+  await request(`/api/v1/favorites/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 export async function renameSession(id: string, name: string) {
   await request(`/api/v1/sessions/${encodeURIComponent(id)}/rename`, {
     method: "POST",
