@@ -144,3 +144,57 @@ test("la modale artefatti mostra e copia il percorso fornito dal backend", () =>
   assert.match(artifactsModal, /copyToClipboard\(artifactDirectory\)/);
   assert.match(artifactsModal, /directoryCopied \? t\.copied : t\.copyPath/);
 });
+
+// IMP-PW-03: fase 3 del window manager delle anteprime, template di layout
+// affiancati (ADR 015, GATE-PW-03).
+const previewTile = app.slice(
+  app.indexOf("function PreviewTile("),
+  app.indexOf("function PreviewLayoutSwitcher("),
+);
+
+test("il window manager espone il tipo LayoutMode e i suoi slot", () => {
+  assert.match(previewWindowManager, /type LayoutMode = "1x1" \| "2v" \| "2h" \| "4";/);
+  assert.match(previewWindowManager, /function slotsForLayout\(mode: LayoutMode\): number \{/);
+  assert.match(previewWindowManager, /mode === "1x1" \? 1 : mode === "4" \? 4 : 2;/);
+});
+
+test("al più una finestra fullscreen alla volta (GATE-PW-03 punto 7)", () => {
+  assert.match(
+    previewWindowManager,
+    /if \(entry\.id === id\) return \{ \.\.\.entry, fullscreen: !entry\.fullscreen \};\s*return entry\.fullscreen \? \{ \.\.\.entry, fullscreen: false \} : entry;/,
+  );
+});
+
+test("PreviewTile non intercetta Escape (GATE-PW-03 punto 6)", () => {
+  assert.doesNotMatch(previewTile, /addEventListener\("keydown"/);
+  assert.match(previewTile, /role="dialog" aria-modal="false"/);
+});
+
+test("PreviewWindowHost e PreviewTray non hanno variazioni testuali in questa fase", () => {
+  assert.match(previewWindowManager, /const closeOnEscape = \(event: KeyboardEvent\) => \{/);
+  assert.match(previewWindowManager, /if \(event\.key === "Escape"\) close\(\);/);
+  assert.match(previewWindowManager, /role="toolbar" aria-label=\{t\.previewTray\}/);
+  assert.match(previewWindowManager, /className="preview-tray-chip-close"/);
+});
+
+test("il selettore di layout è separato dal tray e usa le 4 etichette dei template", () => {
+  assert.match(previewWindowManager, /function PreviewLayoutSwitcher\(\)/);
+  assert.match(previewWindowManager, /const \{ layoutMode, changeLayoutMode \} = usePreviewWindows\(\);/);
+  assert.match(previewWindowManager, /role="group" aria-label=\{t\.previewLayoutPicker\}/);
+  assert.match(previewWindowManager, /label: t\.layout1x1/);
+  assert.match(previewWindowManager, /label: t\.layout2Vertical/);
+  assert.match(previewWindowManager, /label: t\.layout2Horizontal/);
+  assert.match(previewWindowManager, /label: t\.layout4/);
+});
+
+test("il tray resta nascosto in modalità solitaria e riappare nel workspace con 2+ finestre", () => {
+  assert.match(
+    previewWindowManager,
+    /\{visibleWindows\.length === 0 && minimizedWindows\.length > 0 && <PreviewTray windows=\{minimizedWindows\} \/>\}/,
+  );
+  assert.match(
+    previewWindowManager,
+    /\{minimizedWindows\.length > 0 && <PreviewTray windows=\{minimizedWindows\} \/>\}/,
+  );
+  assert.match(previewWindowManager, /function PreviewWorkspace\(/);
+});

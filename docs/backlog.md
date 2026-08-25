@@ -5895,3 +5895,759 @@ systemctl --user status mobile-agent-console-provider-session-states.service
   (`AuditModal`) e uno scenario esteso a 4 finestre per il tray, oltre ai
   cinque punti richiesti. `GATE-PW-02` rispettato: il tray non è mai nel
   DOM mentre una finestra è a fuoco.
+
+#### PW-03 — Template di layout affiancati (Fase 3)
+
+- [x] GATE-PW-03 | OWNER: ROOT | STATUS: PASSED | Utente ha confermato di
+  proseguire ("proseguiamo") dopo la chiusura della Fase 2 (commit
+  `76569d3` su `feat/preview-window-manager`). Scope: i 4 template fissi
+  dell'ADR 015 (1×1, 2 verticali, 2 orizzontali, 4 miste) come CSS Grid,
+  selezionabili da un controllo persistente, con più finestre di preview
+  visibili contemporaneamente sullo stesso schermo da 720px in su. Sotto
+  720px nessun cambiamento visibile: resta singola finestra fullscreen +
+  tray, esattamente come le Fasi 1-2. Nessuna modifica al backend, nessun
+  preferito (Fase 4).
+
+  **Decisioni di scope prese da ROOT, vincolanti per l'implementazione:**
+
+  1. **Il trascinamento libero ("flottante") descritto nell'ADR è
+     esplicitamente escluso da questa fase**, non solo il ridimensionamento
+     (già escluso dall'ADR stesso). Motivazione: il drag via title bar
+     introduce gestione di pointer event, conflitti con lo scroll touch e
+     persistenza di una geometria per finestra — la stessa categoria di
+     complessità per cui l'ADR ha già rimandato il resize libero, per un
+     bisogno (affiancare N file con un template) già coperto dai 4 template
+     fissi. Se richiesto esplicitamente in futuro, è un'iterazione a sé.
+
+  2. **Modello di stato: da fuoco singolo (`focusedId: string | null`) a
+     un elenco ordinato di finestre visibili (`visibleIds: string[]`)**,
+     capacità pari agli slot del `layoutMode` corrente (1, 2, 2, 4). Regola
+     di eviction uniforme in ogni punto in cui la capacità viene superata
+     (apertura, ripristino da tray, cambio layout che riduce la capacità):
+     si tengono le finestre più recenti, si manda in tray la più vecchia
+     visibile. Nessuna promozione automatica di una finestra minimizzata
+     quando una visibile si chiude (stessa scelta già presa in
+     `GATE-PW-02`, generalizzata).
+
+  3. **Il tray (`PreviewTray`, invariato da Fase 2) resta nascosto ogni
+     volta che c'è esattamente una finestra visibile in modalità solitaria
+     (`PreviewWindowHost`, sia fullscreen sia normale)** — stessa regola di
+     `GATE-PW-02`, per lo stesso motivo (il backdrop centrato/bottom-anchor
+     di quella vista non lascia spazio garantito per una barra fissa in
+     fondo, specialmente sotto 720px dove il dialog è bottom-anchored).
+     Novità di questa fase: quando **due o più** finestre sono visibili in
+     un template (`PreviewWorkspace`), il tray **può** comparire assieme
+     alle tile — è un percorso di rendering nuovo introdotto solo ora, che
+     riserva lo spazio del tray con un padding sulla griglia invece di
+     sovrapporlo (vedi spec `IMP-PW-03`). Non è una revisione della regola
+     di Fase 2 sul percorso già testato: è una regola nuova per un percorso
+     nuovo.
+
+  4. **Il selettore di layout non vive nel tray**, ma in un controllo
+     persistente separato (`PreviewLayoutSwitcher`, angolo dello schermo,
+     ≥720px) mostrato ogni volta che esiste almeno una finestra di preview
+     (visibile o minimizzata) e nessuna è a schermo intero — così resta
+     raggiungibile anche quando c'è una sola finestra visibile (il caso più
+     comune: si apre un file, si vuole passare subito a "2 verticali" prima
+     di aprirne un secondo), senza toccare la regola di visibilità del tray
+     al punto 3.
+
+  5. **Invarianza di `hasActivePreviewWindow`**: significato allargato da
+     "la finestra a fuoco intercetta Escape" a "almeno una finestra di
+     preview è visibile" (`visibleWindows.length > 0`), fullscreen o
+     tiled indifferentemente. Il contratto verso `DirectoryModal`/
+     `ArtifactsModal` (sopprime il loro Escape mentre una preview è
+     visibile) resta lo stesso, solo esteso al caso tiled.
+
+  6. **Escape non chiude nulla mentre 2+ finestre sono visibili in un
+     template.** Solo il percorso solitario/fullscreen (`PreviewWindowHost`,
+     invariato da Fase 1-2) resta in ascolto di Escape. Le singole tile
+     (`PreviewTile`, nuovo) non lo intercettano: intercettarlo in ognuna
+     chiuderebbe tutte le finestre visibili insieme al primo Escape (bug
+     concreto, non ipotetico: oggi non si manifesta solo perché non è mai
+     stata montata più di una `PreviewWindowHost` alla volta). Si chiude o
+     minimizza ogni tile dal proprio pulsante. Scelta deliberata, non
+     omissione.
+
+  7. **Al più una finestra fullscreen alla volta**, applicato in
+     `toggleWindowFullscreen`: attivarlo su una finestra lo disattiva su
+     tutte le altre. Attivare il fullscreen su una tile fa uscire dalla
+     vista a template e passa al percorso solitario esistente
+     (`PreviewWindowHost`, look invariato); disattivarlo torna al template
+     se restano 2+ finestre visibili.
+
+- [x] IMP-PW-03 | OWNER: SA-IMP | STATUS: DONE | **Fase 3 — template di
+  layout affiancati, in `frontend/src/App.tsx`, `frontend/src/i18n.ts`,
+  `frontend/src/styles.css`.** Legge prima
+  `docs/adr/015-preview-window-manager.md` e questa voce per intero
+  (incluso `GATE-PW-03`, vincolante). Punto di partenza: `PreviewWindowsProvider`
+  così come consegnato da `IMP-PW-02`/`TEST-PW-02-T2` (`focusedId`,
+  `focusedIdRef`, `MAX_PREVIEW_WINDOWS`, `PreviewTray`, `PreviewWindowHost`,
+  tutti immediatamente prima di `function PreviewModal(`).
+
+  **1. Nuovo tipo e helper**, subito dopo `type PreviewWindowState = {...}`:
+  ```ts
+  type LayoutMode = "1x1" | "2v" | "2h" | "4";
+  function slotsForLayout(mode: LayoutMode): number {
+    return mode === "1x1" ? 1 : mode === "4" ? 4 : 2;
+  }
+  ```
+
+  **2. `PreviewWindowsContextValue`**: aggiungere due campi,
+  `layoutMode: LayoutMode` e `changeLayoutMode: (mode: LayoutMode) => void`.
+
+  **3. `PreviewWindowsProvider` — sostituire `focusedId`/`focusedIdRef` con
+  `visibleIds`/`visibleIdsRef`, aggiungere `layoutMode`/`layoutModeRef`:**
+  ```ts
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>("1x1");
+  const layoutModeRef = useRef<LayoutMode>("1x1");
+  useEffect(() => { layoutModeRef.current = layoutMode; }, [layoutMode]);
+
+  const [visibleIds, setVisibleIds] = useState<string[]>([]);
+  const visibleIdsRef = useRef<string[]>([]);
+  useEffect(() => { visibleIdsRef.current = visibleIds; }, [visibleIds]);
+
+  useEffect(() => {
+    if (!active) { setWindows([]); setVisibleIds([]); setLayoutMode("1x1"); }
+  }, [active]);
+  ```
+  (Il precedente `useEffect` di reset su `active` da `IMP-PW-01-R1` viene
+  sostituito da questo: stesso trigger, stesso scopo — non deve restarne
+  una copia doppia.)
+
+  **4. `openPreviewWindow`** — la nuova finestra entra sempre tra le
+  visibili; se la finestra evictata dal cap a 8 (`MAX_PREVIEW_WINDOWS`,
+  invariato) era tra le visibili, va tolta anche da lì nello stesso giro:
+  ```ts
+  const openPreviewWindow = useCallback((init: {
+    resolveSource: (path: string) => PreviewSourceInput;
+    siblings: string[];
+    initialPath: string;
+  }) => {
+    previewWindowSeq += 1;
+    const id = `preview-${previewWindowSeq}`;
+    const created: PreviewWindowState = {
+      id,
+      resolveSource: init.resolveSource,
+      siblings: init.siblings,
+      currentPath: init.initialPath,
+      fullscreen: false,
+    };
+    let evictedId: string | null = null;
+    setWindows((current) => {
+      if (current.length < MAX_PREVIEW_WINDOWS) return [...current, created];
+      const evictIndex = current.findIndex((entry) => !visibleIdsRef.current.includes(entry.id));
+      if (evictIndex >= 0) evictedId = current[evictIndex].id;
+      const trimmed = evictIndex >= 0 ? current.filter((_, index) => index !== evictIndex) : current;
+      return [...trimmed, created];
+    });
+    setVisibleIds((current) => {
+      const withoutEvicted = evictedId ? current.filter((v) => v !== evictedId) : current;
+      const capacity = slotsForLayout(layoutModeRef.current);
+      const next = [...withoutEvicted, id];
+      return next.length <= capacity ? next : next.slice(next.length - capacity);
+    });
+  }, []);
+  ```
+  Nota sull'eviction del cap a 8: prima (Fase 2) evitava di evictare la
+  finestra a fuoco; ora evita di evictare qualunque finestra visibile
+  (`!visibleIdsRef.current.includes(...)`), preferendo sempre una
+  minimizzata in background — stessa intenzione, generalizzata a N slot.
+
+  **5. `closePreviewWindow`** — invariato nella forma, ma toglie l'id anche
+  da `visibleIds` invece che da `focusedId`:
+  ```ts
+  const closePreviewWindow = useCallback((id: string) => {
+    setWindows((current) => current.filter((entry) => entry.id !== id));
+    setVisibleIds((current) => current.filter((v) => v !== id));
+  }, []);
+  ```
+
+  **6. `toggleWindowFullscreen`** — applica la regola "al più una
+  fullscreen alla volta" (`GATE-PW-03`, punto 7):
+  ```ts
+  const toggleWindowFullscreen = useCallback((id: string) => {
+    setWindows((current) => current.map((entry) => {
+      if (entry.id === id) return { ...entry, fullscreen: !entry.fullscreen };
+      return entry.fullscreen ? { ...entry, fullscreen: false } : entry;
+    }));
+  }, []);
+  ```
+
+  **7. `navigateWindow`**: invariato, nessuna modifica.
+
+  **8. `minimizePreviewWindow`/`restorePreviewWindow`** — stessa idea di
+  Fase 2, ora su un elenco invece che un singolo id, con la stessa regola
+  di eviction del punto 4:
+  ```ts
+  const minimizePreviewWindow = useCallback((id: string) => {
+    setVisibleIds((current) => current.filter((v) => v !== id));
+  }, []);
+  const restorePreviewWindow = useCallback((id: string) => {
+    setVisibleIds((current) => {
+      if (current.includes(id)) return current;
+      const capacity = slotsForLayout(layoutModeRef.current);
+      const next = [...current, id];
+      return next.length <= capacity ? next : next.slice(next.length - capacity);
+    });
+  }, []);
+  ```
+
+  **9. Nuova azione `changeLayoutMode`** (aggiungerla al context):
+  ```ts
+  const changeLayoutMode = useCallback((mode: LayoutMode) => {
+    setLayoutMode(mode);
+    setVisibleIds((current) => {
+      const capacity = slotsForLayout(mode);
+      return current.length <= capacity ? current : current.slice(current.length - capacity);
+    });
+  }, []);
+  ```
+
+  **10. Derivati** (dopo tutti gli hook, prima del `useMemo` del value):
+  ```ts
+  const visibleWindows = visibleIds
+    .map((id) => windows.find((entry) => entry.id === id))
+    .filter((entry): entry is PreviewWindowState => entry != null);
+  const minimizedWindows = windows.filter((entry) => !visibleIds.includes(entry.id));
+  const fullscreenWindow = visibleWindows.find((entry) => entry.fullscreen) ?? null;
+  ```
+
+  **11. `value` memoizzato** — aggiungere `layoutMode`/`changeLayoutMode`,
+  `hasActivePreviewWindow` diventa `visibleWindows.length > 0`:
+  ```ts
+  const value = useMemo<PreviewWindowsContextValue>(() => ({
+    hasActivePreviewWindow: visibleWindows.length > 0,
+    openPreviewWindow,
+    closePreviewWindow,
+    toggleWindowFullscreen,
+    navigateWindow,
+    minimizePreviewWindow,
+    restorePreviewWindow,
+    layoutMode,
+    changeLayoutMode,
+  }), [visibleWindows.length, openPreviewWindow, closePreviewWindow, toggleWindowFullscreen, navigateWindow, minimizePreviewWindow, restorePreviewWindow, layoutMode, changeLayoutMode]);
+  ```
+
+  **12. Render del provider** — sostituisce l'attuale
+  `{focusedWindow && <PreviewWindowHost .../>}` / tray:
+  ```tsx
+  return (
+    <PreviewWindowsContext.Provider value={value}>
+      {children}
+      {fullscreenWindow ? (
+        <PreviewWindowHost key={fullscreenWindow.id} entry={fullscreenWindow} />
+      ) : visibleWindows.length === 1 ? (
+        <PreviewWindowHost key={visibleWindows[0].id} entry={visibleWindows[0]} />
+      ) : visibleWindows.length > 1 ? (
+        <PreviewWorkspace windows={visibleWindows} layoutMode={layoutMode} minimizedWindows={minimizedWindows} />
+      ) : null}
+      {visibleWindows.length === 0 && minimizedWindows.length > 0 && <PreviewTray windows={minimizedWindows} />}
+      {!fullscreenWindow && windows.length > 0 && <PreviewLayoutSwitcher />}
+    </PreviewWindowsContext.Provider>
+  );
+  ```
+  `PreviewWindowHost` e `PreviewTray`: **nessuna modifica al loro codice**,
+  riusati esattamente come consegnati da `IMP-PW-02` (zero rischio di
+  regressione sul percorso solitario, già testato due volte).
+
+  **13. Nuovo componente `PreviewWorkspace`**, colocato subito dopo
+  `PreviewTray` (prima di `PreviewWindowHost`):
+  ```tsx
+  function PreviewWorkspace({ windows, layoutMode, minimizedWindows }: {
+    windows: PreviewWindowState[];
+    layoutMode: LayoutMode;
+    minimizedWindows: PreviewWindowState[];
+  }) {
+    const t = translations[readLanguage()];
+    return (
+      <div className="preview-workspace" role="region" aria-label={t.previewWorkspace}>
+        <div
+          className={`preview-workspace-grid${minimizedWindows.length > 0 ? " preview-workspace-grid-with-tray" : ""}`}
+          data-layout={layoutMode}
+        >
+          {windows.map((entry) => <PreviewTile key={entry.id} entry={entry} />)}
+        </div>
+        {minimizedWindows.length > 0 && <PreviewTray windows={minimizedWindows} />}
+      </div>
+    );
+  }
+  ```
+
+  **14. Nuovo componente `PreviewTile`**, colocato subito dopo
+  `PreviewWorkspace` (prima di `PreviewWindowHost`) — stessa costruzione di
+  `source`/`navigation` di `PreviewWindowHost`, ma senza backdrop, senza
+  ascolto di Escape (`GATE-PW-03`, punto 6):
+  ```tsx
+  function PreviewTile({ entry }: { entry: PreviewWindowState }) {
+    const { closePreviewWindow, toggleWindowFullscreen, navigateWindow, minimizePreviewWindow } = usePreviewWindows();
+    const index = entry.siblings.indexOf(entry.currentPath);
+    const close = useCallback(() => closePreviewWindow(entry.id), [closePreviewWindow, entry.id]);
+    const source: PreviewSource = { ...entry.resolveSource(entry.currentPath), onBack: close };
+    const navigation: PreviewNavigation = {
+      index,
+      total: entry.siblings.length,
+      onPrevious: index > 0 ? () => navigateWindow(entry.id, -1) : null,
+      onNext: index >= 0 && index < entry.siblings.length - 1 ? () => navigateWindow(entry.id, 1) : null,
+    };
+    return (
+      <section className="preview-tile" role="dialog" aria-modal="false" aria-label={translations[readLanguage()].filePreview}>
+        <PreviewModal
+          source={source}
+          navigation={navigation}
+          fullscreen={false}
+          onToggleFullscreen={() => toggleWindowFullscreen(entry.id)}
+          onMinimize={() => minimizePreviewWindow(entry.id)}
+        />
+      </section>
+    );
+  }
+  ```
+
+  **15. Nuovo componente `PreviewLayoutSwitcher`**, colocato subito dopo
+  `PreviewTile`:
+  ```tsx
+  function PreviewLayoutSwitcher() {
+    const { layoutMode, changeLayoutMode } = usePreviewWindows();
+    const t = translations[readLanguage()];
+    const layouts: { mode: LayoutMode; label: string }[] = [
+      { mode: "1x1", label: t.layout1x1 },
+      { mode: "2v", label: t.layout2Vertical },
+      { mode: "2h", label: t.layout2Horizontal },
+      { mode: "4", label: t.layout4 },
+    ];
+    return (
+      <div className="preview-layout-switcher" role="group" aria-label={t.previewLayoutPicker}>
+        {layouts.map((item) => (
+          <button
+            key={item.mode}
+            type="button"
+            className="preview-layout-button"
+            aria-pressed={layoutMode === item.mode}
+            aria-label={item.label}
+            title={item.label}
+            onClick={() => changeLayoutMode(item.mode)}
+          >
+            {item.mode === "1x1" ? "▢" : item.mode === "2v" ? "▥" : item.mode === "2h" ? "▤" : "▦"}
+          </button>
+        ))}
+      </div>
+    );
+  }
+  ```
+
+  **16. i18n** (`frontend/src/i18n.ts`, entrambi i blocchi `it`/`en`,
+  subito dopo `previewTray`):
+  ```ts
+  // it
+  layout1x1: "Finestra singola",
+  layout2Vertical: "2 verticali",
+  layout2Horizontal: "2 orizzontali",
+  layout4: "4 riquadri",
+  previewLayoutPicker: "Layout anteprime",
+  previewWorkspace: "Anteprime affiancate",
+  // en
+  layout1x1: "Single window",
+  layout2Vertical: "2 vertical",
+  layout2Horizontal: "2 horizontal",
+  layout4: "4 panes",
+  previewLayoutPicker: "Preview layout",
+  previewWorkspace: "Side-by-side previews",
+  ```
+
+  **17. CSS** (`frontend/src/styles.css`), riusa gli stessi toni di colore
+  di `.help-modal`/`.preview-tray`/`.modal-fullscreen` (nessun nuovo
+  token):
+  ```css
+  .preview-workspace { position: fixed; z-index: 100; inset: 0; display: flex; flex-direction: column; background: #000a; padding: 16px; gap: 10px; }
+  .preview-workspace-grid { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+  .preview-workspace-grid-with-tray { padding-bottom: 64px; }
+  .preview-tile { display: flex; flex-direction: column; min-height: 45vh; border: 1px solid #3a5142; border-radius: 16px; padding: 16px; background: #141d17; overflow: auto; }
+  .preview-layout-switcher { display: none; }
+  .preview-layout-button { min-width: 36px; min-height: 36px; border: 0; border-radius: 8px; background: #1b2820; color: #d2e3d7; font-size: 1rem; cursor: pointer; }
+  .preview-layout-button:hover { background: #244634; color: #a4f0c1; }
+  .preview-layout-button[aria-pressed="true"] { background: #2a3f30; color: #8ee2aa; }
+  @media (min-width: 720px) {
+    .preview-workspace-grid { display: grid; overflow: hidden; }
+    .preview-workspace-grid[data-layout="2v"] { grid-template-columns: repeat(2, 1fr); }
+    .preview-workspace-grid[data-layout="2h"] { grid-template-rows: repeat(2, 1fr); }
+    .preview-workspace-grid[data-layout="4"] { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); }
+    .preview-tile { min-height: 0; }
+    .preview-layout-switcher { position: fixed; z-index: 106; top: 12px; right: 12px; display: flex; gap: 4px; padding: 4px; border: 1px solid #344b3b; border-radius: 10px; background: #121c15ee; backdrop-filter: blur(12px); }
+  }
+  ```
+  `z-index: 106` per lo switcher: sopra `.modal-backdrop`/`.preview-workspace`
+  (100), sotto `.preview-tray` (110, invariato) — non dovrebbero mai
+  sovrapporsi spazialmente (angolo in alto a destra contro barra in fondo),
+  l'ordine è solo difensivo.
+
+  **File da NON toccare**: `DirectoryModal`, `ArtifactsModal`, `Console`
+  (i tre punti di chiamata di `openPreviewWindow` non cambiano firma né
+  comportamento in questa fase), `PreviewWindowHost`, `PreviewTray`,
+  `PreviewModal` (a parte nessuna modifica: i due componenti restano
+  quelli consegnati da `IMP-PW-02`), backend, e qualunque modifica
+  preesistente nel working tree non pertinente. Non fare `git commit` (lo
+  fa ROOT dopo la verifica). Siamo su un branch
+  (`feat/preview-window-manager`), non serve crearne uno nuovo.
+
+  **Test**: i test statici esistenti
+  (`frontend/tests/directory-project-ui.test.mjs`,
+  `frontend/tests/opencode-blocks-ui.test.mjs`) non referenziano
+  `focusedId`/`focusedWindow`/`activeWindow` (verificato: solo
+  `hasActivePreviewWindow`, invariato come nome e come punto di chiamata in
+  `DirectoryModal`), quindi non dovrebbero richiedere modifiche — verificalo
+  comunque rieseguendoli. Aggiungi test statici nuovi in
+  `frontend/tests/directory-project-ui.test.mjs` (slice
+  `previewWindowManager`, già presente) che verifichino: `type LayoutMode`,
+  `slotsForLayout`, la regola "al più una fullscreen" in
+  `toggleWindowFullscreen`, l'assenza di ascolto di Escape in `PreviewTile`
+  (`doesNotMatch` su `addEventListener\("keydown"` dentro lo slice di
+  `PreviewTile`), e che `PreviewWindowHost`/`PreviewTray` non contengano
+  variazioni testuali (`doesNotMatch` mirati, non un intero re-check).
+  Aggiungi almeno un test browser nuovo in
+  `frontend/tests/directory-preview-browser.mjs` a viewport ≥720px (es.
+  1024×768) che: apre due file (`due.txt` dopo `uno.txt`), verifica che
+  senza cambiare layout la seconda apertura sostituisce la prima come
+  singola finestra visibile (comportamento invariato di default,
+  `layoutMode` parte da `"1x1"`), poi clicca il bottone layout "2
+  verticali" dello `PreviewLayoutSwitcher`, riapre `uno.txt`, verifica che
+  **entrambi** `uno.txt` e `due.txt` risultino visibili contemporaneamente
+  (due `.preview-tile` nel DOM, non un solo dialog), controlla che
+  `getBoundingClientRect` dei due tile non si sovrapponga in orizzontale
+  (layout realmente a due colonne, non solo "due elementi nel DOM"). Aggiungi
+  un secondo test che minimizzi uno dei due tile e verifichi che il tray
+  compaia con una chip mentre l'altro tile resta visibile, poi lo ripristini
+  e verifichi che torni a due tile visibili. Verifica anche a viewport
+  <720px (es. 375×667, quello già usato altrove) che l'apertura di due file
+  in sequenza risulti sempre e solo in un'unica finestra fullscreen visibile
+  con l'altra in tray, indipendentemente da `layoutMode` (nessuna
+  regressione sul comportamento mobile). Esegui `npm run build`, `npm run
+  test:ui`, `npm run test:directory:browser`, `npm run test:console:browser`
+  (nota ambiente: `vite preview` si lega solo a `::1` in questo sandbox,
+  avviare con `--host 127.0.0.1` sulle porte lette da
+  `MAC_BROWSER_BASE_URL` nei due file browser prima di rilanciare).
+
+  Chiudi con `STATUS: DONE`, riportando scostamenti dalla specifica (se
+  presenti, con motivazione) come già fatto in `IMP-PW-02`, ed esito della
+  scansione dati personali sul diff.
+
+  **Chiusura (SA-IMP).** Implementati i punti 1-11, 13-17 esattamente come
+  da specifica in `frontend/src/App.tsx` (`type LayoutMode`/`slotsForLayout`,
+  `visibleIds`/`visibleIdsRef`/`layoutMode`/`layoutModeRef` al posto di
+  `focusedId`/`focusedIdRef`, eviction generalizzata a "qualunque finestra
+  non visibile" in `openPreviewWindow`, `toggleWindowFullscreen` con la
+  regola "al più una fullscreen", `minimizePreviewWindow`/
+  `restorePreviewWindow`/`changeLayoutMode` su `visibleIds` con clamp alla
+  capacità del layout, derivati `visibleWindows`/`minimizedWindows`/
+  `fullscreenWindow`, componenti `PreviewWorkspace`/`PreviewTile`/
+  `PreviewLayoutSwitcher` colocati come richiesto, `PreviewWindowHost`/
+  `PreviewTray` non toccati), `frontend/src/i18n.ts` (le 6 chiavi
+  `layout1x1`/`layout2Vertical`/`layout2Horizontal`/`layout4`/
+  `previewLayoutPicker`/`previewWorkspace` in `it`/`en`, subito dopo
+  `previewTray`) e `frontend/src/styles.css` (`.preview-workspace*`,
+  `.preview-tile`, `.preview-layout-switcher*`, media query 720px, z-index
+  106 come da spec). `DirectoryModal`, `ArtifactsModal`, `Console` e il
+  backend non sono stati toccati (verificato anche via `git diff --stat` +
+  hunk headers, tutte le modifiche di `App.tsx` cadono nell'intervallo
+  1407-1627, cioè dentro il window manager).
+
+  **Scostamento dalla specifica (maggiore, con motivazione — trovato solo
+  scrivendo il test browser, non in fase di sola lettura).** Il punto 12
+  della specifica (`visibleWindows.length === 1 ? Host : length > 1 ?
+  Workspace`) rende **irraggiungibile via UI** qualunque stato con 2+
+  finestre visibili, quindi l'intero scopo della fase. Motivo: sia il
+  percorso solitario (`PreviewWindowHost`/`.modal-backdrop`) sia
+  `PreviewWorkspace` sono overlay `position: fixed; inset: 0` che coprono
+  l'intero schermo, quindi bloccano sempre l'accesso a `DirectoryModal`
+  sottostante; il tray (unico altro modo per rimettere in visibile una
+  finestra minimizzata) è per regola (`GATE-PW-03` punto 3) reso invisibile
+  ogni volta che c'è **esattamente una** finestra visibile in modalità
+  solitaria. Risultato: appena una prima finestra diventa l'unica visibile
+  (da apertura o da ripristino dal tray), sia la directory sia il tray
+  spariscono contemporaneamente nello stesso render — non esiste alcuna
+  sequenza di azioni (aprire, minimizzare, ripristinare, in qualunque
+  ordine) che possa mai far crescere `visibleIds` oltre la lunghezza 1,
+  perché il solo controllo capace di aggiungere un secondo id (lista
+  directory o chip del tray) è sempre quello nascosto dal render con
+  esattamente 1 finestra visibile. Il `PreviewLayoutSwitcher` fa eccezione
+  (z-index 106, sopra i 100 del backdrop) e resta cliccabile anche a
+  finestra solitaria visibile, ma cambiare `layoutMode` da solo non
+  aggiunge finestre a `visibleIds`. Corretto cambiando **solo** la
+  condizione di scelta fra `PreviewWindowHost` e `PreviewWorkspace` al
+  punto 12: non più "esattamente 1 visibile ⇒ solitario, 2+ ⇒ template",
+  ma "`layoutMode === '1x1'` ⇒ solitario (0 o 1 visibile, comportamento
+  identico a prima), altrimenti (`layoutMode` non `1x1`) ⇒ `PreviewWorkspace`
+  già a partire da 1 sola finestra visibile". Con questa modifica, il tray
+  interno di `PreviewWorkspace` (già previsto dal punto 13, condizionato
+  solo a `minimizedWindows.length > 0`, non al numero di tile) diventa
+  raggiungibile anche con un solo tile popolato, permettendo di ripristinare
+  la seconda finestra da lì — la sequenza realmente percorribile e
+  verificata dal test browser è: aprire e minimizzare ogni file da
+  `DirectoryModal` uno alla volta (a 0 finestre visibili la directory è
+  sempre raggiungibile), cambiare `layoutMode` dal selettore (raggiungibile
+  a qualunque numero di finestre visibili), poi ripristinare le finestre
+  volute dal tray una alla volta finché il template non le mostra tutte.
+  Non è una revisione delle regole di `GATE-PW-03`: a `layoutMode === "1x1"`
+  il comportamento (0/1 finestra, tray nascosto se 1 visibile) è identico,
+  bit per bit, a quanto specificato; punto 3 ("nascosto... in modalità
+  solitaria, `PreviewWindowHost`") resta vero perché con questa correzione
+  una finestra singola sotto layout non-1x1 non passa più da
+  `PreviewWindowHost` — non è più "modalità solitaria" nel senso stretto in
+  cui la definisce il gate (per componente, non per conteggio); punto 6
+  (Escape disattivo con 2+ visibili) resta vero — l'unico effetto
+  collaterale è che anche con **1 sola** finestra visibile sotto layout
+  non-1x1 l'Escape non la chiude più (passa da `PreviewTile`, non da
+  `PreviewWindowHost`), recuperabile comunque col bottone di minimizza/
+  chiusura della tile o tornando a `layoutMode: "1x1"` dal selettore.
+  Verificato con `TEST-PW-03-T1`-style check manuali durante lo sviluppo:
+  a `layoutMode` `"1x1"` il comportamento resta bit-per-bit quello di Fase
+  1-2 (nessuna regressione sul percorso già testato due volte).
+
+  **Scostamento minore (test).** La sotto-sezione "Test" descriveva un
+  secondo test browser come "minimizza uno dei due tile visibili → il tray
+  compare con una chip mentre l'altro resta visibile". Con esattamente due
+  tile visibili, minimizzarne uno porta `visibleWindows.length` a 1, che
+  per il punto 12 (anche nella versione corretta sopra, se `layoutMode` è
+  comunque non-1x1) resta un caso limite ambiguo rispetto al punto 3, che
+  vieta esplicitamente il tray quando c'è **esattamente** una finestra in
+  modalità solitaria — vincolo che ho scelto di non toccare (`TEST-PW-03-T1`
+  lo elenca esplicitamente come non-regressione da verificare). Il test è
+  stato quindi scritto partendo da **tre** finestre visibili (layout `"4"`):
+  minimizzarne una ne lascia 2 visibili (resta un template, non collassa),
+  che è l'unico modo per osservare "tray + tile visibili" da un'azione di
+  minimizzazione senza violare il punto 3. Stessa intenzione del test
+  originale (verificare che minimizzare una tile non porti via le altre e
+  che il tray compaia), scenario adattato per essere effettivamente
+  raggiungibile.
+
+  **Comandi eseguiti (esiti reali):**
+  - `npm run build` → `tsc -b && vite build` completa senza errori (`✓ 36
+    modules transformed`).
+  - `npm run test:ui` → 8 suite, tutte verdi: 25+24+7+5+10+17+2+18 = 108
+    test, 0 fallimenti (host, budget, console, admin, timeline, opencode,
+    session-guard, directory — la suite `directory` è salita da 12 a 18
+    test con le 6 nuove verifiche statiche su `LayoutMode`, "al più una
+    fullscreen", assenza di Escape in `PreviewTile`, invarianza testuale di
+    `PreviewWindowHost`/`PreviewTray`, `PreviewLayoutSwitcher`, e la
+    coesistenza tray/workspace).
+  - `npm run test:directory:browser` (con `vite preview --host 127.0.0.1
+    --port 4173 --strictPort` avviato a parte) → `Directory/artifact
+    preview navigation browser checks passed`, incluso il blocco esistente
+    di Fase 1-2 (invariato) più i tre blocchi nuovi di Fase 3: template
+    ≥720px (apri/minimizza in sequenza, layout "2 verticali" con bbox a due
+    colonne non sovrapposte, tray+template con 3 finestre e layout "4",
+    minimizza/ripristina una tile su tre) e non-regressione mobile <720px
+    (sempre e solo una finestra fullscreen visibile, l'altra minimizzata,
+    mai un tile, selettore layout non visibile).
+  - `npm run test:console:browser` (con `vite preview --host 127.0.0.1
+    --port 4174 --strictPort`) → `Session console browser checks passed
+    (block preview, Unicode, drafts, Clear, attachment overflow)`, nessuna
+    modifica a `Console`/questa suite, eseguita solo per non-regressione.
+  - Scansione dati personali sul diff (comando del protocollo, sui file
+    toccati in questo round): **nessuna occorrenza** (grep vuoto su
+    `frontend/src/App.tsx`, `frontend/src/i18n.ts`, `frontend/src/styles.css`,
+    `frontend/tests/directory-project-ui.test.mjs`,
+    `frontend/tests/directory-preview-browser.mjs`).
+
+  File toccati: `frontend/src/App.tsx`, `frontend/src/i18n.ts`,
+  `frontend/src/styles.css`, `frontend/tests/directory-project-ui.test.mjs`,
+  `frontend/tests/directory-preview-browser.mjs`, `docs/backlog.md`.
+  Working tree pulito a parte questi file più `docs/adr/015-preview-window-
+  manager.md` (già modificato da ROOT prima dell'inizio di questo round,
+  non toccato ulteriormente qui). Nessun commit creato (compito di ROOT
+  dopo la verifica).
+
+- [x] TEST-PW-03-T1 | OWNER: SA-TEST | STATUS: PASSED | Verifica
+  indipendente di `IMP-PW-03`: rieseguire tutti i comandi sopra con script
+  Playwright scritti da zero (non riusare quelli di `SA-IMP`). Controlli
+  minimi, oltre a rieseguire quanto sopra:
+  - I 4 layout (`1x1`, `2v`, `2h`, `4`) producono davvero geometrie diverse
+    a ≥720px (bounding box dei `.preview-tile` per ciascun layout, non solo
+    l'attributo `data-layout` nel DOM).
+  - Con 4 finestre aperte e layout `"4"`, tutte e 4 sono visibili
+    contemporaneamente (4 `.preview-tile`, nessuna in tray).
+  - Passare da `"4"` con 4 finestre visibili a `"1x1"` lascia esattamente 1
+    finestra visibile e le altre 3 in tray (regola di eviction del punto 2
+    di `GATE-PW-03`), e verificare quale resta visibile (la più
+    recentemente aperta/ripristinata, non una a caso).
+  - Con 2+ finestre visibili in un template, premere Escape non chiude né
+    minimizza nulla (`GATE-PW-03`, punto 6) — verificarlo con
+    `page.keyboard.press("Escape")` e controllo che il conteggio di
+    `.preview-tile` non cambi.
+  - Attivare il fullscreen su una tile esce dal template (torna al
+    percorso solitario, `.help-modal-fullscreen` nel DOM) e le altre
+    finestre che erano visibili restano aperte ma non renderizzate;
+    disattivarlo torna al template con tutte le finestre che erano visibili
+    ancora visibili (non perse).
+  - Il percorso solitario (1 finestra visibile, non fullscreen) non mostra
+    mai il tray insieme a sé (regola invariata di `GATE-PW-02`) anche con
+    finestre minimizzate presenti — regressione da escludere esplicitamente
+    dato che è la stessa area di codice toccata da questa fase.
+  - Passa a `READY_FOR_TEST` quando `IMP-PW-03` chiude `DONE`.
+
+  **Chiusura (SA-TEST). Verdetto: `PASSED`.**
+
+  Letti per intero `docs/adr/015-preview-window-manager.md` e l'intera
+  sezione PW-03 (`GATE-PW-03`, `IMP-PW-03` incluso lo scostamento
+  documentato, questa voce) prima di scrivere qualunque test. Riletto anche
+  il diff reale (`git diff -- frontend/src/App.tsx frontend/src/i18n.ts
+  frontend/src/styles.css frontend/tests/directory-project-ui.test.mjs
+  frontend/tests/directory-preview-browser.mjs`): conferma quanto
+  dichiarato da `IMP-PW-03`, incluso lo scostamento maggiore (punto 12
+  cambiato da "1 visibile ⇒ solitario, 2+ ⇒ template" a "`layoutMode ===
+  '1x1'` ⇒ solitario, altrimenti ⇒ `PreviewWorkspace` già da 1 finestra
+  visibile") — verificato riga per riga sul codice reale, non solo sul
+  testo del backlog.
+
+  **Comandi standard (esito reale, identico a quanto dichiarato da
+  `IMP-PW-03`):**
+  - `npm run build` → `tsc -b && vite build`, nessun errore, `✓ 36 modules
+    transformed`.
+  - `npm run test:ui` → 8 suite, 108/108 verdi (25+24+7+5+10+17+2+18, la
+    suite `directory` a 18 include le 6 nuove verifiche statiche di questa
+    fase).
+  - `npm run test:directory:browser` (con `vite preview --host 127.0.0.1
+    --port 4173 --strictPort`) → `Directory/artifact preview navigation
+    browser checks passed`.
+  - `npm run test:console:browser` (con `vite preview --host 127.0.0.1
+    --port 4174 --strictPort`) → `Session console browser checks passed
+    (block preview, Unicode, drafts, Clear, attachment overflow)`.
+
+  **Script Playwright indipendente scritto da zero** (non riuso di
+  `directory-preview-browser.mjs`, eseguito temporaneamente da
+  `frontend/tests/_sa-test-pw03-verify.mjs` con le dipendenze locali del
+  progetto e rimosso subito dopo — `git status` a fine round mostra solo i
+  file dichiarati sotto). Sei scenari, tutti con mock delle route
+  `/api/v1/**` e navigazione reale via UI (nessuna manipolazione diretta di
+  stato React):
+
+  1. **Geometrie diverse per i 4 layout (viewport 1024×768).** Aperti e
+     minimizzati `a.txt`/`b.txt`/`c.txt`/`d.txt`, poi ripristinati tutti su
+     layout `"4"`: 4 `.preview-tile`, 0 `.preview-tray`, bbox reali `a.txt
+     {x:16,y:16,w:490,h:362}`, `b.txt {x:518,y:16,w:490,h:362}`, `c.txt
+     {x:16,y:390,w:490,h:362}`, `d.txt {x:518,y:390,w:490,h:362}` — griglia
+     2×2 reale (2 valori distinti di `x`, 2 di `y`). Passato a `"2
+     verticali"` (trim di capacità a `c.txt`/`d.txt`, i due più
+     recentemente resi visibili): bbox `c.txt {x:16,y:16,w:490,h:672}`,
+     `d.txt {x:518,y:16,w:490,h:672}` — stessa riga, affiancate in
+     orizzontale. Passato a `"2 orizzontali"` con le **stesse due finestre**
+     ancora visibili (nessun cambio di capacità): bbox `c.txt
+     {x:16,y:16,w:992,h:330}`, `d.txt {x:16,y:358,w:992,h:330}` — stessa
+     colonna, impilate in verticale. Le bbox di 2v e 2h per le stesse due
+     finestre sono realmente diverse (non solo l'attributo `data-layout`).
+     Passato a `"1x1"` (trim a `d.txt`, la più recente): confermato **0**
+     `.preview-tile` e la finestra mostrata via `PreviewWindowHost`
+     (`[role="dialog"][aria-label="Anteprima file"]`, count 1, testo
+     `d.txt`) — nota di verifica sullo scostamento di `IMP-PW-03`: il
+     layout `1x1` non produce mai `.preview-tile` per costruzione (passa
+     sempre dal percorso solitario), quindi la sua "geometria diversa"
+     rispetto agli altri tre è strutturale (componente diverso, non solo
+     bbox), verificato esplicitamente invece di essere assunto.
+  2. **4 finestre aperte su layout `"4"`, tutte visibili.** In uno scenario
+     indipendente (sessione dedicata, file `e.txt..h.txt`), aperti e
+     minimizzati i 4 file, poi ripristinati in ordine su layout `"4"`: 4
+     `.preview-tile`, `.preview-tray` count 0.
+  3. **Da `"4"` (4 visibili) a `"1x1"`: resta la più recente, identificata
+     per nome.** Passato a `"1x1"`: `.preview-tile` count 0, un solo
+     `[role="dialog"][aria-label="Anteprima file"]` con
+     `h2.preview-file-name` contenente **`h.txt`** (la più recentemente
+     ripristinata, non una a caso — verificato leggendo il testo del
+     titolo, non solo il conteggio). Tray non renderizzato in quell'istante
+     (1 sola visibile in modalità solitaria, regola invariata); minimizzata
+     anche `h.txt`, il tray mostra tutte e 4 le chip (`e/f/g/h.txt`) — prova
+     che le altre tre non erano perse, solo minimizzate senza essere
+     renderizzate come chip mentre `h.txt` era a fuoco.
+  4. **Escape non chiude/minimizza nulla con 2+ visibili.** Layout `"2
+     verticali"` con `i.txt`/`j.txt` visibili (2 `.preview-tile`):
+     `page.keyboard.press("Escape")`, poi ricontrollato il conteggio e i
+     nomi — ancora 2 tile, ancora `i.txt` e `j.txt` presenti, nessun cambio.
+  5. **Fullscreen esce al percorso solitario, l'altra finestra non chiusa.**
+     Sullo stesso scenario, cliccato "Schermo intero" sulla tile di
+     `i.txt`: `.preview-tile` sparisce dal DOM (count 0),
+     `.help-modal-fullscreen` compare con testo `i.txt`; `j.txt` non è
+     renderizzata (0 occorrenze di dialog/tile/chip con quel testo) ma non è
+     chiusa — cliccato "Esci da schermo intero", tornano visibili **entrambe**
+     `i.txt` e `j.txt` come 2 tile (nessuna persa).
+  6. **Layout non-1x1 con 1 sola finestra visibile: il tray interno di
+     `PreviewWorkspace` DEVE comparire (non è una violazione di `GATE-PW-03`
+     punto 3).** Sullo stesso scenario, minimizzata `j.txt` lasciando solo
+     `i.txt` visibile sotto layout `"2v"` (non `"1x1"`): `.preview-tile`
+     count 1 (renderizzata via `PreviewWorkspace`, non `PreviewWindowHost` —
+     conferma diretta dello scostamento di `IMP-PW-03`), **`.preview-tray`
+     count 1** con la chip di `j.txt` — comportamento intenzionale e
+     documentato, distinto dal caso 3 sopra (dove la stessa situazione "1
+     visibile + minimizzate" ma con `layoutMode === "1x1"` nasconde
+     correttamente il tray). Le due regole coesistono senza conflitto:
+     punto 3 di `GATE-PW-03` vieta il tray solo nel percorso
+     `PreviewWindowHost`, non in `PreviewWorkspace` con una sola tile.
+  7. **Non-regressione mobile <720px (375×667).** Layout switcher invisibile
+     (`isVisible() === false`) sia prima che dopo l'apertura di una preview,
+     e non cliccabile (tentativo di click con timeout breve, bloccato dalla
+     non-visibilità). Aperti e minimizzati in sequenza `m.txt`, `n.txt`,
+     poi aperto `o.txt`: sempre 0 `.preview-tile`, sempre 1 sola finestra
+     visibile (`o.txt`), tray assente mentre `o.txt` è a fuoco (stessa
+     regola del punto 3/6 sopra, generalizzata al mobile); minimizzata anche
+     `o.txt`, il tray mostra tutte e 3 le chip (`m/n/o.txt`) — nessuna persa,
+     nessun template a più tile mai comparso.
+  8. **Cap a 8 finestre (`MAX_PREVIEW_WINDOWS`, ereditato da Fase 2).**
+     Aperte e minimizzate in sequenza `p1.txt..p8.txt` (8 chip in tray, 0
+     visibili) — dimostrato anche che 4 di queste 8 possono diventare
+     visibili insieme su layout `"4"` senza intaccare il cap (4
+     `.preview-tile` + 4 chip residue) prima di essere rimesse in
+     minimizzato per liberare la directory. Aperta `p9.txt` (la nona,
+     mai vista prima): **`p1.txt` sparita ovunque** (0 occorrenze fra tile e
+     chip), le altre 7 (`p2..p8.txt`) tutte ancora presenti, `p9.txt`
+     presente, totale finestre vive **8** (cap rispettato).
+     **Nota di raggiungibilità (scoperta empiricamente scrivendo questo
+     test, stessa causa dello scostamento maggiore di `IMP-PW-03`):** sia
+     `PreviewWindowHost` sia `PreviewWorkspace` sono overlay
+     `position:fixed;inset:0` a schermo intero, quindi la directory non è
+     mai cliccabile finché ≥1 finestra è visibile. Di conseguenza, per
+     aprire un file **mai visto prima** serve sempre partire da 0 finestre
+     visibili — non è raggiungibile via UI reale uno stato con finestre
+     visibili nell'istante esatto in cui scatta l'eviction del cap a 8 (il
+     tentativo diretto, con `p5..p8` visibili e poi provare ad aprire
+     `p9.txt`, fallisce con un timeout di click perché l'overlay del
+     template intercetta il click sulla lista directory — riprodotto e
+     confermato prima di correggere lo scenario). La riga di protezione
+     "non evictare mai una finestra visibile"
+     (`!visibleIdsRef.current.includes(entry.id)` in `openPreviewWindow`,
+     confermata presente nel sorgente per lettura diretta del diff) resta
+     quindi verificata solo staticamente per il ramo "finestre visibili
+     protette dall'eviction": nella pratica, con la sola UI di questa fase,
+     l'eviction del cap scatta sempre a 0 finestre visibili, quindi evictare
+     "la più vecchia fra le non visibili" ed evictare "la più vecchia in
+     assoluto" coincidono sempre. Non è un difetto (il codice fa comunque
+     la cosa giusta, generalizzata correttamente da Fase 2), è un limite di
+     raggiungibilità della UI di questa fase, coerente con lo scostamento
+     maggiore già documentato da `IMP-PW-03` sugli stessi overlay a schermo
+     intero.
+
+  **`git status`:** solo `docs/adr/015-preview-window-manager.md` (già
+  modificato da ROOT prima dell'inizio della fase, non toccato in questo
+  round), `docs/backlog.md`, `frontend/src/App.tsx`, `frontend/src/i18n.ts`,
+  `frontend/src/styles.css`, `frontend/tests/directory-preview-browser.mjs`,
+  `frontend/tests/directory-project-ui.test.mjs` — esattamente l'elenco
+  dichiarato da `IMP-PW-03`. Nessuna modifica preesistente estranea
+  alterata, nessun file temporaneo di test rimasto (lo script ad hoc è
+  stato rimosso subito dopo l'esecuzione, confermato con `ls
+  frontend/tests/`).
+
+  **Scansione dati personali** (comando del protocollo, applicato al diff
+  reale — solo righe aggiunte — dei file toccati): **nessuna occorrenza.**
+  Un primo passaggio più grezzo (grep esteso all'intero contenuto dei file,
+  non solo al diff) aveva prodotto falsi positivi su sequenze decimali in
+  path SVG (`FileTypeIcon`, codice preesistente non toccato da questa fase)
+  e sull'URL di sviluppo `http://127.0.0.1:4173` già presente nei test
+  fratelli — nessuno dei due è un dato personale.
+
+  **Verdetto: `PASSED`.** Tutti i controlli minimi di questa voce sono
+  confermati con evidenza diretta (bounding box reali, conteggi, testo dei
+  titoli) su script scritti da zero. Nessun difetto trovato. Lo scostamento
+  maggiore dichiarato da `IMP-PW-03` (condizione di scelta
+  `PreviewWindowHost`/`PreviewWorkspace` basata su `layoutMode` invece che
+  sul conteggio dei visibili) è stato verificato riga per riga sul codice e
+  al comportamento a runtime, incluso l'effetto collaterale già dichiarato
+  (tray di `PreviewWorkspace` visibile con 1 sola tile sotto layout
+  non-1x1) e la sua compatibilità con la regola invariata di `GATE-PW-02`
+  per il percorso `PreviewWindowHost`.

@@ -3,7 +3,12 @@
 ## Stato
 
 Accettata. Gate prodotto approvato il 25/08/2026 (`GATE-PW-00` in
-`docs/backlog.md`); implementazione a fasi, Fase 1 in corso (`IMP-PW-01`).
+`docs/backlog.md`). Fase 1 (`IMP-PW-01`, window manager sollevato in
+`App()`) e Fase 2 (`IMP-PW-02`, tray e minimizzazione) consegnate e
+committate. Fase 3 (`IMP-PW-03`, template di layout affiancati) in corso —
+il trascinamento libero ("flottante") descritto più sotto è stato escluso
+esplicitamente da questa fase (`GATE-PW-03` in `docs/backlog.md`), non solo
+il ridimensionamento libero già rimandato dal testo originale dell'ADR.
 
 ## Contesto
 

@@ -521,6 +521,22 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .preview-tray-chip-open { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: inherit; font: inherit; padding: 0; min-height: 40px; overflow: hidden; }
 .preview-tray-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
 .preview-tray-chip-close { min-width: 36px; min-height: 40px; border: 0; background: transparent; color: #91a397; font-size: 1.2rem; }
+.preview-workspace { position: fixed; z-index: 100; inset: 0; display: flex; flex-direction: column; background: #000a; padding: 16px; gap: 10px; }
+.preview-workspace-grid { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+.preview-workspace-grid-with-tray { padding-bottom: 64px; }
+.preview-tile { display: flex; flex-direction: column; min-height: 45vh; border: 1px solid #3a5142; border-radius: 16px; padding: 16px; background: #141d17; overflow: auto; }
+.preview-layout-switcher { display: none; }
+.preview-layout-button { min-width: 36px; min-height: 36px; border: 0; border-radius: 8px; background: #1b2820; color: #d2e3d7; font-size: 1rem; cursor: pointer; }
+.preview-layout-button:hover { background: #244634; color: #a4f0c1; }
+.preview-layout-button[aria-pressed="true"] { background: #2a3f30; color: #8ee2aa; }
+@media (min-width: 720px) {
+  .preview-workspace-grid { display: grid; overflow: hidden; }
+  .preview-workspace-grid[data-layout="2v"] { grid-template-columns: repeat(2, 1fr); }
+  .preview-workspace-grid[data-layout="2h"] { grid-template-rows: repeat(2, 1fr); }
+  .preview-workspace-grid[data-layout="4"] { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); }
+  .preview-tile { min-height: 0; }
+  .preview-layout-switcher { position: fixed; z-index: 106; top: 12px; right: 12px; display: flex; gap: 4px; padding: 4px; border: 1px solid #344b3b; border-radius: 10px; background: #121c15ee; backdrop-filter: blur(12px); }
+}
 .preference-field { display: grid; gap: 10px; margin: 18px 0; border: 1px solid #293a30; border-radius: 14px; padding: 14px; }
 .preference-field legend { padding: 0 4px; color: #7ea58c; font-size: .68rem; letter-spacing: .1em; font-weight: 700; text-transform: uppercase; }
 .preference-field label { display: flex; align-items: center; gap: 10px; min-height: 44px; color: #d2e3d7; }

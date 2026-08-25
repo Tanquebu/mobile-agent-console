@@ -1407,6 +1407,11 @@ type PreviewWindowState = {
   fullscreen: boolean;
 };
 
+type LayoutMode = "1x1" | "2v" | "2h" | "4";
+function slotsForLayout(mode: LayoutMode): number {
+  return mode === "1x1" ? 1 : mode === "4" ? 4 : 2;
+}
+
 type PreviewWindowsContextValue = {
   hasActivePreviewWindow: boolean;
   openPreviewWindow: (init: {
@@ -1419,6 +1424,8 @@ type PreviewWindowsContextValue = {
   navigateWindow: (id: string, direction: -1 | 1) => void;
   minimizePreviewWindow: (id: string) => void;
   restorePreviewWindow: (id: string) => void;
+  layoutMode: LayoutMode;
+  changeLayoutMode: (mode: LayoutMode) => void;
 };
 
 const PreviewWindowsContext = createContext<PreviewWindowsContextValue | null>(null);
@@ -1434,12 +1441,16 @@ const MAX_PREVIEW_WINDOWS = 8;
 
 function PreviewWindowsProvider({ children, active }: { children: ReactNode; active: boolean }) {
   const [windows, setWindows] = useState<PreviewWindowState[]>([]);
-  const [focusedId, setFocusedId] = useState<string | null>(null);
-  const focusedIdRef = useRef<string | null>(null);
-  useEffect(() => { focusedIdRef.current = focusedId; }, [focusedId]);
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>("1x1");
+  const layoutModeRef = useRef<LayoutMode>("1x1");
+  useEffect(() => { layoutModeRef.current = layoutMode; }, [layoutMode]);
+
+  const [visibleIds, setVisibleIds] = useState<string[]>([]);
+  const visibleIdsRef = useRef<string[]>([]);
+  useEffect(() => { visibleIdsRef.current = visibleIds; }, [visibleIds]);
 
   useEffect(() => {
-    if (!active) { setWindows([]); setFocusedId(null); }
+    if (!active) { setWindows([]); setVisibleIds([]); setLayoutMode("1x1"); }
   }, [active]);
 
   const openPreviewWindow = useCallback((init: {
@@ -1456,24 +1467,32 @@ function PreviewWindowsProvider({ children, active }: { children: ReactNode; act
       currentPath: init.initialPath,
       fullscreen: false,
     };
+    let evictedId: string | null = null;
     setWindows((current) => {
       if (current.length < MAX_PREVIEW_WINDOWS) return [...current, created];
-      const evictIndex = current.findIndex((entry) => entry.id !== focusedIdRef.current);
+      const evictIndex = current.findIndex((entry) => !visibleIdsRef.current.includes(entry.id));
+      if (evictIndex >= 0) evictedId = current[evictIndex].id;
       const trimmed = evictIndex >= 0 ? current.filter((_, index) => index !== evictIndex) : current;
       return [...trimmed, created];
     });
-    setFocusedId(id);
+    setVisibleIds((current) => {
+      const withoutEvicted = evictedId ? current.filter((v) => v !== evictedId) : current;
+      const capacity = slotsForLayout(layoutModeRef.current);
+      const next = [...withoutEvicted, id];
+      return next.length <= capacity ? next : next.slice(next.length - capacity);
+    });
   }, []);
 
   const closePreviewWindow = useCallback((id: string) => {
     setWindows((current) => current.filter((entry) => entry.id !== id));
-    setFocusedId((current) => (current === id ? null : current));
+    setVisibleIds((current) => current.filter((v) => v !== id));
   }, []);
 
   const toggleWindowFullscreen = useCallback((id: string) => {
-    setWindows((current) => current.map((entry) => (
-      entry.id === id ? { ...entry, fullscreen: !entry.fullscreen } : entry
-    )));
+    setWindows((current) => current.map((entry) => {
+      if (entry.id === id) return { ...entry, fullscreen: !entry.fullscreen };
+      return entry.fullscreen ? { ...entry, fullscreen: false } : entry;
+    }));
   }, []);
 
   const navigateWindow = useCallback((id: string, direction: -1 | 1) => {
@@ -1487,30 +1506,57 @@ function PreviewWindowsProvider({ children, active }: { children: ReactNode; act
   }, []);
 
   const minimizePreviewWindow = useCallback((id: string) => {
-    setFocusedId((current) => (current === id ? null : current));
+    setVisibleIds((current) => current.filter((v) => v !== id));
   }, []);
   const restorePreviewWindow = useCallback((id: string) => {
-    setFocusedId(id);
+    setVisibleIds((current) => {
+      if (current.includes(id)) return current;
+      const capacity = slotsForLayout(layoutModeRef.current);
+      const next = [...current, id];
+      return next.length <= capacity ? next : next.slice(next.length - capacity);
+    });
   }, []);
 
-  const focusedWindow = focusedId === null ? null : windows.find((entry) => entry.id === focusedId) ?? null;
-  const minimizedWindows = windows.filter((entry) => entry.id !== focusedId);
+  const changeLayoutMode = useCallback((mode: LayoutMode) => {
+    setLayoutMode(mode);
+    setVisibleIds((current) => {
+      const capacity = slotsForLayout(mode);
+      return current.length <= capacity ? current : current.slice(current.length - capacity);
+    });
+  }, []);
+
+  const visibleWindows = visibleIds
+    .map((id) => windows.find((entry) => entry.id === id))
+    .filter((entry): entry is PreviewWindowState => entry != null);
+  const minimizedWindows = windows.filter((entry) => !visibleIds.includes(entry.id));
+  const fullscreenWindow = visibleWindows.find((entry) => entry.fullscreen) ?? null;
 
   const value = useMemo<PreviewWindowsContextValue>(() => ({
-    hasActivePreviewWindow: focusedWindow !== null,
+    hasActivePreviewWindow: visibleWindows.length > 0,
     openPreviewWindow,
     closePreviewWindow,
     toggleWindowFullscreen,
     navigateWindow,
     minimizePreviewWindow,
     restorePreviewWindow,
-  }), [focusedWindow, openPreviewWindow, closePreviewWindow, toggleWindowFullscreen, navigateWindow, minimizePreviewWindow, restorePreviewWindow]);
+    layoutMode,
+    changeLayoutMode,
+  }), [visibleWindows.length, openPreviewWindow, closePreviewWindow, toggleWindowFullscreen, navigateWindow, minimizePreviewWindow, restorePreviewWindow, layoutMode, changeLayoutMode]);
 
   return (
     <PreviewWindowsContext.Provider value={value}>
       {children}
-      {focusedWindow && <PreviewWindowHost key={focusedWindow.id} entry={focusedWindow} />}
-      {focusedWindow === null && minimizedWindows.length > 0 && <PreviewTray windows={minimizedWindows} />}
+      {fullscreenWindow ? (
+        <PreviewWindowHost key={fullscreenWindow.id} entry={fullscreenWindow} />
+      ) : layoutMode === "1x1" ? (
+        visibleWindows.length === 1 ? (
+          <PreviewWindowHost key={visibleWindows[0].id} entry={visibleWindows[0]} />
+        ) : null
+      ) : visibleWindows.length > 0 ? (
+        <PreviewWorkspace windows={visibleWindows} layoutMode={layoutMode} minimizedWindows={minimizedWindows} />
+      ) : null}
+      {visibleWindows.length === 0 && minimizedWindows.length > 0 && <PreviewTray windows={minimizedWindows} />}
+      {!fullscreenWindow && windows.length > 0 && <PreviewLayoutSwitcher />}
     </PreviewWindowsContext.Provider>
   );
 }
@@ -1546,6 +1592,77 @@ function PreviewTray({ windows }: { windows: PreviewWindowState[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function PreviewWorkspace({ windows, layoutMode, minimizedWindows }: {
+  windows: PreviewWindowState[];
+  layoutMode: LayoutMode;
+  minimizedWindows: PreviewWindowState[];
+}) {
+  const t = translations[readLanguage()];
+  return (
+    <div className="preview-workspace" role="region" aria-label={t.previewWorkspace}>
+      <div
+        className={`preview-workspace-grid${minimizedWindows.length > 0 ? " preview-workspace-grid-with-tray" : ""}`}
+        data-layout={layoutMode}
+      >
+        {windows.map((entry) => <PreviewTile key={entry.id} entry={entry} />)}
+      </div>
+      {minimizedWindows.length > 0 && <PreviewTray windows={minimizedWindows} />}
+    </div>
+  );
+}
+
+function PreviewTile({ entry }: { entry: PreviewWindowState }) {
+  const { closePreviewWindow, toggleWindowFullscreen, navigateWindow, minimizePreviewWindow } = usePreviewWindows();
+  const index = entry.siblings.indexOf(entry.currentPath);
+  const close = useCallback(() => closePreviewWindow(entry.id), [closePreviewWindow, entry.id]);
+  const source: PreviewSource = { ...entry.resolveSource(entry.currentPath), onBack: close };
+  const navigation: PreviewNavigation = {
+    index,
+    total: entry.siblings.length,
+    onPrevious: index > 0 ? () => navigateWindow(entry.id, -1) : null,
+    onNext: index >= 0 && index < entry.siblings.length - 1 ? () => navigateWindow(entry.id, 1) : null,
+  };
+  return (
+    <section className="preview-tile" role="dialog" aria-modal="false" aria-label={translations[readLanguage()].filePreview}>
+      <PreviewModal
+        source={source}
+        navigation={navigation}
+        fullscreen={false}
+        onToggleFullscreen={() => toggleWindowFullscreen(entry.id)}
+        onMinimize={() => minimizePreviewWindow(entry.id)}
+      />
+    </section>
+  );
+}
+
+function PreviewLayoutSwitcher() {
+  const { layoutMode, changeLayoutMode } = usePreviewWindows();
+  const t = translations[readLanguage()];
+  const layouts: { mode: LayoutMode; label: string }[] = [
+    { mode: "1x1", label: t.layout1x1 },
+    { mode: "2v", label: t.layout2Vertical },
+    { mode: "2h", label: t.layout2Horizontal },
+    { mode: "4", label: t.layout4 },
+  ];
+  return (
+    <div className="preview-layout-switcher" role="group" aria-label={t.previewLayoutPicker}>
+      {layouts.map((item) => (
+        <button
+          key={item.mode}
+          type="button"
+          className="preview-layout-button"
+          aria-pressed={layoutMode === item.mode}
+          aria-label={item.label}
+          title={item.label}
+          onClick={() => changeLayoutMode(item.mode)}
+        >
+          {item.mode === "1x1" ? "▢" : item.mode === "2v" ? "▥" : item.mode === "2h" ? "▤" : "▦"}
+        </button>
+      ))}
     </div>
   );
 }
