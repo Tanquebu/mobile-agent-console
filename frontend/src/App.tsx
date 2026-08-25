@@ -1417,6 +1417,8 @@ type PreviewWindowsContextValue = {
   closePreviewWindow: (id: string) => void;
   toggleWindowFullscreen: (id: string) => void;
   navigateWindow: (id: string, direction: -1 | 1) => void;
+  minimizePreviewWindow: (id: string) => void;
+  restorePreviewWindow: (id: string) => void;
 };
 
 const PreviewWindowsContext = createContext<PreviewWindowsContextValue | null>(null);
@@ -1428,12 +1430,16 @@ function usePreviewWindows(): PreviewWindowsContextValue {
 }
 
 let previewWindowSeq = 0;
+const MAX_PREVIEW_WINDOWS = 8;
 
 function PreviewWindowsProvider({ children, active }: { children: ReactNode; active: boolean }) {
   const [windows, setWindows] = useState<PreviewWindowState[]>([]);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const focusedIdRef = useRef<string | null>(null);
+  useEffect(() => { focusedIdRef.current = focusedId; }, [focusedId]);
 
   useEffect(() => {
-    if (!active) setWindows([]);
+    if (!active) { setWindows([]); setFocusedId(null); }
   }, [active]);
 
   const openPreviewWindow = useCallback((init: {
@@ -1443,17 +1449,25 @@ function PreviewWindowsProvider({ children, active }: { children: ReactNode; act
   }) => {
     previewWindowSeq += 1;
     const id = `preview-${previewWindowSeq}`;
-    setWindows((current) => [...current, {
+    const created: PreviewWindowState = {
       id,
       resolveSource: init.resolveSource,
       siblings: init.siblings,
       currentPath: init.initialPath,
       fullscreen: false,
-    }]);
+    };
+    setWindows((current) => {
+      if (current.length < MAX_PREVIEW_WINDOWS) return [...current, created];
+      const evictIndex = current.findIndex((entry) => entry.id !== focusedIdRef.current);
+      const trimmed = evictIndex >= 0 ? current.filter((_, index) => index !== evictIndex) : current;
+      return [...trimmed, created];
+    });
+    setFocusedId(id);
   }, []);
 
   const closePreviewWindow = useCallback((id: string) => {
     setWindows((current) => current.filter((entry) => entry.id !== id));
+    setFocusedId((current) => (current === id ? null : current));
   }, []);
 
   const toggleWindowFullscreen = useCallback((id: string) => {
@@ -1472,26 +1486,72 @@ function PreviewWindowsProvider({ children, active }: { children: ReactNode; act
     }));
   }, []);
 
-  const activeWindow = windows.length > 0 ? windows[windows.length - 1] : null;
+  const minimizePreviewWindow = useCallback((id: string) => {
+    setFocusedId((current) => (current === id ? null : current));
+  }, []);
+  const restorePreviewWindow = useCallback((id: string) => {
+    setFocusedId(id);
+  }, []);
+
+  const focusedWindow = focusedId === null ? null : windows.find((entry) => entry.id === focusedId) ?? null;
+  const minimizedWindows = windows.filter((entry) => entry.id !== focusedId);
 
   const value = useMemo<PreviewWindowsContextValue>(() => ({
-    hasActivePreviewWindow: activeWindow !== null,
+    hasActivePreviewWindow: focusedWindow !== null,
     openPreviewWindow,
     closePreviewWindow,
     toggleWindowFullscreen,
     navigateWindow,
-  }), [activeWindow, openPreviewWindow, closePreviewWindow, toggleWindowFullscreen, navigateWindow]);
+    minimizePreviewWindow,
+    restorePreviewWindow,
+  }), [focusedWindow, openPreviewWindow, closePreviewWindow, toggleWindowFullscreen, navigateWindow, minimizePreviewWindow, restorePreviewWindow]);
 
   return (
     <PreviewWindowsContext.Provider value={value}>
       {children}
-      {activeWindow && <PreviewWindowHost key={activeWindow.id} entry={activeWindow} />}
+      {focusedWindow && <PreviewWindowHost key={focusedWindow.id} entry={focusedWindow} />}
+      {focusedWindow === null && minimizedWindows.length > 0 && <PreviewTray windows={minimizedWindows} />}
     </PreviewWindowsContext.Provider>
   );
 }
 
+function PreviewTray({ windows }: { windows: PreviewWindowState[] }) {
+  const { restorePreviewWindow, closePreviewWindow } = usePreviewWindows();
+  const t = translations[readLanguage()];
+  return (
+    <div className="preview-tray" role="toolbar" aria-label={t.previewTray}>
+      {windows.map((entry) => {
+        const source = entry.resolveSource(entry.currentPath);
+        const lastSlash = source.name.lastIndexOf("/");
+        const fileName = lastSlash >= 0 ? source.name.slice(lastSlash + 1) : source.name;
+        return (
+          <div key={entry.id} className="preview-tray-chip">
+            <button
+              type="button"
+              className="preview-tray-chip-open"
+              onClick={() => restorePreviewWindow(entry.id)}
+              title={fileName}
+            >
+              <FileTypeIcon type="file" name={source.name} />
+              <span className="preview-tray-chip-name">{fileName}</span>
+            </button>
+            <button
+              type="button"
+              className="preview-tray-chip-close"
+              onClick={() => closePreviewWindow(entry.id)}
+              aria-label={`${t.close}: ${fileName}`}
+            >
+              ×
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PreviewWindowHost({ entry }: { entry: PreviewWindowState }) {
-  const { closePreviewWindow, toggleWindowFullscreen, navigateWindow } = usePreviewWindows();
+  const { closePreviewWindow, toggleWindowFullscreen, navigateWindow, minimizePreviewWindow } = usePreviewWindows();
   const index = entry.siblings.indexOf(entry.currentPath);
   const close = useCallback(() => closePreviewWindow(entry.id), [closePreviewWindow, entry.id]);
   const source: PreviewSource = { ...entry.resolveSource(entry.currentPath), onBack: close };
@@ -1529,6 +1589,7 @@ function PreviewWindowHost({ entry }: { entry: PreviewWindowState }) {
           navigation={navigation}
           fullscreen={entry.fullscreen}
           onToggleFullscreen={() => toggleWindowFullscreen(entry.id)}
+          onMinimize={() => minimizePreviewWindow(entry.id)}
         />
       </section>
     </div>
@@ -1540,11 +1601,13 @@ function PreviewModal({
   navigation,
   fullscreen,
   onToggleFullscreen,
+  onMinimize,
 }: {
   source: PreviewSource;
   navigation: PreviewNavigation;
   fullscreen: boolean;
   onToggleFullscreen: () => void;
+  onMinimize: () => void;
 }) {
   const [content, setContent] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
@@ -1616,8 +1679,8 @@ function PreviewModal({
 
   return (
     <>
-      <header>
-        <div>
+      <header className="preview-header">
+        <div className="preview-header-info">
           <span className="eyebrow">{source.eyebrow ?? t.preview}</span>
           <div className="preview-path-row">
             <h2 className="preview-file-name" title={source.name}>{fileName}</h2>
@@ -1638,6 +1701,9 @@ function PreviewModal({
           )}
         </div>
         <div className="modal-header-actions">
+          <button type="button" className="modal-minimize" onClick={onMinimize} aria-label={t.minimizePreview} title={t.minimizePreview}>
+            –
+          </button>
           <button
             type="button"
             className="modal-fullscreen"

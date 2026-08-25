@@ -72,6 +72,21 @@ try {
   });
 
   await page.goto(baseUrl);
+
+  // IMP-PW-02-R1 (Difetto 1): l'header condiviso `.help-modal > header` non
+  // deve mai andare a capo per i modali con un solo bottone di chiusura
+  // (regressione introdotta da `flex-wrap: wrap` in IMP-PW-02, poi rimosso).
+  await page.getByRole("button", { name: "Altre azioni", exact: true }).click();
+  await page.getByRole("button", { name: "Sessioni nascoste", exact: true }).click();
+  await page.locator("#hidden-sessions-title").waitFor();
+  const hiddenTitle = await page.locator(".help-modal > header h2").boundingBox();
+  const hiddenClose = await page.locator(".help-modal > header .modal-close").boundingBox();
+  assert.ok(
+    hiddenClose.y < hiddenTitle.y + hiddenTitle.height && hiddenClose.y + hiddenClose.height > hiddenTitle.y,
+    `HiddenSessionsModal header va a capo: title=${JSON.stringify(hiddenTitle)} close=${JSON.stringify(hiddenClose)}`,
+  );
+  await page.getByRole("button", { name: "Chiudi" }).click();
+
   await page.locator("button.session-card", { hasText: session.name }).click();
   await page.getByRole("button", { name: "Funzioni", exact: true }).click();
   await page.locator(".special-section-toggle").click();
@@ -98,7 +113,45 @@ try {
   await page.getByRole("button", { name: "Esci da schermo intero", exact: true }).click();
   assert.equal(await page.locator(".help-modal-fullscreen").count(), 0);
 
-  await page.getByRole("button", { name: "Torna all'elenco" }).click();
+  // IMP-PW-02: minimizza -> tray -> ripristina -> chiudi dalla chip.
+  await page.getByRole("button", { name: "Riduci a icona" }).click();
+  assert.equal(await page.getByRole("dialog", { name: "Anteprima file" }).count(), 0);
+  const trayChip = page.locator(".preview-tray-chip", { hasText: "alpha.txt" });
+  await trayChip.waitFor();
+  await trayChip.locator(".preview-tray-chip-open").click();
+  await page.locator("h2.preview-file-name", { hasText: "alpha.txt" }).waitFor();
+  await assertPosition(page, "2 / 2");
+  await page.getByRole("button", { name: "Riduci a icona" }).click();
+  await trayChip.waitFor();
+  await trayChip.locator(".preview-tray-chip-close").click();
+  assert.equal(await page.locator(".preview-tray-chip").count(), 0);
+  assert.equal(await page.locator(".preview-tray").count(), 0);
+
+  // IMP-PW-02-R1 (Difetto 2): il tray non deve mai comparire sovrapposto a
+  // una finestra a fuoco (GATE-PW-02) — apre due file in sequenza dal
+  // browser directory, minimizzando il primo prima di aprire il secondo.
+  await page.locator(".directory-open", { hasText: "zeta.md" }).click();
+  await assertPosition(page, "1 / 2");
+  await page.getByRole("button", { name: "Riduci a icona" }).click();
+  await page.locator(".preview-tray-chip", { hasText: "zeta.md" }).waitFor();
+  await page.locator(".directory-open", { hasText: "alpha.txt" }).click();
+  await page.locator("h2.preview-file-name", { hasText: "alpha.txt" }).waitFor();
+  assert.equal(
+    await page.locator(".preview-tray").count(),
+    0,
+    "il tray non deve essere nel DOM mentre una finestra e' a fuoco",
+  );
+  await page.getByRole("button", { name: "Riduci a icona" }).click();
+  await page.locator(".preview-tray").waitFor();
+  assert.equal(
+    await page.locator(".preview-tray-chip").count(),
+    2,
+    "il tray deve mostrare 2 chip quando nessuna finestra e' a fuoco",
+  );
+  await page.locator(".preview-tray-chip", { hasText: "alpha.txt" }).locator(".preview-tray-chip-close").click();
+  await page.locator(".preview-tray-chip", { hasText: "zeta.md" }).locator(".preview-tray-chip-close").click();
+  assert.equal(await page.locator(".preview-tray").count(), 0);
+
   await page.getByRole("button", { name: "Chiudi" }).click();
   await page.getByRole("button", { name: "Artefatti", exact: true }).click();
   await page.getByLabel("Ordina").selectOption("date-desc");

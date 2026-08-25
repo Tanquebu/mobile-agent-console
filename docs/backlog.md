@@ -5112,3 +5112,786 @@ systemctl --user status mobile-agent-console-provider-session-states.service
   (`openSession`) continuino a **non** svuotare le finestre di preview,
   come richiesto dall'ADR 015 (persistenza attraverso navigazione/cambio
   sessione, non attraverso logout).
+
+#### PW-02 — Tray e minimizzazione (Fase 2)
+
+- [x] GATE-PW-02 | OWNER: ROOT | STATUS: PASSED | Utente ha confermato di
+  proseguire ("Si procedu") dopo la chiusura della Fase 1 (commit
+  `c3a85b2` su `feat/preview-window-manager`). Scope: aggiungere
+  minimizzazione esplicita e un tray persistente di chip per le finestre
+  di preview non a fuoco, con cap a 8 finestre ed eviction della più
+  vecchia minimizzata. Nessun template di layout affiancato (Fase 3),
+  nessuna modifica al backend.
+
+  **Decisione di scope presa da ROOT, vincolante per l'implementazione:**
+  il tray mostra soltanto le finestre minimizzate, mai quella a fuoco
+  (fullscreen) — quindi non compare mai sovrapposto al contenuto della
+  preview attiva, evitando qualunque conflitto di z-index/layout con
+  `PreviewModal`. Per vedere il tray mentre una preview è a fuoco, l'utente
+  la minimizza prima. Questo è un restringimento deliberato rispetto alla
+  formulazione "sempre visibile" dell'ADR 015: la versione letterale
+  (tray sopra una preview a schermo intero) richiederebbe che `PreviewModal`
+  riservi spazio in fondo per non farsi coprire, cosa che l'ADR esclude
+  esplicitamente ("Il contenuto interno... resta quasi invariato"). Da
+  rivalutare in una fase successiva solo se richiesto esplicitamente.
+
+- [x] IMP-PW-02 | OWNER: SA-IMP | STATUS: DONE | **Fase 2 — tray e
+  minimizzazione, in `frontend/src/App.tsx`, `frontend/src/i18n.ts`,
+  `frontend/src/styles.css`.** Legge prima
+  `docs/adr/015-preview-window-manager.md` e questa voce.
+
+  **Modello di stato**: `PreviewWindowsProvider` guadagna un secondo
+  `useState<string | null>(null)` chiamato `focusedId` (quale finestra, se
+  esiste, è renderizzata fullscreen) accanto a `windows`. Aggiungere
+  `const MAX_PREVIEW_WINDOWS = 8;` vicino a `let previewWindowSeq = 0;`.
+  Aggiungere un ref-mirror `focusedIdRef` (stesso pattern già usato altrove
+  nel file, es. `terminalLinesRef`/`loadingMoreHistoryRef` dentro
+  `Console`) per leggere il valore corrente di `focusedId` dentro
+  l'updater funzionale di `setWindows` in `openPreviewWindow`, senza
+  chiusure stantie:
+  ```ts
+  const focusedIdRef = useRef<string | null>(null);
+  useEffect(() => { focusedIdRef.current = focusedId; }, [focusedId]);
+  ```
+
+  **`openPreviewWindow`**: quando `windows.length >= MAX_PREVIEW_WINDOWS`,
+  evict la prima finestra dell'array il cui `id` non è `focusedIdRef.current`
+  prima di aggiungere la nuova; poi, sempre, `setFocusedId(id)` (la nuova
+  finestra diventa quella a fuoco). Esempio:
+  ```ts
+  const openPreviewWindow = useCallback((init: {
+    resolveSource: (path: string) => PreviewSourceInput;
+    siblings: string[];
+    initialPath: string;
+  }) => {
+    previewWindowSeq += 1;
+    const id = `preview-${previewWindowSeq}`;
+    const created: PreviewWindowState = {
+      id,
+      resolveSource: init.resolveSource,
+      siblings: init.siblings,
+      currentPath: init.initialPath,
+      fullscreen: false,
+    };
+    setWindows((current) => {
+      if (current.length < MAX_PREVIEW_WINDOWS) return [...current, created];
+      const evictIndex = current.findIndex((entry) => entry.id !== focusedIdRef.current);
+      const trimmed = evictIndex >= 0 ? current.filter((_, index) => index !== evictIndex) : current;
+      return [...trimmed, created];
+    });
+    setFocusedId(id);
+  }, []);
+  ```
+
+  **`closePreviewWindow`**: rimuove dall'array come oggi, e se la finestra
+  chiusa era quella a fuoco, `focusedId` torna `null` (si torna alla vista
+  sottostante, non si passa automaticamente a un'altra finestra
+  minimizzata):
+  ```ts
+  const closePreviewWindow = useCallback((id: string) => {
+    setWindows((current) => current.filter((entry) => entry.id !== id));
+    setFocusedId((current) => (current === id ? null : current));
+  }, []);
+  ```
+
+  **Due nuove azioni nel context** (aggiungerle a `PreviewWindowsContextValue`
+  e al `value` memoizzato):
+  ```ts
+  const minimizePreviewWindow = useCallback((id: string) => {
+    setFocusedId((current) => (current === id ? null : current));
+  }, []);
+  const restorePreviewWindow = useCallback((id: string) => {
+    setFocusedId(id);
+  }, []);
+  ```
+
+  **`toggleWindowFullscreen`/`navigateWindow`**: invariati.
+
+  **Reset su logout** (`useEffect` esistente): deve svuotare anche
+  `focusedId`, non solo `windows`:
+  ```ts
+  useEffect(() => {
+    if (!active) { setWindows([]); setFocusedId(null); }
+  }, [active]);
+  ```
+
+  **Render del provider**: `activeWindow` diventa `focusedWindow`,
+  derivato da `focusedId` invece che "ultimo elemento dell'array":
+  ```ts
+  const focusedWindow = focusedId === null ? null : windows.find((entry) => entry.id === focusedId) ?? null;
+  const minimizedWindows = windows.filter((entry) => entry.id !== focusedId);
+  ```
+  `hasActivePreviewWindow` nel `value` diventa `focusedWindow !== null`
+  (stessa semantica di prima: "c'è una finestra fullscreen che intercetta
+  Escape", usata dal guard in `DirectoryModal`/`ArtifactsModal` — non
+  toccare quei due componenti, il contratto non cambia). Il `return` del
+  provider aggiunge il tray dopo l'host esistente:
+  ```tsx
+  return (
+    <PreviewWindowsContext.Provider value={value}>
+      {children}
+      {focusedWindow && <PreviewWindowHost key={focusedWindow.id} entry={focusedWindow} />}
+      {minimizedWindows.length > 0 && <PreviewTray windows={minimizedWindows} />}
+    </PreviewWindowsContext.Provider>
+  );
+  ```
+
+  **Nuovo componente `PreviewTray`**, colocato subito dopo
+  `PreviewWindowHost` (prima di `function PreviewModal(`):
+  ```tsx
+  function PreviewTray({ windows }: { windows: PreviewWindowState[] }) {
+    const { restorePreviewWindow, closePreviewWindow } = usePreviewWindows();
+    const t = translations[readLanguage()];
+    return (
+      <div className="preview-tray" role="toolbar" aria-label={t.previewTray}>
+        {windows.map((entry) => {
+          const source = entry.resolveSource(entry.currentPath);
+          const lastSlash = source.name.lastIndexOf("/");
+          const fileName = lastSlash >= 0 ? source.name.slice(lastSlash + 1) : source.name;
+          return (
+            <div key={entry.id} className="preview-tray-chip">
+              <button
+                type="button"
+                className="preview-tray-chip-open"
+                onClick={() => restorePreviewWindow(entry.id)}
+                title={fileName}
+              >
+                <FileTypeIcon type="file" name={source.name} />
+                <span className="preview-tray-chip-name">{fileName}</span>
+              </button>
+              <button
+                type="button"
+                className="preview-tray-chip-close"
+                onClick={() => closePreviewWindow(entry.id)}
+                aria-label={`${t.close}: ${fileName}`}
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+  ```
+  (`entry.resolveSource(entry.currentPath)` è puro — costruisce solo il
+  descrittore, non invoca `fetchContent` — sicuro da chiamare a ogni
+  render, stesso pattern già usato in `PreviewWindowHost`.)
+
+  **`PreviewWindowHost`/`PreviewModal`**: aggiungere il pulsante di
+  minimizzazione. In `PreviewWindowHost`, passare `onMinimize={() =>
+  minimizePreviewWindow(entry.id)}` a `PreviewModal` (serve destrutturare
+  anche `minimizePreviewWindow` da `usePreviewWindows()` lì). In
+  `PreviewModal`, aggiungere il prop `onMinimize: () => void` alla firma e
+  un bottone in `modal-header-actions`, prima di `modal-fullscreen`:
+  ```tsx
+  <button type="button" className="modal-minimize" onClick={onMinimize} aria-label={t.minimizePreview} title={t.minimizePreview}>
+    –
+  </button>
+  ```
+  (il resto dell'header — fullscreen toggle, `modal-close` — resta
+  invariato).
+
+  **i18n** (`frontend/src/i18n.ts`, entrambi i blocchi `it`/`en`, stessa
+  posizione relativa in entrambi — subito prima di `backToList`):
+  ```ts
+  // it
+  minimizePreview: "Riduci a icona",
+  previewTray: "Anteprime ridotte a icona",
+  // en
+  minimizePreview: "Minimize",
+  previewTray: "Minimized previews",
+  ```
+
+  **CSS** (`frontend/src/styles.css`), riusa le variabili di colore già
+  presenti in `.attachment-chip`/`.modal-close`/`.modal-fullscreen`
+  (nessun nuovo token, stesso tema scuro):
+  ```css
+  .preview-tray {
+    position: fixed;
+    z-index: 110;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 8px 12px max(8px, env(safe-area-inset-bottom));
+    background: #101713ee;
+    backdrop-filter: blur(12px);
+    border-top: 1px solid #26352c;
+  }
+  .preview-tray-chip { display: inline-flex; align-items: center; flex: 0 0 auto; max-width: 220px; min-height: 40px; border: 1px solid #344b3b; border-radius: 999px; padding-left: 11px; background: #18231c; color: #d2e3d7; font-size: .78rem; }
+  .preview-tray-chip-open { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: inherit; font: inherit; padding: 0; min-height: 40px; overflow: hidden; }
+  .preview-tray-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+  .preview-tray-chip-close { min-width: 36px; min-height: 40px; border: 0; background: transparent; color: #91a397; font-size: 1.2rem; }
+  .modal-minimize { width: 44px; border: 0; border-radius: 12px; background: #1d2921; color: white; font-size: 1.4rem; }
+  ```
+  Il `z-index: 110` è deliberatamente sopra `.modal-backdrop` (100, unico
+  altro z-index a tre cifre nel file): il tray deve restare
+  cliccabile anche se per qualunque motivo transitorio una finestra risulta
+  ancora a fuoco nello stesso istante (non dovrebbe succedere per design,
+  ma non deve mai finire sotto un backdrop).
+
+  **File da NON toccare**: `DirectoryModal`, `ArtifactsModal`, `Console`
+  (i tre punti di chiamata di `openPreviewWindow` non cambiano firma né
+  comportamento in questa fase), backend, e qualunque modifica preesistente
+  nel working tree non pertinente. Non fare `git commit` (lo fa ROOT dopo
+  la verifica). Siamo su un branch (`feat/preview-window-manager`), non
+  serve crearne uno nuovo.
+
+  **Test**: aggiorna `frontend/tests/directory-project-ui.test.mjs` e
+  `frontend/tests/opencode-blocks-ui.test.mjs` se le nuove assert su
+  `previewWindowManager`/`focusedWindow`/`activeWindow` introdotte da
+  `IMP-PW-01` smettono di matchare dopo il rename (cerca `activeWindow` nei
+  due file). Aggiungi almeno un test browser nuovo (in
+  `frontend/tests/session-console-browser.mjs` o
+  `frontend/tests/directory-preview-browser.mjs`, quello che ti sembra più
+  naturale) che: apre una preview, la minimizza (bottone `–`), verifica che
+  il dialog "Anteprima file" sparisca e compaia una chip nel tray con il
+  nome file, clicca la chip e verifica che la preview si riapra sullo
+  stesso file, poi la chiude dalla chip (bottone × del tray) e verifica che
+  sia sparita anche dal tray. Verifica `npm run build`, `npm run test:ui`,
+  `npm run test:directory:browser`, `npm run test:console:browser` (nota
+  ambiente: `vite preview` si lega solo a `::1` in questo sandbox, avviare
+  con `--host 127.0.0.1` sulle porte lette da `MAC_BROWSER_BASE_URL` nei
+  due file browser prima di rilanciare).
+
+  **Chiusura (SA-IMP).** Implementato esattamente come da specifica in
+  `frontend/src/App.tsx` (`focusedId`+`focusedIdRef`, `MAX_PREVIEW_WINDOWS`,
+  eviction in `openPreviewWindow`, `closePreviewWindow` che torna a `null`
+  senza promuovere una finestra minimizzata, `minimizePreviewWindow`/
+  `restorePreviewWindow`, `focusedWindow`/`minimizedWindows` derivati,
+  `hasActivePreviewWindow` = `focusedWindow !== null` con contratto
+  invariato verso `DirectoryModal`/`ArtifactsModal`, componente `PreviewTray`
+  colocato prima di `PreviewModal`, bottone `modal-minimize` in
+  `PreviewModal`/`PreviewWindowHost`), `frontend/src/i18n.ts`
+  (`minimizePreview`/`previewTray` in `it`/`en`, stessa posizione prima di
+  `backToList`) e `frontend/src/styles.css` (`.modal-minimize`,
+  `.preview-tray*`, z-index 110 sopra `.modal-backdrop` 100).
+  `DirectoryModal`, `ArtifactsModal`, `Console` e il backend non sono stati
+  toccati. Nessuna occorrenza di `activeWindow` nei test statici esistenti
+  (`directory-project-ui.test.mjs`, `opencode-blocks-ui.test.mjs`): nessun
+  rename necessario, gli slice/assert basati su `previewWindowManager` e
+  `hasActivePreviewWindow` restano validi senza modifiche.
+
+  **Scostamento dalla specifica (minore, con motivazione).** La specifica
+  CSS non menzionava l'header di `PreviewModal`: aggiungendo il terzo
+  bottone (`modal-minimize`) accanto a `modal-fullscreen`/`modal-close` in
+  `.modal-header-actions`, a viewport 320px (quello usato dai test browser
+  mobile) lo spazio residuo per `h2.preview-file-name` collassava a 0px di
+  larghezza (verificato con `getBoundingClientRect` durante il debug:
+  `{width: 0, height: 171}`, con wrapping carattere-per-carattere dovuto a
+  `overflow-wrap: anywhere`), rendendo l'elemento non visibile per Playwright
+  e facendo fallire `test:directory:browser` già al passo di navigazione
+  fullscreen preesistente (non nel nuovo test aggiunto). Con soli due
+  bottoni il margine residuo era già minimo ma sufficiente; il terzo bottone
+  lo esauriva. Corretto con due aggiunte CSS minime, coerenti con l'intento
+  (tre bottoni icona nell'header, nessun cambio di ruolo/ordine): classe
+  `preview-header-info` (nuova, solo `min-width: 0`) sul `<div>` contenitore
+  già esistente del titolo/percorso/data in `App.tsx`, e
+  `flex-wrap: wrap` aggiunto a `.help-modal > header` (regola condivisa da
+  tutti i modali `help-modal`, ma il wrap si attiva solo quando il contenuto
+  non ci sta — verificato via screenshot che gli altri modali, con un solo
+  bottone di chiusura, non sono affetti). Verificato via screenshot a
+  320px che il titolo torna leggibile su una riga e i tre bottoni si
+  dispongono su una riga propria sotto il titolo quando necessario. Non è
+  uno scostamento di scope/architettura, solo un dettaglio di layout
+  responsive non coperto dallo snippet CSS letterale della specifica.
+
+  **Comandi eseguiti (esiti reali):**
+  - `npm run build` → `tsc -b && vite build` completa senza errori (`✓ 36
+    modules transformed`, bundle invariato nelle dimensioni relative).
+  - `npm run test:ui` → 8 suite, tutte verdi: 25+24+7+5+10+17+2+12 = 102
+    test, 0 fallimenti (host, budget, console, admin, timeline, opencode,
+    session-guard, directory).
+  - `npm run test:directory:browser` (con `vite preview --host 127.0.0.1
+    --port 4173 --strictPort` avviato a parte, `MAC_BROWSER_BASE_URL` non
+    serve perché il default del test è già 4173) → `Directory/artifact
+    preview navigation browser checks passed`, incluso il nuovo blocco
+    minimizza → tray → ripristina → chiudi aggiunto in
+    `frontend/tests/directory-preview-browser.mjs`.
+  - `npm run test:console:browser` (con `vite preview --host 127.0.0.1
+    --port 4174 --strictPort`) → `Session console browser checks passed
+    (block preview, Unicode, drafts, Clear, attachment overflow)`.
+  - Scansione dati personali sul diff (comando del protocollo, applicato a
+    tutti i file toccati in questo round): un solo match, `127.0.0.1`
+    dentro il testo di questa stessa voce di backlog (indirizzo di
+    loopback universale citato nelle istruzioni di verifica, non un IP
+    privato/personale) — nessuna occorrenza reale di percorsi assoluti,
+    hostname, IP privati, token o nomi di progetti privati.
+
+  File toccati: `frontend/src/App.tsx`, `frontend/src/i18n.ts`,
+  `frontend/src/styles.css`, `frontend/tests/directory-preview-browser.mjs`,
+  `docs/backlog.md`. Working tree pulito a parte questi file. Nessun
+  commit creato (compito di ROOT dopo la verifica).
+
+- [x] TEST-PW-02-T1 | OWNER: SA-TEST | STATUS: FAILED | Verifica
+  indipendente di `IMP-PW-02`: rieseguire tutti i comandi sopra, più
+  riproduzione manuale con script Playwright scritto da zero (non riusare
+  quello di `SA-IMP`) del flusso minimizza → tray → ripristina → chiudi.
+  Verificare anche che il cap a 8 finestre esegua davvero l'eviction della
+  più vecchia minimizzata (aprirne 9 in sequenza, controllare che la prima
+  sia sparita e le altre 8 siano ancora raggiungibili) e che la finestra a
+  fuoco non venga mai evictata. Passa a `READY_FOR_TEST` quando `IMP-PW-02`
+  chiude `DONE`.
+
+  **Comandi standard (esito reale):**
+  - `npm run build` → `tsc -b && vite build`, nessun errore, `✓ 36 modules
+    transformed`.
+  - `npm run test:ui` → 8 suite, 102/102 verdi (25+24+7+5+10+17+2+12),
+    stessi numeri dichiarati da `IMP-PW-02`.
+  - `npm run test:directory:browser` (con `vite preview --host 127.0.0.1
+    --port 4173 --strictPort` avviato a parte) → `Directory/artifact preview
+    navigation browser checks passed`.
+  - `npm run test:console:browser` (con `vite preview --host 127.0.0.1
+    --port 4174 --strictPort`) → `Session console browser checks passed
+    (block preview, Unicode, drafts, Clear, attachment overflow)`.
+  - `git status`: solo i file dichiarati da `IMP-PW-02`
+    (`frontend/src/App.tsx`, `frontend/src/i18n.ts`, `frontend/src/styles.css`,
+    `frontend/tests/directory-preview-browser.mjs`) più `docs/backlog.md`;
+    nessuna modifica preesistente estranea alterata.
+  - Scansione dati personali sul diff (`grep -inE` per path assoluti,
+    IP Tailscale, nome/cognome utente, indirizzo email): nessuna occorrenza.
+
+  **Punto 1 — cap a 8 finestre ed eviction.** Script Playwright ad hoc
+  scritto da zero (poi rimosso, mock directory con 9 file `f1.txt..f9.txt`,
+  aperti in sequenza tramite `openEntry`→`openPreviewWindow`, minimizzando
+  la finestra a fuoco tra un'apertura e l'altra — è l'unico modo reale per
+  tornare al browser directory e aprirne un'altra, dato che la preview a
+  fuoco copre l'intero schermo con `.modal-backdrop`).
+  - **(a)/(b) baseline**: aperti f1..f9 in sequenza; dopo il nono, `f1.txt`
+    non è più raggiungibile né come chip né a fuoco (0 occorrenze), `f2..f9`
+    sono tutte raggiungibili (7 chip nel tray + f9 a fuoco = 8 finestre
+    totali, verificato con conteggio esplicito). **PASSED.**
+  - **(c) finestra a fuoco mai evictata — scenario irriproducibile via UI
+    reale, verificato con evidenza tecnica diretta.** Ho aperto f1..f8,
+    ripristinato f1 (indice 0, la più vecchia dell'array) a fuoco dal tray,
+    poi tentato di aprire f9 senza prima minimizzare f1: il click sull'entry
+    di directory fallisce con timeout Playwright, log `<section
+    role="dialog" ... class="help-modal directory-modal"> intercepts
+    pointer events` — il backdrop della finestra a fuoco (`z-index:100`,
+    `inset:0`) copre l'intero viewport e blocca ogni click verso
+    `DirectoryModal`/`ArtifactsModal`/`Console`, gli unici tre punti che
+    chiamano `openPreviewWindow`. Per aprire una nuova finestra è quindi
+    obbligatorio minimizzare prima quella a fuoco (`setFocusedId(null)`).
+    Conseguenza verificata nel codice: `focusedIdRef.current` è **sempre
+    `null`** nell'istante in cui `openPreviewWindow` esegue l'eviction in
+    ogni flusso raggiungibile da UI, quindi `findIndex(entry => entry.id
+    !== focusedIdRef.current)` restituisce sempre `0` — la protezione
+    "non evictare la finestra a fuoco" scritta in `IMP-PW-02` è codice
+    corretto ma **irraggiungibile (dead code)** con il wiring di Fase 2:
+    non può mai innescarsi, quindi non può nemmeno essere osservata
+    fallire — riprovando lo scenario con il minimize obbligatorio, f1
+    (la vera più vecchia dell'array) viene evictata esattamente come nel
+    caso base, non c'è collisione osservabile fra "più vecchia" e "a
+    fuoco". Non è un difetto (nessun comportamento errato è osservabile da
+    un utente reale — l'invariante "la finestra a fuoco non viene mai
+    evictata" resta vera, ma per irraggiungibilità dello scenario, non per
+    verifica effettiva del ramo di codice dedicato) ma **non è la verifica
+    positiva che la voce chiedeva**: non sono riuscito a dimostrare che la
+    guardia funzioni quando avrebbe davvero un candidato a fuoco da
+    proteggere, perché quel candidato non può mai esistere all'atto della
+    chiamata. Segnalato come nota tecnica, non concorre da solo al verdetto
+    `FAILED` (vedi punti 3 e "Altri controlli" sotto per i difetti reali).
+
+  **Punto 2 — `closePreviewWindow` non promuove.** Aperti f1 poi f2 (f2 a
+  fuoco, f1 in tray); chiuso f2 dal bottone di chiusura dell'header della
+  preview stessa (aria-label `"Torna all'elenco"`, il `‹` in
+  `modal-header-actions` — **non** un bottone `"Chiudi"`: quello con
+  aria-label esatto `"Chiudi"` è il close button di `DirectoryModal`
+  sottostante, mai il close della preview; nomenclatura da tenere a mente
+  per chi scriverà altri test su questo file). Dopo la chiusura: nessun
+  `dialog[name="Anteprima file"]` presente (nessuna promozione automatica
+  di f1), `.directory-modal` sottostante ancora visibile, `f1.txt` ancora
+  presente come chip nel tray. **PASSED.**
+
+  **Punto 3 — deviation CSS (`flex-wrap: wrap` su `.help-modal > header`)
+  — FALSIFICATO, regressione reale confermata.** La chiusura di `IMP-PW-02`
+  dichiara: "verificato via screenshot che gli altri modali, con un solo
+  bottone di chiusura, non sono affetti". Verificato con Playwright reale
+  (viewport 320×720, stesso usato dai test browser) su tre modali che
+  condividono `.help-modal > header` e hanno un solo bottone di chiusura
+  (nessun bottone aggiuntivo, quindi il caso che SA-IMP dichiara non
+  affetto): `PreferencesModal` e `UserModal` restano su una riga (titolo e
+  bottone × affiancati, nessuna sovrapposizione) — coerente con la
+  dichiarazione — ma **`HiddenSessionsModal` e `ArchiveModal` vanno a capo**:
+  il bottone di chiusura scende sotto il titolo invece di restare
+  affiancato. Evidenza diretta (`getBoundingClientRect`):
+  - `HiddenSessionsModal`, con `flex-wrap:wrap` (stato attuale, post
+    `IMP-PW-02`): titolo `{x:37,y:447,w:246,h:58}`, bottone × `{x:37,y:521,
+    w:44,h:44}` — bottone sceso su una riga propria sotto il titolo.
+  - Stesso `HiddenSessionsModal`, con `flex-wrap` forzato a `nowrap` via
+    `page.evaluate` (simulazione del comportamento *prima* di `IMP-PW-02`,
+    quando la regola non esisteva): titolo `{x:37,y:507,w:193,h:58}`,
+    bottone × `{x:246,y:484,w:37,h:44}` — bottone resta affiancato sulla
+    stessa riga (si stringe da 44 a 37px di larghezza, ma non va a capo).
+  - `ArchiveModal` (stato attuale): titolo `{x:37,y:372,w:246,h:58}`,
+    bottone × `{x:37,y:446,w:44,h:44}` — stesso a-capo di
+    `HiddenSessionsModal`.
+
+  Cioè: `flex-wrap: wrap` aggiunto da `IMP-PW-02` **introduce un vero
+  layout rotto** (bottone di chiusura che va a capo sotto il titolo invece
+  di restare nell'header) su almeno due modali reali diversi da
+  `PreviewModal` a 320px — esattamente lo scenario che la dichiarazione di
+  chiusura afferma di aver escluso via screenshot. La causa è la lunghezza
+  del testo del titolo (`"Sessioni nascoste"`, `"Sessioni Archiviate"`) che
+  in `nowrap` restringeva solo il bottone (già borderline, 37px < target
+  44px consigliato, ma preesistente e non nel diff di questa fase), mentre
+  in `wrap` fa scattare l'andata a capo dell'intero item flex. **FAILED.**
+
+  **Ulteriore difetto non richiesto esplicitamente dai 5 punti ma rilevante
+  per lo scope di `GATE-PW-02` (decisione vincolante di ROOT) — tray
+  sovrapposto alla preview a fuoco.** `GATE-PW-02` è esplicito e vincolante:
+  "il tray mostra soltanto le finestre minimizzate, mai quella a fuoco —
+  quindi non compare mai sovrapposto al contenuto della preview attiva
+  ... Per vedere il tray mentre una preview è a fuoco, l'utente la
+  minimizza prima." Verificato con Playwright (viewport 320×720) che questo
+  **non è vero nell'implementazione consegnata**: aperto f1, minimizzato,
+  aperto f2 (f2 a fuoco, f1 in tray) — flusso del tutto normale con 2
+  finestre, non un caso limite — il tray è già visibile e si sovrappone
+  fisicamente al bordo inferiore della preview a fuoco, senza che l'utente
+  la minimizzi. Evidenza diretta: `.preview-tray`
+  `{x:0,y:661,w:320,h:59}`, dialog preview a fuoco `{x:16,y:141,w:288,
+  h:563}` (fine a y≈704) → sovrapposizione verticale di ~43px confermata
+  sia geometricamente sia con `document.elementsFromPoint` nel centro del
+  tray, che restituisce in cima allo stack `DIV.preview-tray` e subito
+  sotto `SECTION.help-modal.directory-modal` (la preview a fuoco stessa,
+  non un altro elemento) — lo stacking è quello dichiarato (`z-index:110`
+  sopra il backdrop a `100`) ma si applica nel caso comune, non solo nel
+  caso limite "per qualunque motivo transitorio" descritto dal commento nel
+  codice. Con contenuto/viewport diversi la fascia sovrapposta potrebbe
+  coprire controlli reali (in questo test copre solo un margine vuoto sotto
+  `.preview-navigation`, che è più in alto). Causa: il render del provider
+  è **esattamente** quello scritto nella specifica di `IMP-PW-02`
+  (`{minimizedWindows.length > 0 && <PreviewTray .../>}`, indipendente da
+  `focusedWindow`) — SA-IMP ha implementato la specifica alla lettera, la
+  specifica stessa non traduce la decisione di `GATE-PW-02` in una
+  condizione di render che la rispetti (mancherebbe un `!focusedWindow &&`
+  o equivalente). Non è quindi una deviazione introdotta da SA-IMP, ma è
+  comunque un contratto vincolante di ROOT non rispettato dal codice
+  consegnato come `DONE`.
+
+  **Punto 4 — `hasActivePreviewWindow`/Escape.** Aperta una preview da
+  `DirectoryModal`, premuto Escape: la preview si chiude (0 dialog
+  `"Anteprima file"`), `.directory-modal` sottostante resta visibile e
+  interagibile. Contratto verso `DirectoryModal`/`ArtifactsModal` invariato
+  rispetto a Fase 1. **PASSED.**
+
+  **Punto 5 — minimizza → tray → ripristina → chiudi (test indipendente).**
+  Script scritto da zero (non riuso di quello in
+  `directory-preview-browser.mjs`): aperta preview di `f3.txt`, minimizzata
+  (dialog sparito), chip `f3.txt` presente nel tray, riaperta dalla chip
+  (stesso titolo `f3.txt` verificato per uguaglianza testuale con quello
+  pre-minimizzazione), minimizzata di nuovo e chiusa dal × della chip senza
+  prima riaprirla: chip sparita dal tray. **PASSED.**
+
+  **Altri controlli.** `MAX_PREVIEW_WINDOWS`, `focusedId`/`focusedIdRef`,
+  `minimizePreviewWindow`/`restorePreviewWindow`, `focusedWindow`/
+  `minimizedWindows`, `PreviewTray` sono esattamente dove/come descritto in
+  `IMP-PW-02` — nessuna deviazione di posizione non dichiarata (l'unica
+  deviazione dichiarata, il CSS del punto 3, è reale ma con effetto diverso
+  da quanto affermato). `DirectoryModal`, `ArtifactsModal`, `Console` e il
+  backend non risultano toccati nel diff. `git status` conferma che nessuna
+  modifica preesistente estranea è stata alterata.
+
+  **Verdetto: `FAILED`.** Due difetti reali con evidenza tecnica diretta:
+  (1) `flex-wrap: wrap` su `.help-modal > header` rompe il layout
+  dell'header (bottone di chiusura va a capo) su `HiddenSessionsModal` e
+  `ArchiveModal`, contraddicendo la verifica "via screenshot" dichiarata da
+  `IMP-PW-02`; (2) il tray si sovrappone visibilmente alla preview a fuoco
+  nel caso normale a 2+ finestre, contraddicendo la decisione vincolante di
+  `GATE-PW-02`. Apro `IMP-PW-02-R1` per il rework. Nota aggiuntiva (non
+  bloccante): la protezione "non evictare la finestra a fuoco" nel cap a 8
+  finestre è irraggiungibile via UI reale con il wiring attuale (dead code
+  innocuo, non causa comportamento errato osservabile) — segnalata per
+  consapevolezza, non richiede necessariamente un fix in questo round.
+
+- [x] IMP-PW-02-R1 | OWNER: SA-IMP | STATUS: DONE | Due difetti
+  trovati da `TEST-PW-02-T1`, entrambi con riproduzione diretta:
+
+  **Difetto 1 — regressione CSS su modali diversi da `PreviewModal`.**
+  Atteso (dichiarato in `IMP-PW-02`): "verificato via screenshot che gli
+  altri modali, con un solo bottone di chiusura, non sono affetti" da
+  `flex-wrap: wrap` aggiunto a `.help-modal > header`. Osservato: a
+  320×720, `HiddenSessionsModal` e `ArchiveModal` (entrambi con un solo
+  bottone × in header, titolo più lungo di `PreferencesModal`/`UserModal`)
+  vanno a capo — il bottone × scende sotto il titolo invece di restare
+  affiancato (`HiddenSessionsModal`: titolo `{x:37,y:447,w:246,h:58}`,
+  bottone `{x:37,y:521,w:44,h:44}`; con `flex-wrap:nowrap` forzato, stesso
+  bottone resta affiancato a `{x:246,y:484,w:37,h:44}`). Riproduzione:
+  aprire dashboard → "Altre azioni" → "Sessioni nascoste" (o "Sessioni
+  Archiviate") a viewport 320×720, ispezionare `.help-modal > header .modal-close`
+  con `getBoundingClientRect` e confrontare la `y` con quella di
+  `.help-modal > header h2`. Il fix deve risolvere il collasso originale
+  dell'header di `PreviewModal` (tre bottoni) **senza** introdurre wrap sugli
+  header a un solo bottone — ad es. una classe dedicata sull'header di
+  `PreviewModal` invece di toccare la regola condivisa `.help-modal > header`.
+
+  **Difetto 2 — tray sovrapposto alla preview a fuoco, in violazione di
+  `GATE-PW-02`.** Atteso (`GATE-PW-02`, vincolante): il tray non deve mai
+  comparire sovrapposto al contenuto della preview a fuoco; per vederlo
+  serve minimizzare prima. Osservato: con 2 finestre aperte (una a fuoco,
+  una minimizzata — il caso più comune, non un edge case), il tray è già
+  visibile e si sovrappone fisicamente al bordo inferiore della preview a
+  fuoco (`~43px` di sovrapposizione verticale verificata via
+  `getBoundingClientRect` e `document.elementsFromPoint`). Causa: il
+  render `{minimizedWindows.length > 0 && <PreviewTray .../>}` non
+  considera `focusedWindow` — va reso condizionale anche a `!focusedWindow`
+  (il tray compare solo quando nessuna finestra è a fuoco), coerente con la
+  frase "per vederlo, minimizza prima" di `GATE-PW-02`. Riproduzione:
+  aprire due file in sequenza dal browser directory (minimizzando il primo
+  prima di aprire il secondo), poi confrontare `.preview-tray`
+  `getBoundingClientRect()` con quello del dialog `"Anteprima file"` a
+  fuoco: le fasce Y si sovrappongono.
+
+  Non richiesta alcuna modifica a `DirectoryModal`, `ArtifactsModal`,
+  `Console`, backend. `MAX_PREVIEW_WINDOWS`/eviction/minimize/restore non
+  necessitano modifiche (nessun difetto trovato lì, vedi nota su dead code
+  non bloccante in `TEST-PW-02-T1`).
+
+  **Chiusura (SA-IMP).**
+
+  **Fix Difetto 1 (CSS).** Rimosso `flex-wrap: wrap` da `.help-modal >
+  header` in `frontend/src/styles.css` — la regola condivisa torna
+  `nowrap` (implicito, proprietà rimossa) per tutti i modali `help-modal`.
+  Il collasso a 0px di `h2.preview-file-name` nell'header di `PreviewModal`
+  a 320px con tre bottoni **non** si risolveva con il solo
+  `.preview-header-info { min-width: 0; }` già presente (verificato
+  concretamente, vedi evidenza sotto: con la sola rimozione di
+  `flex-wrap: wrap`, senza altro, il titolo tornava a `{width: 0, height:
+  1216}`, wrapping carattere-per-carattere identico al difetto originale —
+  l'ipotesi che `min-width: 0` da solo bastasse era quindi falsificata).
+  Aggiunta una classe dedicata, scoperta solo sull'header di `PreviewModal`:
+  `className="preview-header"` sull'elemento `<header>` in `PreviewModal`
+  (`frontend/src/App.tsx`) e regola `.preview-header { flex-wrap: wrap; }`
+  in `frontend/src/styles.css`, **mai** sulla regola condivisa
+  `.help-modal > header`. Effetto: solo l'header di `PreviewModal` va a
+  capo su due righe (titolo sopra, i tre bottoni sotto sulla propria riga)
+  quando i tre bottoni non ci stanno affiancati al titolo; tutti gli altri
+  `help-modal` restano `nowrap`.
+
+  Evidenza `getBoundingClientRect`/`boundingBox` a 320×720 (Playwright
+  headless, script ad hoc poi rimosso):
+  - **`PreviewModal`, prima del fix (stato consegnato da `IMP-PW-02`,**
+    `flex-wrap: wrap` sulla regola condivisa**)**: comportamento dichiarato
+    funzionante per `PreviewModal` stesso (il difetto reale era sugli
+    *altri* modali, vedi sotto).
+  - **`PreviewModal`, con solo `min-width:0` e `flex-wrap` rimosso (ipotesi
+    da falsificare)**: titolo `{x:37, y:162, width:0, height:1216}` — ancora
+    collassato, ipotesi respinta.
+  - **`PreviewModal`, dopo il fix (`.preview-header` scoperto)**: titolo
+    `{x:37, y:143, width:126, height:114}` (larghezza > 0, leggibile su due
+    righe grazie a `overflow-wrap: anywhere` preesistente), i tre bottoni
+    `modal-minimize`/`modal-fullscreen`/`modal-close` tutti a
+    `{y:327, height:44}`, `x` rispettivamente `37`, `89`, `141` — nessuna
+    sovrapposizione, tutti visibili.
+  - **`HiddenSessionsModal`, prima (con `flex-wrap:wrap` condiviso, stato
+    `TEST-PW-02-T1`)**: titolo `{y:447, h:58}`, bottone × `{y:521, h:44}` —
+    a capo (nessuna sovrapposizione verticale fra i due rect).
+  - **`HiddenSessionsModal`, dopo il fix**: titolo
+    `{x:37, y:507, w:193, h:58}`, bottone × `{x:246, y:484, w:37, h:44}` —
+    stessa riga (i range verticali si sovrappongono, 507–528), identico al
+    comportamento nowrap di riferimento misurato da `TEST-PW-02-T1`.
+  - **`ArchiveModal`, dopo il fix**: titolo `{x:37, y:432, w:195, h:58}`,
+    bottone × `{x:248, y:409, w:35, h:44}` — stessa riga, nessun a-capo.
+
+  **Fix Difetto 2 (tray sovrapposto).** Unico cambio di codice, in
+  `PreviewWindowsProvider` (`frontend/src/App.tsx`):
+  ```tsx
+  {focusedWindow === null && minimizedWindows.length > 0 && <PreviewTray windows={minimizedWindows} />}
+  ```
+  (era `{minimizedWindows.length > 0 && <PreviewTray .../>}`, indipendente
+  da `focusedWindow` — bug nella specifica di `IMP-PW-02`, non una
+  deviazione introdotta da SA-IMP: il codice consegnato era esattamente
+  quello richiesto). Nessun'altra modifica a `MAX_PREVIEW_WINDOWS`,
+  eviction, minimize/restore.
+
+  Evidenza (stesso script ad hoc, scenario di `GATE-PW-02`): aperto un
+  primo file, minimizzato, aperto un secondo file (secondo a fuoco, primo
+  in tray) → `document.querySelectorAll(".preview-tray").length === 0`
+  (prima del fix era `1`, sovrapposto al bordo inferiore della preview a
+  fuoco, ~43px di sovrapposizione verificata da `TEST-PW-02-T1`). Minimizzato
+  anche il secondo → tray presente con `.preview-tray-chip` = 2.
+
+  **Test di regressione aggiunti** in
+  `frontend/tests/directory-preview-browser.mjs`:
+  - Difetto 1: apre "Sessioni nascoste" dalla dashboard a 320×720, legge
+    `boundingBox()` di `.help-modal > header h2` e
+    `.help-modal > header .modal-close`, assert che i range verticali dei
+    due rettangoli si sovrappongano (non vadano a capo).
+  - Difetto 2: apre `zeta.md` poi lo minimizza, apre `alpha.txt` (a fuoco,
+    `zeta.md` in tray) e assert `.preview-tray` count `=== 0`; minimizza
+    anche `alpha.txt` e assert `.preview-tray-chip` count `=== 2`; pulizia
+    chiudendo entrambe le chip.
+
+  **Comandi eseguiti (esiti reali):**
+  - `npm run build` → `tsc -b && vite build`, nessun errore, `✓ 36 modules
+    transformed`.
+  - `npm run test:ui` → 8 suite, 102/102 verdi (25+24+7+5+10+17+2+12),
+    stessi numeri dei round precedenti.
+  - `npm run test:directory:browser` (con `vite preview --host 127.0.0.1
+    --port 4173 --strictPort` avviato a parte) → `Directory/artifact
+    preview navigation browser checks passed` (include i due nuovi blocchi
+    di regressione).
+  - `npm run test:console:browser` (con `vite preview --host 127.0.0.1
+    --port 4174 --strictPort`, `MAC_BROWSER_BASE_URL=http://127.0.0.1:4174`)
+    → `Session console browser checks passed (block preview, Unicode,
+    drafts, Clear, attachment overflow)`.
+  - Scansione dati personali sul diff di questo round (`grep -inE` per path
+    assoluti `/home/...`, IP, nome/cognome utente, `@gmail.com`, `tailscale`
+    su `git diff` di `frontend/src/App.tsx`, `frontend/src/styles.css`,
+    `frontend/tests/directory-preview-browser.mjs`): nessuna occorrenza.
+
+  **Nota non richiesta dal task ma osservata.** All'avvio di questo round,
+  `frontend/tests/session-console-browser.mjs` e
+  `frontend/tests/session-console-ui.test.mjs`, elencati come modificati
+  nello snapshot iniziale del working tree, risultano già identici a
+  `HEAD` (`git diff` vuoto) — non toccati in questo round, nessuna azione
+  necessaria.
+
+  File toccati in questo round: `frontend/src/App.tsx`,
+  `frontend/src/styles.css`, `frontend/tests/directory-preview-browser.mjs`,
+  `docs/backlog.md`. `frontend/src/i18n.ts` invariato (nessuna stringa
+  nuova richiesta per il rework). Nessun commit creato (compito di ROOT
+  dopo la verifica).
+
+- [x] TEST-PW-02-T2 | OWNER: SA-TEST | STATUS: PASSED | Verifica
+  indipendente di `IMP-PW-02-R1`: rieseguire i quattro comandi standard
+  (`npm run build`, `npm run test:ui`, `npm run test:directory:browser`,
+  `npm run test:console:browser`, con `vite preview --host 127.0.0.1
+  --strictPort` sulle porte 4173/4174) e confermare che entrambi i difetti
+  di `TEST-PW-02-T1` siano risolti:
+
+  1. A 320×720, `.help-modal > header .modal-close` e `.help-modal >
+     header h2` restano sulla stessa riga (range Y sovrapposti, non a
+     capo) su `HiddenSessionsModal` e `ArchiveModal` — riprodurre lo stesso
+     scenario di `TEST-PW-02-T1` (dashboard → "Altre azioni" → "Sessioni
+     nascoste"/"Sessioni Archiviate"). Verificare anche che
+     `PreferencesModal`/`UserModal` (un solo bottone, titolo corto) restino
+     invariati, e che l'header di `PreviewModal` (tre bottoni) resti
+     leggibile e utilizzabile a 320px con un nome file lungo (titolo
+     `getBoundingClientRect().width > 0`, i tre bottoni
+     minimizza/fullscreen/chiudi tutti visibili e non sovrapposti fra loro).
+  2. Aprendo due file in sequenza dal browser directory (minimizzando il
+     primo prima di aprire il secondo), `.preview-tray` non è presente nel
+     DOM mentre il secondo file è a fuoco; minimizzando anche il secondo,
+     il tray compare con 2 chip. Riprodurre anche con >=3 finestre per
+     escludere regressioni sul cap a 8 finestre/eviction (non modificato in
+     questo round, ma non ancora ri-verificato da `TEST-PW-02-T1` dopo
+     questo rework).
+
+  Verificare inoltre che `git status` mostri solo `frontend/src/App.tsx`,
+  `frontend/src/styles.css`, `frontend/tests/directory-preview-browser.mjs`,
+  `docs/backlog.md` come modificati da questo round (oltre a quanto già
+  preesistente da `IMP-PW-02`), e ripetere la scansione dati personali sul
+  diff. Passa a `READY_FOR_TEST` da subito (non serve attendere altro,
+  `IMP-PW-02-R1` chiude `DONE` in questo stesso round). Non testare
+  `TEST-PW-02-T1` (resta `FAILED`, tentativo storico, non va toccato).
+
+  **Chiusura (SA-TEST). Verdetto: `PASSED`.**
+
+  **Comandi standard (esito reale):**
+  - `npm run build` → `tsc -b && vite build`, nessun errore, `✓ 36 modules
+    transformed`.
+  - `npm run test:ui` → 8 suite, 102/102 verdi (25+24+7+5+10+17+2+12),
+    stessi numeri dei round precedenti.
+  - `npm run test:directory:browser` (con `vite preview --host 127.0.0.1
+    --port 4173 --strictPort` avviato a parte) → `Directory/artifact
+    preview navigation browser checks passed`.
+  - `npm run test:console:browser` (con `vite preview --host 127.0.0.1
+    --port 4174 --strictPort`, `MAC_BROWSER_BASE_URL=http://127.0.0.1:4174`)
+    → `Session console browser checks passed (block preview, Unicode,
+    drafts, Clear, attachment overflow)`.
+
+  **Diff riletto** (`git diff -- frontend/src/App.tsx frontend/src/styles.css
+  frontend/tests/`): conferma quanto dichiarato da `IMP-PW-02-R1` — in
+  `styles.css` `flex-wrap: wrap` rimosso da `.help-modal > header`, aggiunte
+  solo `.preview-header { flex-wrap: wrap; }` e `.preview-header-info {
+  min-width: 0; }` (nessun'altra regola toccata); in `App.tsx` l'unico
+  cambio di comportamento è la condizione di render del tray
+  (`{focusedWindow === null && minimizedWindows.length > 0 && <PreviewTray
+  .../>}`) e `className="preview-header"`/`"preview-header-info"`
+  sull'header/contenitore di `PreviewModal`. `DirectoryModal`,
+  `ArtifactsModal`, `Console`, backend, `MAX_PREVIEW_WINDOWS`, eviction,
+  minimize/restore: non toccati in questo round (confermato a colpo
+  d'occhio sul diff, nessuna occorrenza).
+
+  **Difetto 1 (CSS) — script Playwright ad hoc scritto da zero** (non
+  `directory-preview-browser.mjs`, rimosso al termine), viewport 320×720,
+  mock con ruolo `admin`:
+  - `AuditModal` (terzo modale, un solo bottone × in header, titolo "Audit
+    operazioni" — non menzionato esplicitamente nei due round precedenti,
+    scelto come controllo indipendente aggiuntivo): titolo
+    `{x:37,y:507,w:191.4,h:58}`, bottone × `{x:244.4,y:484,w:38.6,h:44}` —
+    range Y sovrapposti (484–528 vs 507–565), stessa riga, nessun a-capo.
+  - `HiddenSessionsModal`: titolo `{x:37,y:507,w:193.2,h:58}`, bottone ×
+    `{x:246.2,y:484,w:36.8,h:44}` — stessa riga.
+  - `ArchiveModal`: titolo `{x:37,y:432,w:194.7,h:58}`, bottone ×
+    `{x:247.7,y:409,w:35.3,h:44}` — stessa riga.
+  - `PreferencesModal` (titolo corto, controllo di non regressione): titolo
+    `{x:37,y:143.2,w:152.8,h:29}`, bottone × `{x:239,y:120.2,w:44,h:44}` —
+    stessa riga, invariato.
+  - `UserModal` (titolo corto, controllo di non regressione): titolo
+    `{x:37,y:347,w:86.8,h:29}`, bottone × `{x:239,y:324,w:44,h:44}` —
+    stessa riga, invariato.
+  - `PreviewModal` con nome file volutamente lungo
+    (`un-nome-di-file-decisamente-molto-lungo-per-forzare-il-collasso-dell-header.txt`):
+    `h2.preview-file-name` `{x:37,y:143.2,w:126.2,h:133}` — larghezza > 0,
+    leggibile (nessun collasso a 0px come nel bug originale pre-`IMP-PW-02`).
+    I tre bottoni `modal-minimize`/`modal-fullscreen`/`modal-close` tutti a
+    `{y:346.4,h:44}`, `x` rispettivamente `37`, `89`, `141` (spaziatura 52px,
+    larghezza 44px ciascuno) — tutti visibili, nessuna sovrapposizione
+    reciproca né con il titolo (verificato per intersezione di rettangoli,
+    non solo a occhio). **Difetto 1: confermato risolto, nessuna
+    regressione sui due modali che avevano fallito in `TEST-PW-02-T1`, né
+    sul terzo modale extra controllato.**
+
+  **Difetto 2 (tray sovrapposto) — script Playwright ad hoc scritto da
+  zero** (non riuso del test di `IMP-PW-02-R1`, rimosso al termine),
+  viewport 320×720:
+  - Aperto `uno.txt`, minimizzato, aperto `due.txt` (a fuoco): `document
+    .querySelectorAll(".preview-tray").length === 0` — il tray non è
+    presente nel DOM (non solo "non sovrapposto": assente del tutto),
+    mentre `due.txt` a fuoco occupa `{x:16,y:140.8,w:288,h:563.2}`
+    (fine a y≈704).
+  - Minimizzato anche `due.txt` (nessuna finestra a fuoco): `.preview-tray`
+    compare, bounding box `{x:0,y:661,w:320,h:59}`, con esattamente 2
+    `.preview-tray-chip`.
+  - Cliccata la chip di `uno.txt`: si riapre `uno.txt` (verificato per
+    uguaglianza testuale di `h2.preview-file-name`, non solo presenza del
+    dialog). Riminimizzato, cliccata la chip di `due.txt`: si riapre
+    `due.txt` (stessa verifica). Entrambe le chip riaprono il file
+    corretto, non un file qualsiasi.
+  - Chiuse entrambe le chip dal ×, tray sparito.
+  - **Scenario esteso ≥3 finestre** (per escludere regressioni sul cap a 8
+    finestre/eviction non ancora ri-verificate dopo il rework): aperti
+    `uno.txt`, `due.txt`, `tre.txt` in sequenza (minimizzando ogni volta
+    prima della successiva), poi aperto un quarto file `quattro.txt` a
+    fuoco con tre finestre minimizzate: `.preview-tray` assente dal DOM
+    (0 occorrenze) mentre `quattro.txt` è a fuoco — stesso comportamento
+    del caso a 2 finestre, nessuna soglia diversa scoperta a 4. Minimizzato
+    anche `quattro.txt`: tray presente con esattamente 4 chip. **Difetto 2:
+    confermato risolto sia nel caso base a 2 finestre sia esteso a 4, nessun
+    caso in cui il tray risulti nel DOM mentre una finestra è a fuoco.**
+
+  **Altri controlli.** `git status` conferma solo `docs/backlog.md`,
+  `frontend/src/App.tsx`, `frontend/src/i18n.ts` (invariato in questo round,
+  già modificato da `IMP-PW-02`), `frontend/src/styles.css`,
+  `frontend/tests/directory-preview-browser.mjs` come file con modifiche
+  nel working tree — nessuna modifica preesistente estranea alterata,
+  nessun file temporaneo di test rimasto (i due script Playwright ad hoc
+  usati per questa verifica sono stati creati sotto `frontend/tests/` solo
+  per l'esecuzione, con dipendenze locali del progetto, e rimossi subito
+  dopo). Scansione dati personali sul diff di questo round (`grep -inE` per
+  path assoluti `/home/...`, IP Tailscale, nome/cognome utente,
+  `@gmail.com`) su `frontend/src/App.tsx`, `frontend/src/styles.css`,
+  `frontend/src/i18n.ts`, `frontend/tests/directory-preview-browser.mjs`:
+  nessuna occorrenza.
+
+  **Verdetto: `PASSED`.** Entrambi i difetti di `TEST-PW-02-T1` sono
+  risolti con evidenza diretta indipendente (script scritti da zero, non
+  riuso di quelli di `SA-IMP`), incluso un terzo modale extra
+  (`AuditModal`) e uno scenario esteso a 4 finestre per il tray, oltre ai
+  cinque punti richiesti. `GATE-PW-02` rispettato: il tray non è mai nel
+  DOM mentre una finestra è a fuoco.

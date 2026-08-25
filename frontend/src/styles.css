@@ -492,6 +492,8 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .help-modal-fullscreen { width: 100%; max-height: 100dvh; height: 100%; border-radius: 0; }
 .directory-modal { overflow-anchor: none; }
 .help-modal > header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+.preview-header { flex-wrap: wrap; }
+.preview-header-info { min-width: 0; }
 .help-modal h2 { margin: 4px 0 0; font-size: 1.55rem; }
 .help-modal ol { display: grid; gap: 12px; margin: 22px 0; padding-left: 22px; color: #b8c9bd; }
 .help-modal li { padding-left: 4px; line-height: 1.45; }
@@ -500,6 +502,25 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .modal-close, .modal-fullscreen { width: 44px; border: 0; border-radius: 12px; background: #1d2921; color: white; font-size: 1.6rem; }
 .modal-fullscreen { font-size: 1.15rem; }
 .modal-fullscreen[aria-pressed="true"] { background: #2a3f30; color: #8ee2aa; }
+.modal-minimize { width: 44px; border: 0; border-radius: 12px; background: #1d2921; color: white; font-size: 1.4rem; }
+.preview-tray {
+  position: fixed;
+  z-index: 110;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 8px 12px max(8px, env(safe-area-inset-bottom));
+  background: #101713ee;
+  backdrop-filter: blur(12px);
+  border-top: 1px solid #26352c;
+}
+.preview-tray-chip { display: inline-flex; align-items: center; flex: 0 0 auto; max-width: 220px; min-height: 40px; border: 1px solid #344b3b; border-radius: 999px; padding-left: 11px; background: #18231c; color: #d2e3d7; font-size: .78rem; }
+.preview-tray-chip-open { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: inherit; font: inherit; padding: 0; min-height: 40px; overflow: hidden; }
+.preview-tray-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
+.preview-tray-chip-close { min-width: 36px; min-height: 40px; border: 0; background: transparent; color: #91a397; font-size: 1.2rem; }
 .preference-field { display: grid; gap: 10px; margin: 18px 0; border: 1px solid #293a30; border-radius: 14px; padding: 14px; }
 .preference-field legend { padding: 0 4px; color: #7ea58c; font-size: .68rem; letter-spacing: .1em; font-weight: 700; text-transform: uppercase; }
 .preference-field label { display: flex; align-items: center; gap: 10px; min-height: 44px; color: #d2e3d7; }
