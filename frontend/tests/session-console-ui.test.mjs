@@ -25,12 +25,15 @@ test("la bozza testuale resta separata per session id e non usa persistenza", ()
   assert.doesNotMatch(draftState, /localStorage|sessionStorage|indexedDB/);
 });
 
-test("Clear invia testo ed Enter come operazioni distinte solo nei controlli agentici", () => {
+test("Clear e Model inviano testo ed Enter come operazioni distinte solo nei controlli agentici", () => {
   assert.match(consoleView, /await sendText\(session\.id, "\/clear", \[\], paneId \|\| undefined\);[\s\S]*await sendEnter\(session\.id, paneId \|\| undefined\)/);
+  assert.match(consoleView, /await sendText\(session\.id, "\/model", \[\], paneId \|\| undefined\);[\s\S]*await sendEnter\(session\.id, paneId \|\| undefined\)/);
   assert.match(consoleView, /const agenticStatus = agentic \|\| opencode;/);
   assert.match(consoleView, /\{agenticStatus && \([\s\S]*onClick=\{\(\) => void runClear\(\)\}[\s\S]*\{clearing \? "Clear…" : "Clear"\}/);
-  assert.match(consoleView, /disabled=\{connection === "closed" \|\| compacting \|\| clearing\}/);
+  assert.match(consoleView, /\{agenticStatus && \([\s\S]*onClick=\{\(\) => void runModel\(\)\}[\s\S]*\{changingModel \? "Model…" : "Model"\}/);
+  assert.match(consoleView, /disabled=\{connection === "closed" \|\| compacting \|\| clearing \|\| changingModel\}/);
   assert.doesNotMatch(consoleView, /sendText\([^\n]*"\/clear[^\n]*Enter/);
+  assert.doesNotMatch(consoleView, /sendText\([^\n]*"\/model[^\n]*Enter/);
 });
 
 test("il selettore Allega abilita gli MP3", () => {

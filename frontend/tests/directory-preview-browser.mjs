@@ -74,6 +74,7 @@ try {
   await page.goto(baseUrl);
   await page.locator("button.session-card", { hasText: session.name }).click();
   await page.getByRole("button", { name: "Funzioni", exact: true }).click();
+  await page.locator(".special-section-toggle").click();
   await page.getByRole("button", { name: "Contenuto directory", exact: true }).click();
   await page.getByLabel("Ordina").selectOption("date-desc");
   await page.locator(".directory-open", { hasText: "zeta.md" }).click();
@@ -91,7 +92,7 @@ try {
   await page.getByRole("button", { name: "File successivo" }).click();
   await assertPosition(page, "2 / 2");
   await page.locator(".help-modal-fullscreen").waitFor();
-  await page.locator("h2.directory-path", { hasText: "alpha.txt" }).waitFor();
+  await page.locator("h2.preview-file-name", { hasText: "alpha.txt" }).waitFor();
   assert.match(await page.locator(".preview-modified").innerText(), /20\/08\/2026/);
   assert.equal(await page.getByRole("button", { name: "File successivo" }).isDisabled(), true);
   await page.getByRole("button", { name: "Esci da schermo intero", exact: true }).click();
@@ -106,7 +107,7 @@ try {
   assert.match(await page.locator(".preview-modified").innerText(), /22\/08\/2026/);
   await page.getByRole("button", { name: "File successivo" }).click();
   await assertPosition(page, "2 / 2");
-  await page.locator("h2.directory-path", { hasText: "alpha.md" }).waitFor();
+  await page.locator("h2.preview-file-name", { hasText: "alpha.md" }).waitFor();
   assert.match(await page.locator(".preview-modified").innerText(), /20\/08\/2026/);
 
   const layout = await page.locator(".preview-navigation").evaluate((node) => ({

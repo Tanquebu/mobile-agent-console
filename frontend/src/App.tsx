@@ -150,9 +150,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Anteprime direttamente dai blocchi",
+  title: "Anteprima zero-flicker, chip filtri e riepilogo directory",
   description:
-    "I percorsi di immagini, audio, video e Markdown mostrati dagli agenti nei blocchi sono ora apribili nella stessa anteprima centralizzata di Directory e Artefatti, con copia rapida del path completo.",
+    "Navigazione anteprime fluida con skeleton loader e progress bar senza sfarfallio, chip di filtro rapido per categoria (Cartelle, Codice, Media, Documenti) e badge di riepilogo con conteggio e peso file.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1029,6 +1029,32 @@ function formatPercent(value: number | null): string {
   return value === null ? "—" : `${value.toFixed(1)}%`;
 }
 
+type EntryCategory = "all" | "folders" | "code" | "media" | "docs";
+
+const CODE_EXTENSIONS = new Set([
+  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".json", ".css", ".html", ".sh",
+  ".bash", ".zsh", ".yaml", ".yml", ".toml", ".go", ".rs", ".c", ".cpp", ".h", ".hpp",
+  ".sql", ".env", ".ini", ".conf", ".xml", ".lua", ".rb", ".php", ".java", ".kt"
+]);
+
+const MEDIA_EXTENSIONS = new Set([
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico",
+  ".mp4", ".webm", ".mov", ".m4v", ".mp3", ".m4a", ".wav", ".ogg"
+]);
+
+const DOCS_EXTENSIONS = new Set([
+  ".md", ".markdown", ".txt", ".pdf", ".rst", ".doc", ".docx", ".rtf", ".csv", ".log"
+]);
+
+function getEntryCategory(entry: DirectoryEntry): "folders" | "code" | "media" | "docs" | "other" {
+  if (entry.type === "dir") return "folders";
+  const ext = entry.name.includes(".") ? "." + entry.name.split(".").pop()!.toLowerCase() : "";
+  if (CODE_EXTENSIONS.has(ext)) return "code";
+  if (MEDIA_EXTENSIONS.has(ext)) return "media";
+  if (DOCS_EXTENSIONS.has(ext)) return "docs";
+  return "other";
+}
+
 function formatAge(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
@@ -1174,6 +1200,156 @@ function isPreviewableDirectoryEntry(entry: DirectoryEntry): boolean {
   return previewKindFor(entry.name) !== "text" || !isDownloadable(entry.name);
 }
 
+const CODE_FILE_EXTENSION = /\.(?:py|ts|tsx|js|jsx|json|sh|bash|zsh|yaml|yml|toml|css|scss|html|rs|go|c|cpp|h|hpp|sql|env|dockerfile|makefile)$/i;
+const ARCHIVE_FILE_EXTENSION = /\.(?:zip|tar|gz|tgz|bz2|xz|7z|rar)$/i;
+
+function FileTypeIcon({ type, name, mediaType }: { type: "dir" | "file" | "other"; name: string; mediaType?: string }) {
+  if (type === "dir") {
+    return (
+      <svg className="directory-icon dir" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+      </svg>
+    );
+  }
+  if (type === "other") {
+    return (
+      <svg className="directory-icon other" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="12" />
+        <line x1="12" y1="16" x2="12.01" y2="16" />
+      </svg>
+    );
+  }
+  const kind = previewKindFor(name, mediaType);
+  if (kind === "image") {
+    return (
+      <svg className="directory-icon media" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+        <circle cx="8.5" cy="8.5" r="1.5" />
+        <polyline points="21 15 16 10 5 21" />
+      </svg>
+    );
+  }
+  if (kind === "video") {
+    return (
+      <svg className="directory-icon media" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <polygon points="23 7 16 12 23 17 23 7" />
+        <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+      </svg>
+    );
+  }
+  if (kind === "audio") {
+    return (
+      <svg className="directory-icon audio" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M9 18V5l12-2v13" />
+        <circle cx="6" cy="18" r="3" />
+        <circle cx="18" cy="16" r="3" />
+      </svg>
+    );
+  }
+  if (kind === "markdown" || CODE_FILE_EXTENSION.test(name)) {
+    return (
+      <svg className="directory-icon code" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <polyline points="16 18 22 12 16 6" />
+        <polyline points="8 6 2 12 8 18" />
+      </svg>
+    );
+  }
+  if (ARCHIVE_FILE_EXTENSION.test(name)) {
+    return (
+      <svg className="directory-icon archive" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <polyline points="21 8 21 21 3 21 3 8" />
+        <rect x="1" y="3" width="22" height="5" />
+        <line x1="10" y1="12" x2="14" y2="12" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="directory-icon file" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
+    </svg>
+  );
+}
+
+function PathBreadcrumbs({
+  path,
+  root,
+  onNavigate,
+}: {
+  path?: string;
+  root?: string;
+  onNavigate: (targetPath: string) => void;
+}) {
+  const effectiveRoot = root || "/";
+  const effectivePath = path || effectiveRoot;
+
+  const crumbs: Array<{ label: string; path: string }> = [
+    { label: "root", path: effectiveRoot }
+  ];
+
+  if (effectivePath.startsWith(effectiveRoot) && effectivePath.length > effectiveRoot.length) {
+    const relative = effectivePath.slice(effectiveRoot.length).replace(/^\/+/, "");
+    const parts = relative.split("/").filter(Boolean);
+    let acc = effectiveRoot.replace(/\/+$/, "");
+    for (const part of parts) {
+      acc += "/" + part;
+      crumbs.push({ label: part, path: acc });
+    }
+  } else if (!effectivePath.startsWith(effectiveRoot) && effectivePath !== effectiveRoot) {
+    const parts = effectivePath.split("/").filter(Boolean);
+    let acc = "";
+    for (const part of parts) {
+      acc += "/" + part;
+      crumbs.push({ label: part, path: acc });
+    }
+  }
+
+  return (
+    <nav className="directory-breadcrumbs" aria-label="Percorso cartelle">
+      {crumbs.map((crumb, idx) => {
+        const isCurrent = crumb.path === effectivePath;
+        const isRoot = crumb.path === effectiveRoot;
+        return (
+          <span key={crumb.path + "-" + idx} className="breadcrumb-segment">
+            {idx > 0 && <span className="breadcrumb-sep" aria-hidden="true">/</span>}
+            {isCurrent ? (
+              <span className={`breadcrumb-item active${isRoot ? " root" : ""}`} aria-current="location">
+                {isRoot ? "⌂ root" : crumb.label}
+              </span>
+            ) : (
+              <button
+                type="button"
+                className={`breadcrumb-item link${isRoot ? " root" : ""}`}
+                onClick={() => onNavigate(crumb.path)}
+                title={crumb.path}
+              >
+                {isRoot ? "⌂ root" : crumb.label}
+              </button>
+            )}
+          </span>
+        );
+      })}
+    </nav>
+  );
+}
+
+function parseArtifactBreadcrumbs(currentPath: string): Array<{ name: string; path: string }> {
+  const crumbs: Array<{ name: string; path: string }> = [
+    { name: "Artefatti", path: "" }
+  ];
+  if (!currentPath) return crumbs;
+  const parts = currentPath.split("/").filter(Boolean);
+  let acc = "";
+  for (const part of parts) {
+    acc = acc ? `${acc}/${part}` : part;
+    crumbs.push({ name: part, path: acc });
+  }
+  return crumbs;
+}
+
 // Adapter di directory: il tipo si decide dall'estensione perche' la directory
 // non espone un media type; i tag media caricano da soli e il flag `truncated`
 // arriva dalla risposta di `/file`.
@@ -1234,8 +1410,13 @@ function PreviewModal({
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [pathCopied, setPathCopied] = useState(false);
+  const [viewMode, setViewMode] = useState<"rendered" | "source">("rendered");
+  const [showLineNumbers, setShowLineNumbers] = useState(false);
   const t = translations[readLanguage()];
   const isText = source.kind === "text" || source.kind === "markdown";
+  const lastSlash = source.name.lastIndexOf("/");
+  const fileName = lastSlash >= 0 ? source.name.slice(lastSlash + 1) : source.name;
+  const filePath = lastSlash >= 0 ? source.name.slice(0, lastSlash) : "";
 
   // Il source e' ricreato a ogni render del padre (adapter costruiti inline),
   // quindi l'effetto non deve dipenderne per identita', altrimenti ogni
@@ -1246,6 +1427,11 @@ function PreviewModal({
   sourceRef.current = source;
 
   useEffect(() => {
+    setViewMode("rendered");
+    setShowLineNumbers(false);
+  }, [source.name]);
+
+  useEffect(() => {
     if (!isText) {
       setContent(null);
       setError("");
@@ -1253,7 +1439,6 @@ function PreviewModal({
       return;
     }
     let cancelled = false;
-    setContent(null);
     setLoading(true);
     setError("");
     sourceRef.current.fetchContent()
@@ -1262,7 +1447,12 @@ function PreviewModal({
         setContent(value.content);
         setTruncated(value.truncated);
       })
-      .catch((value) => { if (!cancelled) setError(errorMessage(value)); })
+      .catch((value) => {
+        if (!cancelled) {
+          setContent(null);
+          setError(errorMessage(value));
+        }
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [isText, source.kind, source.name]);
@@ -1288,7 +1478,7 @@ function PreviewModal({
         <div>
           <span className="eyebrow">{source.eyebrow ?? t.preview}</span>
           <div className="preview-path-row">
-            <h2 className="directory-path" title={source.name}>{source.name}</h2>
+            <h2 className="preview-file-name" title={source.name}>{fileName}</h2>
             <button
               type="button"
               className="preview-path-copy"
@@ -1298,6 +1488,7 @@ function PreviewModal({
               {pathCopied ? t.copied : t.copyPath}
             </button>
           </div>
+          {filePath && <p className="preview-file-dir" title={filePath}>{filePath}</p>}
           {source.modifiedAt && (
             <p className="preview-modified">
               {t.lastModified}: <time dateTime={source.modifiedAt}>{formatDate(source.modifiedAt)}</time>
@@ -1317,54 +1508,139 @@ function PreviewModal({
           <button className="modal-close" onClick={source.onBack} aria-label={t.backToList}>‹</button>
         </div>
       </header>
-      <nav className="preview-navigation" aria-label={t.previewNavigation}>
-        <button
-          type="button"
-          disabled={navigation.onPrevious === null}
-          onClick={() => navigation.onPrevious?.()}
-          aria-label={t.previousPreview}
-        >
-          ‹ <span>{t.previous}</span>
-        </button>
-        <span aria-live="polite">{navigation.index + 1} / {navigation.total}</span>
-        <button
-          type="button"
-          disabled={navigation.onNext === null}
-          onClick={() => navigation.onNext?.()}
-          aria-label={t.nextPreview}
-        >
-          <span>{t.next}</span> ›
-        </button>
-      </nav>
+      <div className="preview-toolbar">
+        <nav className="preview-navigation" aria-label={t.previewNavigation}>
+          <button
+            type="button"
+            disabled={navigation.onPrevious === null}
+            onClick={() => navigation.onPrevious?.()}
+            title={t.previousPreview}
+            aria-label={t.previousPreview}
+          >
+            ‹
+          </button>
+          <span aria-live="polite">{navigation.index + 1} / {navigation.total}</span>
+          <button
+            type="button"
+            disabled={navigation.onNext === null}
+            onClick={() => navigation.onNext?.()}
+            title={t.nextPreview}
+            aria-label={t.nextPreview}
+          >
+            ›
+          </button>
+        </nav>
+        {source.kind === "markdown" && (
+          <div className="preview-toggle-group">
+            <button
+              type="button"
+              className={`preview-toggle-btn${viewMode === "rendered" ? " active" : ""}`}
+              onClick={() => setViewMode("rendered")}
+            >
+              👁️ {t.renderedView}
+            </button>
+            <button
+              type="button"
+              className={`preview-toggle-btn${viewMode === "source" ? " active" : ""}`}
+              onClick={() => setViewMode("source")}
+            >
+              💻 {t.sourceView}
+            </button>
+          </div>
+        )}
+        {(source.kind === "text" || (source.kind === "markdown" && viewMode === "source")) && (
+          <button
+            type="button"
+            className={`preview-option-btn${showLineNumbers ? " active" : ""}`}
+            onClick={() => setShowLineNumbers((v) => !v)}
+            title={t.lineNumbersToggle}
+            aria-pressed={showLineNumbers}
+          >
+            # {t.lineNumbersToggle}
+          </button>
+        )}
+        {isText && !loading && !error && content && (
+          <button type="button" className="preview-copy-btn" onClick={() => void copy()}>
+            {copied ? (
+              <>
+                <svg className="action-icon-sm copy-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                <span>{t.copied}</span>
+              </>
+            ) : (
+              <>
+                <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+                <span>{t.copyContent}</span>
+              </>
+            )}
+          </button>
+        )}
+      </div>
       {source.kind === "video" && (
         <video className={`file-media${fullscreen ? " is-fullscreen" : ""}`} src={source.url ?? undefined} controls playsInline preload="metadata" />
       )}
       {source.kind === "image" && (
-        <img className={`file-media${fullscreen ? " is-fullscreen" : ""}`} src={source.url ?? undefined} alt={source.name} />
+        <div className={`file-media-wrapper${fullscreen ? " is-fullscreen" : ""}`}>
+          <img
+            key={source.url}
+            className={`file-media preview-fade-in${fullscreen ? " is-fullscreen" : ""}`}
+            src={source.url ?? undefined}
+            alt={source.name}
+          />
+        </div>
       )}
       {source.kind === "audio" && (
         <audio className="file-media" src={source.url ?? undefined} controls preload="metadata" />
       )}
-      {isText && loading && <p className="empty">{t.loading}</p>}
-      {isText && error && <p className="error">{error}</p>}
-      {isText && !loading && !error && content !== null && (
-        <>
-          {content && (
-            <button type="button" className="directory-copy" onClick={() => void copy()}>
-              {copied ? t.copied : t.copyContent}
-            </button>
+      {isText && (
+        <div className={`preview-viewport${fullscreen ? " is-fullscreen" : ""}${loading ? " is-loading" : ""}`}>
+          {loading && content === null && (
+            <div className="preview-skeleton-loader" aria-busy="true">
+              <div className="skeleton-line" style={{ width: "85%" }} />
+              <div className="skeleton-line" style={{ width: "65%" }} />
+              <div className="skeleton-line" style={{ width: "92%" }} />
+              <div className="skeleton-line" style={{ width: "45%" }} />
+              <div className="skeleton-line" style={{ width: "78%" }} />
+              <div className="skeleton-line" style={{ width: "60%" }} />
+              <div className="skeleton-line" style={{ width: "80%" }} />
+            </div>
           )}
-          {source.kind === "markdown" ? (
-            content ? (
-              <div className={`chat-markdown markdown-preview${fullscreen ? " is-fullscreen" : ""}`}><MarkdownContent content={content} /></div>
-            ) : (
-              <p className="empty">{t.emptyFile}</p>
-            )
-          ) : (
-            <pre className={`file-preview${fullscreen ? " is-fullscreen" : ""}`}>{content || t.emptyFile}</pre>
+          {loading && content !== null && (
+            <div className="preview-loading-bar" aria-busy="true" />
           )}
-          {truncated && <small>{t.truncatedPreview}</small>}
-        </>
+          {error && <p className="error">{error}</p>}
+          {!error && content !== null && (
+            <>
+              {source.kind === "markdown" && viewMode === "rendered" ? (
+                content ? (
+                  <div className={`chat-markdown markdown-preview preview-fade-in${fullscreen ? " is-fullscreen" : ""}`}>
+                    <MarkdownContent content={content} />
+                  </div>
+                ) : (
+                  <p className="empty">{t.emptyFile}</p>
+                )
+              ) : (
+                <pre className={`file-preview preview-fade-in${fullscreen ? " is-fullscreen" : ""}${showLineNumbers ? " with-lines" : ""}`}>
+                  {showLineNumbers && content ? (
+                    content.split("\n").map((line, idx) => (
+                      <div key={idx} className="code-line-row">
+                        <span className="code-line-num" aria-hidden="true">{idx + 1}</span>
+                        <span className="code-line-text">{line || "\n"}</span>
+                      </div>
+                    ))
+                  ) : (
+                    content || t.emptyFile
+                  )}
+                </pre>
+              )}
+              {truncated && <small>{t.truncatedPreview}</small>}
+            </>
+          )}
+        </div>
       )}
     </>
   );
@@ -1383,10 +1659,27 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   const [uploadNotice, setUploadNotice] = useState("");
   const [directoryQuery, setDirectoryQuery] = useState("");
   const [directorySort, setDirectorySort] = useState<BrowserSort>("name-asc");
+  const [categoryFilter, setCategoryFilter] = useState<EntryCategory>("all");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLElement>(null);
   const savedScrollTopRef = useRef(0);
   const restoreScrollRef = useRef(false);
+
+  const dirStats = useMemo(() => {
+    if (!listing) return null;
+    let folders = 0;
+    let files = 0;
+    let totalBytes = 0;
+    for (const e of listing.entries) {
+      if (e.type === "dir") {
+        folders++;
+      } else {
+        files++;
+        totalBytes += e.size ?? 0;
+      }
+    }
+    return { folders, files, totalBytes };
+  }, [listing]);
 
   useEffect(() => {
     fetchConfig().then(setAppConfig).catch(() => {});
@@ -1431,14 +1724,59 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     };
   }, [openFile]);
 
+  const [copiedKey, setCopiedKey] = useState("");
+
   async function copy(entry: DirectoryEntry) {
+    return copyName(entry);
+  }
+
+  async function copyName(entry: DirectoryEntry) {
     const ok = await copyToClipboard(shellQuote(entry.name));
     if (ok) {
       setError("");
+      setCopiedKey(entry.name + "-name");
       setCopiedName(entry.name);
-      window.setTimeout(() => setCopiedName(""), 1500);
+      window.setTimeout(() => {
+        setCopiedKey("");
+        setCopiedName("");
+      }, 1500);
     } else {
       setError("Copia negli appunti non riuscita.");
+    }
+  }
+
+  async function copyFullPath(entry: DirectoryEntry) {
+    if (!listing) return;
+    const fullPath = joinPath(listing.path, entry.name);
+    const ok = await copyToClipboard(fullPath);
+    if (ok) {
+      setError("");
+      setCopiedKey(entry.name + "-path");
+      window.setTimeout(() => setCopiedKey(""), 1500);
+    } else {
+      setError("Copia negli appunti non riuscita.");
+    }
+  }
+
+  async function copyHeaderPath() {
+    const path = listing?.path ?? currentPath;
+    if (!path) return;
+    const ok = await copyToClipboard(path);
+    if (ok) {
+      setCopiedKey("header-path");
+      window.setTimeout(() => setCopiedKey(""), 1500);
+    }
+  }
+
+  async function copyHeaderName() {
+    const path = listing?.path ?? currentPath;
+    if (!path) return;
+    const parts = path.split("/").filter(Boolean);
+    const folderName = parts.length > 0 ? parts[parts.length - 1] : "/";
+    const ok = await copyToClipboard(folderName);
+    if (ok) {
+      setCopiedKey("header-name");
+      window.setTimeout(() => setCopiedKey(""), 1500);
     }
   }
 
@@ -1496,9 +1834,17 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   const acceptAttr = allowedExtensions.join(",");
   const normalizedDirectoryQuery = directoryQuery.trim().toLocaleLowerCase();
   const sortedDirectoryEntries = listing ? sortDirectoryEntries(listing.entries, directorySort) : [];
-  const displayedEntries = sortedDirectoryEntries.filter(
-    (entry) => entry.name.toLocaleLowerCase().includes(normalizedDirectoryQuery),
-  );
+  const displayedEntries = sortedDirectoryEntries.filter((entry) => {
+    if (categoryFilter !== "all") {
+      const cat = getEntryCategory(entry);
+      if (categoryFilter === "folders" && cat !== "folders") return false;
+      if (categoryFilter === "code" && cat !== "code") return false;
+      if (categoryFilter === "media" && cat !== "media") return false;
+      if (categoryFilter === "docs" && cat !== "docs") return false;
+    }
+    if (!normalizedDirectoryQuery) return true;
+    return entry.name.toLocaleLowerCase().includes(normalizedDirectoryQuery);
+  });
   const previewPaths = listing
     ? sortedDirectoryEntries
       .filter(isPreviewableDirectoryEntry)
@@ -1587,70 +1933,201 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
         ) : (
           <>
             <header>
-              <div>
+              <div className="directory-header-main">
                 <span className="eyebrow">{translations[readLanguage()].directoryContent}</span>
-                <h2 id="directory-title" className="directory-path" title={listing?.path}>{listing?.path ?? "…"}</h2>
+                <div className="directory-header-path-row">
+                  <h2 id="directory-title" className="directory-path" title={listing?.path ?? currentPath}>
+                    {listing?.path ?? currentPath ?? "…"}
+                  </h2>
+                  <div className="directory-header-actions">
+                    <button
+                      type="button"
+                      className="directory-icon-btn directory-header-btn"
+                      title={copiedKey === "header-path" ? translations[readLanguage()].copied : translations[readLanguage()].copyPath}
+                      aria-label={`${translations[readLanguage()].copyPath}: ${listing?.path ?? currentPath}`}
+                      onClick={() => void copyHeaderPath()}
+                    >
+                      {copiedKey === "header-path" ? (
+                        <svg className="action-icon-sm copy-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      ) : (
+                        <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                        </svg>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className="directory-icon-btn directory-header-btn"
+                      title={copiedKey === "header-name" ? translations[readLanguage()].copied : translations[readLanguage()].copyName}
+                      aria-label={`${translations[readLanguage()].copyName}: ${listing?.path ?? currentPath}`}
+                      onClick={() => void copyHeaderName()}
+                    >
+                      {copiedKey === "header-name" ? (
+                        <svg className="action-icon-sm copy-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      ) : (
+                        <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
               <button className="modal-close" onClick={onClose} aria-label={translations[readLanguage()].close}>×</button>
             </header>
-            {listing && (
-              <div className="directory-nav">
-                <button
-                  type="button"
-                  disabled={!listing.parent || uploading}
-                  onClick={() => listing.parent && setCurrentPath(listing.parent)}
-                >
-                  ↑ Su
-                </button>
-                <button
-                  type="button"
-                  disabled={listing.path === listing.root || uploading}
-                  onClick={() => setCurrentPath(listing.root)}
-                >
-                  ⌂ Root sessione
-                </button>
-                <button
-                  type="button"
-                  className="directory-upload-btn"
-                  disabled={loading || uploading}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {uploading
-                    ? translations[readLanguage()].uploadingFile
-                    : `⬆ ${translations[readLanguage()].uploadFile}`}
-                </button>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  style={{ display: "none" }}
-                  accept={acceptAttr}
-                  onChange={(e) => void handleFileSelected(e)}
+            {(listing || error) && (
+              <div className="directory-nav-bar">
+                <div className="directory-nav-actions">
+                  <button
+                    type="button"
+                    className="directory-nav-btn"
+                    disabled={!listing?.parent || uploading}
+                    onClick={() => {
+                      if (listing?.parent) {
+                        setError("");
+                        setCurrentPath(listing.parent);
+                      }
+                    }}
+                    title={translations[readLanguage()].upDirectory}
+                    aria-label={translations[readLanguage()].upDirectory}
+                  >
+                    <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <line x1="12" y1="19" x2="12" y2="5" />
+                      <polyline points="5 12 12 5 19 12" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    className="directory-nav-btn"
+                    disabled={uploading || (currentPath === undefined && !error && listing?.path === listing?.root)}
+                    onClick={() => {
+                      setError("");
+                      setCurrentPath(undefined);
+                    }}
+                    title={translations[readLanguage()].rootFolder}
+                    aria-label={translations[readLanguage()].rootFolder}
+                  >
+                    <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                      <polyline points="9 22 9 12 15 12 15 22" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    className="directory-nav-btn upload-btn"
+                    disabled={loading || uploading || Boolean(error)}
+                    onClick={() => fileInputRef.current?.click()}
+                    title={translations[readLanguage()].uploadFile}
+                    aria-label={translations[readLanguage()].uploadFile}
+                  >
+                    <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    <span>{uploading ? translations[readLanguage()].uploadingFile : translations[readLanguage()].uploadFile}</span>
+                  </button>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    style={{ display: "none" }}
+                    accept={acceptAttr}
+                    onChange={(e) => void handleFileSelected(e)}
+                  />
+                </div>
+                <PathBreadcrumbs
+                  path={listing?.path ?? currentPath}
+                  root={listing?.root}
+                  onNavigate={(target) => {
+                    if (!uploading) {
+                      setError("");
+                      setCurrentPath(target === listing?.root ? undefined : target);
+                    }
+                  }}
                 />
               </div>
             )}
             {uploadNotice && <p className="directory-upload-notice">{uploadNotice}</p>}
-            {listing && listing.entries.length > 0 && (
-              <div className="artifact-toolbar">
-                <input
-                  type="search"
-                  className="artifact-search"
-                  placeholder={translations[readLanguage()].directorySearchPlaceholder}
-                  aria-label={translations[readLanguage()].directorySearchPlaceholder}
-                  value={directoryQuery}
-                  onChange={(event) => setDirectoryQuery(event.target.value)}
-                />
-                <select
-                  className="artifact-sort"
-                  aria-label={translations[readLanguage()].artifactSortLabel}
-                  value={directorySort}
-                  onChange={(event) => setDirectorySort(event.target.value as BrowserSort)}
-                >
-                  <option value="name-asc">{translations[readLanguage()].artifactSortNameAsc}</option>
-                  <option value="name-desc">{translations[readLanguage()].artifactSortNameDesc}</option>
-                  <option value="date-desc">{translations[readLanguage()].artifactSortDateDesc}</option>
-                  <option value="date-asc">{translations[readLanguage()].artifactSortDateAsc}</option>
-                </select>
+            {dirStats && (
+              <div className="directory-summary-bar">
+                <span>📁 {dirStats.folders} {dirStats.folders === 1 ? "cartella" : "cartelle"}</span>
+                <span className="summary-dot">·</span>
+                <span>📄 {dirStats.files} {dirStats.files === 1 ? "file" : "file"}</span>
+                {dirStats.totalBytes > 0 && (
+                  <>
+                    <span className="summary-dot">·</span>
+                    <span>{formatSize(dirStats.totalBytes)}</span>
+                  </>
+                )}
               </div>
+            )}
+            {listing && listing.entries.length > 0 && (
+              <>
+                <div className="artifact-toolbar">
+                  <input
+                    type="search"
+                    className="artifact-search"
+                    placeholder={translations[readLanguage()].directorySearchPlaceholder}
+                    aria-label={translations[readLanguage()].directorySearchPlaceholder}
+                    value={directoryQuery}
+                    onChange={(event) => setDirectoryQuery(event.target.value)}
+                  />
+                  <select
+                    className="artifact-sort"
+                    aria-label={translations[readLanguage()].artifactSortLabel}
+                    value={directorySort}
+                    onChange={(event) => setDirectorySort(event.target.value as BrowserSort)}
+                  >
+                    <option value="name-asc">{translations[readLanguage()].artifactSortNameAsc}</option>
+                    <option value="name-desc">{translations[readLanguage()].artifactSortNameDesc}</option>
+                    <option value="date-desc">{translations[readLanguage()].artifactSortDateDesc}</option>
+                    <option value="date-asc">{translations[readLanguage()].artifactSortDateAsc}</option>
+                  </select>
+                </div>
+                <div className="category-chips" role="group" aria-label="Filtri categoria">
+                  <button
+                    type="button"
+                    className={`category-chip${categoryFilter === "all" ? " active" : ""}`}
+                    onClick={() => setCategoryFilter("all")}
+                  >
+                    {translations[readLanguage()].allCategories}
+                  </button>
+                  <button
+                    type="button"
+                    className={`category-chip${categoryFilter === "folders" ? " active" : ""}`}
+                    onClick={() => setCategoryFilter("folders")}
+                  >
+                    📁 {translations[readLanguage()].filterFolders}
+                  </button>
+                  <button
+                    type="button"
+                    className={`category-chip${categoryFilter === "code" ? " active" : ""}`}
+                    onClick={() => setCategoryFilter("code")}
+                  >
+                    💻 {translations[readLanguage()].filterCode}
+                  </button>
+                  <button
+                    type="button"
+                    className={`category-chip${categoryFilter === "media" ? " active" : ""}`}
+                    onClick={() => setCategoryFilter("media")}
+                  >
+                    🖼️ {translations[readLanguage()].filterMedia}
+                  </button>
+                  <button
+                    type="button"
+                    className={`category-chip${categoryFilter === "docs" ? " active" : ""}`}
+                    onClick={() => setCategoryFilter("docs")}
+                  >
+                    📄 {translations[readLanguage()].filterDocs}
+                  </button>
+                </div>
+              </>
             )}
             {loading && <p className="empty">{translations[readLanguage()].loading}</p>}
             {error && <p className="error">{error}</p>}
@@ -1665,22 +2142,59 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                         disabled={entry.type === "other"}
                         onClick={() => openEntry(entry)}
                       >
-                        <span className={`directory-type ${entry.type}`}>
-                          {entry.type === "dir" ? "DIR" : entry.type === "file" ? "FILE" : "?"}
-                        </span>
+                        <FileTypeIcon type={entry.type} name={entry.name} />
                         <span className="directory-name" title={entry.name}>{entry.name}</span>
                         <span className="directory-meta">{formatSize(entry.size)} · {formatDate(entry.modified_at)}</span>
                       </button>
-                      <button type="button" className="directory-copy" onClick={() => void copy(entry)}>
-                        {copiedName === entry.name ? translations[readLanguage()].copied : "Copy"}
+                      <button
+                        type="button"
+                        className="directory-icon-btn"
+                        title={copiedKey === entry.name + "-path" ? translations[readLanguage()].copied : translations[readLanguage()].copyPath}
+                        aria-label={`${translations[readLanguage()].copyPath}: ${entry.name}`}
+                        onClick={() => void copyFullPath(entry)}
+                      >
+                        {copiedKey === entry.name + "-path" ? (
+                          <svg className="action-icon-sm copy-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        ) : (
+                          <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                          </svg>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="directory-copy directory-icon-btn"
+                        title={copiedKey === entry.name + "-name" ? translations[readLanguage()].copied : translations[readLanguage()].copyName}
+                        aria-label={`${translations[readLanguage()].copyName}: ${entry.name}`}
+                        onClick={() => void copyName(entry)}
+                      >
+                        {copiedKey === entry.name + "-name" ? (
+                          <svg className="action-icon-sm copy-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        ) : (
+                          <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                          </svg>
+                        )}
                       </button>
                       {entry.type === "file" && isDownloadable(entry.name) && (
                         <button
                           type="button"
-                          className="directory-download"
+                          className="directory-download directory-icon-btn"
+                          title={translations[readLanguage()].download}
+                          aria-label={`${translations[readLanguage()].download}: ${entry.name}`}
                           onClick={() => downloadEntry(entry)}
                         >
-                          Download
+                          <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                          </svg>
                         </button>
                       )}
                     </li>
@@ -1916,28 +2430,77 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
               </code>
               <button
                 type="button"
-                className="directory-copy"
+                className="directory-copy directory-icon-btn"
                 disabled={!artifactDirectory}
                 onClick={() => void copyArtifactDirectory()}
+                title={directoryCopied ? t.copied : t.copyPath}
+                aria-label={directoryCopied ? t.copied : t.copyPath}
               >
-                {directoryCopied ? t.copied : t.copyPath}
+                {directoryCopied ? (
+                  <svg className="action-icon-sm copy-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                )}
               </button>
             </div>
-            <div className="directory-nav">
-              <button
-                type="button"
-                disabled={!currentPath || isSearching}
-                onClick={goUp}
-              >
-                ↑ Su
-              </button>
-              <button
-                type="button"
-                disabled={!currentPath || isSearching}
-                onClick={() => setCurrentPath("")}
-              >
-                ⌂ Root artefatti
-              </button>
+            <div className="directory-nav-bar">
+              <div className="directory-nav-actions">
+                <button
+                  type="button"
+                  className="directory-nav-btn"
+                  disabled={!currentPath || isSearching}
+                  onClick={goUp}
+                  title={translations[readLanguage()].upDirectory}
+                  aria-label={translations[readLanguage()].upDirectory}
+                >
+                  <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <line x1="12" y1="19" x2="12" y2="5" />
+                    <polyline points="5 12 12 5 19 12" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="directory-nav-btn"
+                  disabled={!currentPath || isSearching}
+                  onClick={() => setCurrentPath("")}
+                  title={translations[readLanguage()].rootArtifacts}
+                  aria-label={translations[readLanguage()].rootArtifacts}
+                >
+                  <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                    <polyline points="9 22 9 12 15 12 15 22" />
+                  </svg>
+                </button>
+              </div>
+              {!isSearching && (
+                <nav className="directory-breadcrumbs" aria-label="Percorso artefatti">
+                  {parseArtifactBreadcrumbs(currentPath).map((crumb, idx) => {
+                    const isCurrent = crumb.path === currentPath;
+                    return (
+                      <span key={crumb.path || "root"} className="breadcrumb-segment">
+                        {idx > 0 && <span className="breadcrumb-sep" aria-hidden="true">/</span>}
+                        {isCurrent ? (
+                          <span className="breadcrumb-item active" aria-current="location">{crumb.name}</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="breadcrumb-item link"
+                            onClick={() => setCurrentPath(crumb.path)}
+                            title={crumb.name}
+                          >
+                            {crumb.name}
+                          </button>
+                        )}
+                      </span>
+                    );
+                  })}
+                </nav>
+              )}
             </div>
             {items.length > 0 && (
               <div className="artifact-toolbar">
@@ -1973,7 +2536,7 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                       className="directory-open"
                       onClick={() => openFolder(folder)}
                     >
-                      <span className="directory-type dir">DIR</span>
+                      <FileTypeIcon type="dir" name={folder} />
                       <span className="directory-name" title={folder}>{folder}</span>
                     </button>
                   </li>
@@ -1986,12 +2549,22 @@ function ArtifactsModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                       disabled={!isPreviewableArtifact(item.name, item.media_type)}
                       onClick={() => setPreviewItem(item)}
                     >
-                      <span className="directory-type file">FILE</span>
+                      <FileTypeIcon type="file" name={item.name} mediaType={item.media_type} />
                       <span className="directory-name" title={item.name}>{isSearching ? item.name : item.name.split("/").pop()}</span>
                       <span className="directory-meta">{formatSize(item.size)} · {formatDate(item.modified_at)}</span>
                     </button>
-                    <button type="button" className="directory-download" onClick={() => downloadArtifact(item)}>
-                      Download
+                    <button
+                      type="button"
+                      className="directory-download directory-icon-btn"
+                      title={t.download}
+                      aria-label={`${t.download}: ${item.name}`}
+                      onClick={() => downloadArtifact(item)}
+                    >
+                      <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                      </svg>
                     </button>
                   </li>
                 ))}
@@ -5775,8 +6348,10 @@ function Console({
   const [deletingAttachmentId, setDeletingAttachmentId] = useState("");
   const [followingOutput, setFollowingOutput] = useState(true);
   const [showSpecialKeys, setShowSpecialKeys] = useState(false);
+  const [showToolsActions, setShowToolsActions] = useState(false);
   const [compacting, setCompacting] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [changingModel, setChangingModel] = useState(false);
   const [sendingArtifactPrompt, setSendingArtifactPrompt] = useState(false);
   const [sendingArchiveSummaryPrompt, setSendingArchiveSummaryPrompt] = useState(false);
   const [showDirectory, setShowDirectory] = useState(false);
@@ -6502,6 +7077,19 @@ function Console({
     }
   }
 
+  async function runModel() {
+    setChangingModel(true);
+    setControlError("");
+    try {
+      await sendText(session.id, "/model", [], paneId || undefined);
+      await sendEnter(session.id, paneId || undefined);
+    } catch (value) {
+      setControlError(errorMessage(value));
+    } finally {
+      setChangingModel(false);
+    }
+  }
+
   async function sendArtifactInstructions() {
     setSendingArtifactPrompt(true);
     setControlError("");
@@ -6915,100 +7503,263 @@ function Console({
         />
         {showSpecialKeys && (
           <div className="special-actions" aria-label={translations[readLanguage()].specialFunctions}>
-            <button
-              disabled={connection === "closed"}
-              type="button"
-              onClick={() => setShowDirectory(true)}
-            >
-              {translations[readLanguage()].directoryContentBtn}
-            </button>
-            <button
-              disabled={connection === "closed"}
-              type="button"
-              onClick={() => setShowArtifacts(true)}
-            >
-              {translations[readLanguage()].artifactsBtn}
-            </button>
-            <button
-              disabled={connection === "closed" || sendingArtifactPrompt}
-              type="button"
-              onClick={() => void sendArtifactInstructions()}
-            >
-              {sendingArtifactPrompt ? translations[readLanguage()].sendingInstructions : translations[readLanguage()].deliverArtifactBtn}
-            </button>
-            {agenticStatus && (
-              <>
-                <button
-                  disabled={connection === "closed" || sendingArchiveSummaryPrompt}
-                  type="button"
-                  onClick={() => void sendArchiveSummaryInstructions()}
+            <div className="special-section">
+              <button
+                type="button"
+                className="special-section-toggle"
+                aria-expanded={showToolsActions}
+                onClick={() => setShowToolsActions((value) => !value)}
+              >
+                <span className="special-section-title">{translations[readLanguage()].toolsAndActions}</span>
+                <svg
+                  className={`special-chevron ${showToolsActions ? "expanded" : ""}`}
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
                 >
-                  {sendingArchiveSummaryPrompt ? "Invio richiesta…" : "Prepara riepilogo archivio"}
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+              {showToolsActions && (
+                <div className="special-grid">
+                  <button
+                    disabled={connection === "closed"}
+                    type="button"
+                    onClick={() => setShowDirectory(true)}
+                  >
+                    <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    </svg>
+                    <span>{translations[readLanguage()].directoryContentBtn}</span>
+                  </button>
+                  <button
+                    disabled={connection === "closed"}
+                    type="button"
+                    onClick={() => setShowArtifacts(true)}
+                  >
+                    <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                      <line x1="12" y1="22.08" x2="12" y2="12" />
+                    </svg>
+                    <span>{translations[readLanguage()].artifactsBtn}</span>
+                  </button>
+                  <button
+                    disabled={connection === "closed" || sendingArtifactPrompt}
+                    type="button"
+                    onClick={() => void sendArtifactInstructions()}
+                  >
+                    <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    <span>{sendingArtifactPrompt ? translations[readLanguage()].sendingInstructions : translations[readLanguage()].deliverArtifactBtn}</span>
+                  </button>
+                  {agenticStatus && (
+                    <>
+                      <button
+                        disabled={connection === "closed" || sendingArchiveSummaryPrompt}
+                        type="button"
+                        onClick={() => void sendArchiveSummaryInstructions()}
+                      >
+                        <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                          <polyline points="14 2 14 8 20 8" />
+                          <line x1="16" y1="13" x2="8" y2="13" />
+                          <line x1="16" y1="17" x2="8" y2="17" />
+                          <polyline points="10 9 9 9 8 9" />
+                        </svg>
+                        <span>{sendingArchiveSummaryPrompt ? "Invio richiesta…" : "Prepara riepilogo archivio"}</span>
+                      </button>
+                      <button
+                        disabled={connection === "closed" || compacting || clearing || changingModel}
+                        type="button"
+                        className="command"
+                        onClick={() => void runCompact()}
+                      >
+                        <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <polyline points="4 14 10 14 10 20" />
+                          <polyline points="20 10 14 10 14 4" />
+                          <line x1="14" y1="10" x2="21" y2="3" />
+                          <line x1="3" y1="21" x2="10" y2="14" />
+                        </svg>
+                        <span>{compacting ? "Compact…" : "Compact"}</span>
+                      </button>
+                      <button
+                        disabled={connection === "closed" || compacting || clearing || changingModel}
+                        type="button"
+                        className="command"
+                        onClick={() => void runClear()}
+                      >
+                        <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        </svg>
+                        <span>{clearing ? "Clear…" : "Clear"}</span>
+                      </button>
+                      <button
+                        disabled={connection === "closed" || compacting || clearing || changingModel}
+                        type="button"
+                        className="command"
+                        onClick={() => void runModel()}
+                      >
+                        <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <rect x="4" y="4" width="16" height="16" rx="2" />
+                          <rect x="9" y="9" width="6" height="6" />
+                          <line x1="9" y1="1" x2="9" y2="4" />
+                          <line x1="15" y1="1" x2="15" y2="4" />
+                          <line x1="9" y1="20" x2="9" y2="23" />
+                          <line x1="15" y1="20" x2="15" y2="23" />
+                          <line x1="20" y1="9" x2="23" y2="9" />
+                          <line x1="20" y1="14" x2="23" y2="14" />
+                          <line x1="1" y1="9" x2="4" y2="9" />
+                          <line x1="1" y1="14" x2="4" y2="14" />
+                        </svg>
+                        <span>{changingModel ? "Model…" : "Model"}</span>
+                      </button>
+                    </>
+                  )}
+                  {(session.current_command.toLowerCase().includes("claude")
+                    || /agy|antigravity/i.test(session.current_command)) && (
+                    <button
+                      disabled={connection === "closed"}
+                      type="button"
+                      className="command"
+                      onClick={() => void pressSpecialKey("Shift-Tab")}
+                    >
+                      <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                      </svg>
+                      <span>{/agy|antigravity/i.test(session.current_command) ? "AGY" : "Claude"} · {translations[readLanguage()].changePermissions}</span>
+                    </button>
+                  )}
+                  {session.current_command.toLowerCase().includes("codex") && (
+                    <button
+                      disabled={connection === "closed"}
+                      type="button"
+                      className="command"
+                      onClick={() => void openCodexPermissions()}
+                    >
+                      <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                      </svg>
+                      <span>Codex · {translations[readLanguage()].permissions}</span>
+                    </button>
+                  )}
+                  {panes.length > 1 && (
+                    <button
+                      disabled={connection === "closed" || closingPane || !paneId}
+                      type="button"
+                      className="danger"
+                      onClick={() => void closePane()}
+                    >
+                      <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                      <span>{closingPane ? translations[readLanguage()].closingPane : translations[readLanguage()].closePane}</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="special-section">
+              <span className="special-section-title">{translations[readLanguage()].terminalKeys}</span>
+              <div className="special-keys-grid">
+                <button
+                  disabled={connection === "closed"}
+                  type="button"
+                  aria-label="Up"
+                  title="Up (↑)"
+                  onClick={() => void pressSpecialKey("Up")}
+                >
+                  <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <line x1="12" y1="19" x2="12" y2="5" />
+                    <polyline points="5 12 12 5 19 12" />
+                  </svg>
                 </button>
                 <button
-                  disabled={connection === "closed" || compacting || clearing}
+                  disabled={connection === "closed"}
                   type="button"
-                  onClick={() => void runCompact()}
+                  aria-label="Down"
+                  title="Down (↓)"
+                  onClick={() => void pressSpecialKey("Down")}
                 >
-                  {compacting ? "Compact…" : "Compact"}
+                  <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <polyline points="19 12 12 19 5 12" />
+                  </svg>
                 </button>
                 <button
-                  disabled={connection === "closed" || compacting || clearing}
+                  disabled={connection === "closed"}
                   type="button"
-                  onClick={() => void runClear()}
+                  aria-label="Left"
+                  title="Left (←)"
+                  onClick={() => void pressSpecialKey("Left")}
                 >
-                  {clearing ? "Clear…" : "Clear"}
+                  <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <line x1="19" y1="12" x2="5" y2="12" />
+                    <polyline points="12 19 5 12 12 5" />
+                  </svg>
                 </button>
-              </>
-            )}
-            {outputMode === "terminal" && (
-              <button
-                disabled={connection === "closed"}
-                type="button"
-                onClick={() => void pressSpecialKey("C-End")}
-                title="Torna in fondo alla cronologia del pane (Ctrl+End)"
-              >
-                ⤓ Vai in fondo
-              </button>
-            )}
-            <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Up")}>↑ Up</button>
-            <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Down")}>↓ Down</button>
-            <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Left")}>← Left</button>
-            <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Right")}>→ Right</button>
-            <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Tab")}>Tab</button>
-            <button disabled={connection === "closed"} type="button" onClick={() => void pressSpecialKey("Escape")}>Esc</button>
-            <button disabled={connection === "closed"} type="button" className="danger" onClick={() => void pressSpecialKey("C-c")}>
-              Ctrl-C
-            </button>
-            {(session.current_command.toLowerCase().includes("claude")
-              || /agy|antigravity/i.test(session.current_command)) && (
-              <button
-                disabled={connection === "closed"}
-                type="button"
-                onClick={() => void pressSpecialKey("Shift-Tab")}
-              >
-                {/agy|antigravity/i.test(session.current_command) ? "AGY" : "Claude"} · {translations[readLanguage()].changePermissions}
-              </button>
-            )}
-            {session.current_command.toLowerCase().includes("codex") && (
-              <button
-                disabled={connection === "closed"}
-                type="button"
-                onClick={() => void openCodexPermissions()}
-              >
-                Codex · {translations[readLanguage()].permissions}
-              </button>
-            )}
-            {panes.length > 1 && (
-              <button
-                disabled={connection === "closed" || closingPane || !paneId}
-                type="button"
-                className="danger"
-                onClick={() => void closePane()}
-              >
-                {closingPane ? translations[readLanguage()].closingPane : translations[readLanguage()].closePane}
-              </button>
-            )}
+                <button
+                  disabled={connection === "closed"}
+                  type="button"
+                  aria-label="Right"
+                  title="Right (→)"
+                  onClick={() => void pressSpecialKey("Right")}
+                >
+                  <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </button>
+                {outputMode === "terminal" && (
+                  <button
+                    disabled={connection === "closed"}
+                    type="button"
+                    aria-label="Vai in fondo (Ctrl+End)"
+                    title="Torna in fondo alla cronologia del pane (Ctrl+End)"
+                    onClick={() => void pressSpecialKey("C-End")}
+                  >
+                    <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <line x1="12" y1="3" x2="12" y2="17" />
+                      <polyline points="6 11 12 17 18 11" />
+                      <line x1="5" y1="21" x2="19" y2="21" />
+                    </svg>
+                  </button>
+                )}
+                <button
+                  disabled={connection === "closed"}
+                  type="button"
+                  aria-label="Tab"
+                  title="Tab"
+                  onClick={() => void pressSpecialKey("Tab")}
+                >
+                  Tab
+                </button>
+                <button
+                  disabled={connection === "closed"}
+                  type="button"
+                  aria-label="Escape"
+                  title="Escape"
+                  onClick={() => void pressSpecialKey("Escape")}
+                >
+                  Esc
+                </button>
+                <button
+                  disabled={connection === "closed"}
+                  type="button"
+                  className="danger"
+                  aria-label="Ctrl-C"
+                  title="Ctrl-C (Interrompi)"
+                  onClick={() => void pressSpecialKey("C-c")}
+                >
+                  Ctrl-C
+                </button>
+              </div>
+            </div>
           </div>
         )}
         {blockPreview && (
@@ -7049,29 +7800,46 @@ function Console({
         <div className="actions">
           <button
             type="button"
-            className="secondary special-toggle"
+            className={`secondary special-toggle${showSpecialKeys ? " active" : ""}`}
             disabled={connection === "closed"}
             aria-expanded={showSpecialKeys}
             aria-label={translations[readLanguage()].specialFunctions}
-            onClick={() => setShowSpecialKeys((value) => !value)}
+            onClick={() => {
+              setShowSpecialKeys((value) => {
+                if (!value) setShowToolsActions(false);
+                return !value;
+              });
+            }}
           >
-            {translations[readLanguage()].specialFunctions}
+            <svg className="action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
           </button>
           <button
             type="button"
             className="secondary attach-button"
             disabled={connection === "closed" || uploading || attachments.length >= 5}
+            aria-label={translations[readLanguage()].attach}
             onClick={() => fileInputRef.current?.click()}
           >
-            {uploading ? translations[readLanguage()].loading : `＋ ${translations[readLanguage()].attach}`}
+            {uploading ? translations[readLanguage()].loading : (
+              <svg className="action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+              </svg>
+            )}
           </button>
           <button
             type="button"
             className="secondary enter-button"
             disabled={connection === "closed"}
+            aria-label="Enter"
             onClick={() => void pressEnter()}
           >
-            ↵ Enter
+            <svg className="action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
           </button>
           <button
             type="submit"

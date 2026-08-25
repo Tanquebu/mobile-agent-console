@@ -134,6 +134,8 @@ try {
   await specialActions.waitFor({ state: "visible" });
   const specialActionsBox = await specialActions.boundingBox();
   assert.ok(specialActionsBox && specialActionsBox.width <= 296, "il menu Funzioni deve restare entro il composer mobile");
+  assert.equal(await page.getByRole("button", { name: "Clear", exact: true }).count(), 0, "Strumenti & Azioni deve partire nascosto");
+  await page.locator(".special-section-toggle").click();
   await page.getByRole("button", { name: "Clear", exact: true }).click();
   await page.waitForTimeout(200);
   assert.deepEqual(commands.slice(-2), [
