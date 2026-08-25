@@ -56,6 +56,7 @@ def test_database_migrates_to_head_and_is_reentrant(tmp_path: Path) -> None:
         "archived_sessions",
         "attachments",
         "audit_events",
+        "favorites",
         "hidden_sessions",
         "push_subscriptions",
         "users",
@@ -281,3 +282,133 @@ def test_archive_and_restore_opencode_session(tmp_path: Path) -> None:
         item.name == "OpenCode Agent" and item.current_command == "opencode"
         for item in fake.sessions.values()
     )
+
+
+def test_favorites_crud_cycle_and_idempotent_create(tmp_path: Path) -> None:
+    client, _fake, headers = _bootstrapped_client(tmp_path)
+
+    assert client.get("/api/v1/favorites").json() == {"favorites": []}
+
+    first = client.post(
+        "/api/v1/favorites",
+        headers=headers,
+        json={"path": "/workspace/README.md", "label": "Readme"},
+    )
+    assert first.status_code == 201
+    favorite = first.json()
+    assert favorite["path"] == "/workspace/README.md"
+    assert favorite["label"] == "Readme"
+    assert favorite["added_by"] == "admin"
+    assert favorite["id"]
+    assert favorite["added_at"]
+
+    # Stesso path, stesso utente: la creazione deve essere idempotente, non
+    # un duplicato (la stella in PreviewModal e' un toggle).
+    second = client.post(
+        "/api/v1/favorites",
+        headers=headers,
+        json={"path": "/workspace/README.md", "label": "Etichetta diversa"},
+    )
+    assert second.status_code == 201
+    assert second.json()["id"] == favorite["id"]
+
+    listed = client.get("/api/v1/favorites").json()["favorites"]
+    assert len(listed) == 1
+    assert listed[0]["id"] == favorite["id"]
+
+    deleted = client.request(
+        "DELETE", f"/api/v1/favorites/{favorite['id']}", headers=headers
+    )
+    assert deleted.status_code == 200
+    assert deleted.json() == {"accepted": True}
+
+    assert client.get("/api/v1/favorites").json() == {"favorites": []}
+
+    missing = client.request(
+        "DELETE", f"/api/v1/favorites/{favorite['id']}", headers=headers
+    )
+    assert missing.status_code == 404
+    not_found = client.request(
+        "DELETE", "/api/v1/favorites/does-not-exist", headers=headers
+    )
+    assert not_found.status_code == 404
+
+
+def test_favorites_are_isolated_per_user(tmp_path: Path) -> None:
+    client, _fake, headers = _bootstrapped_client(tmp_path)
+    created_user = client.post(
+        "/api/v1/users",
+        headers=headers,
+        json={
+            "username": "second-admin",
+            "password": "a-secure-second-admin-password",
+            "role": "operator",
+        },
+    )
+    assert created_user.status_code == 201
+
+    other = TestClient(client.app)
+    other_login = other.post(
+        "/api/v1/auth/login",
+        json={"username": "second-admin", "password": "a-secure-second-admin-password"},
+    )
+    assert other_login.status_code == 200
+    other_headers = {"X-CSRF-Token": other_login.json()["csrf_token"]}
+
+    own = client.post(
+        "/api/v1/favorites",
+        headers=headers,
+        json={"path": "/workspace/admin-only.md"},
+    )
+    assert own.status_code == 201
+
+    other_created = other.post(
+        "/api/v1/favorites",
+        headers=other_headers,
+        json={"path": "/workspace/other-only.md"},
+    )
+    assert other_created.status_code == 201
+
+    admin_list = client.get("/api/v1/favorites").json()["favorites"]
+    other_list = other.get("/api/v1/favorites").json()["favorites"]
+    assert [item["path"] for item in admin_list] == ["/workspace/admin-only.md"]
+    assert [item["path"] for item in other_list] == ["/workspace/other-only.md"]
+
+    # Un utente non puo' cancellare il preferito di un altro: il delete
+    # risponde 404, come per un id davvero inesistente.
+    cross_delete = other.request(
+        "DELETE", f"/api/v1/favorites/{own.json()['id']}", headers=other_headers
+    )
+    assert cross_delete.status_code == 404
+    assert client.get("/api/v1/favorites").json()["favorites"]
+
+
+def test_favorites_require_csrf_and_active_session(tmp_path: Path) -> None:
+    client, _fake, headers = _bootstrapped_client(tmp_path)
+
+    # GET funziona con la sola sessione attiva, senza CSRF.
+    assert client.get("/api/v1/favorites").status_code == 200
+
+    # Nessun cookie di sessione: sia la lettura sia le mutazioni sono negate.
+    anonymous = TestClient(client.app)
+    assert anonymous.get("/api/v1/favorites").status_code == 401
+    assert (
+        anonymous.post(
+            "/api/v1/favorites", json={"path": "/workspace/nope.md"}
+        ).status_code
+        == 401
+    )
+
+    # Sessione attiva ma senza header CSRF: le mutazioni sono rifiutate.
+    no_csrf_post = client.post("/api/v1/favorites", json={"path": "/workspace/nope.md"})
+    assert no_csrf_post.status_code == 403
+    assert client.get("/api/v1/favorites").json() == {"favorites": []}
+
+    created = client.post(
+        "/api/v1/favorites", headers=headers, json={"path": "/workspace/nope.md"}
+    )
+    assert created.status_code == 201
+    no_csrf_delete = client.request(
+        "DELETE", f"/api/v1/favorites/{created.json()['id']}"
+    )
+    assert no_csrf_delete.status_code == 403

@@ -6651,3 +6651,535 @@ systemctl --user status mobile-agent-console-provider-session-states.service
   (tray di `PreviewWorkspace` visibile con 1 sola tile sotto layout
   non-1x1) e la sua compatibilità con la regola invariata di `GATE-PW-02`
   per il percorso `PreviewWindowHost`.
+
+#### PW-04 — Preferiti (Fase 4)
+
+- [x] GATE-PW-04 | OWNER: ROOT | STATUS: PASSED | Utente ha confermato di
+  proseguire ("Procedi") dopo la chiusura della Fase 3 (commit `b36085b` su
+  `feat/preview-window-manager`). Scope: la parte "Preferiti" dell'ADR 015
+  — persistenza per utente lato backend, endpoint dedicati, stella in
+  `PreviewModal`, voce "Preferiti" in dashboard, scorciatoia nel menu
+  sessione. Divisa in due round sequenziali per toolchain disgiunte
+  (backend: pytest/ruff via `docker compose run backend-test`; frontend:
+  vitest/Playwright) e per limitare il raggio d'azione di un eventuale
+  rework: `IMP-PW-04-BACKEND` (tabella, servizio, endpoint) deve passare
+  `TEST-PW-04-BACKEND-T1` prima che `IMP-PW-04-FRONTEND` (UI) diventi
+  `READY`.
+
+  **Decisioni di scope prese da ROOT, vincolanti per l'implementazione:**
+
+  1. **Solo file, non directory.** L'ADR descrive `kind` nel preferito per
+     un possibile uso futuro; l'unico punto di ingresso di questa fase è la
+     stella accanto a "copia percorso" in `PreviewModal`, che esiste solo
+     per i file (mai per una directory). Il campo `kind` è quindi escluso
+     sia dalla tabella sia dal contratto API in questa fase — se in futuro
+     servirà un preferito su directory, si aggiungerà allora, non
+     anticipato qui con un campo sempre valorizzato a `"file"`.
+  2. **Nessuna validazione del path lato backend alla creazione.** Il path
+     salvato proviene sempre da una preview già aperta con successo (quindi
+     già passata da `_resolve_preview_file`/`_resolve_within_allowed_roots`
+     al momento in cui l'utente vede il pulsante stella) — stesso status
+     di `ArchivedSession.directory`, che oggi non è validato alla
+     creazione (`ArchiveService.create`), solo al riuso (`restore_archive`
+     chiama `_resolve_within_allowed_roots` sul valore persistito). I
+     preferiti seguono lo stesso schema: la sicurezza sta nel fatto che
+     **aprire** un preferito passa sempre dagli endpoint file esistenti
+     (`/file/metadata`, `/file`, `/file/preview`), invariati, che
+     rivalidano sempre. Un path salvato e mai più raggiungibile (file
+     spostato/cancellato, allowlist cambiata) fallisce all'apertura con
+     l'errore già gestito da `PreviewModal` (`error`/`errorMessage`), non
+     alla creazione del preferito.
+  3. **Preferiti per utente, chiave `added_by` (stringa username), non una
+     foreign key.** Stesso pattern già usato da `ArchivedSession.archived_by`
+     e `HiddenSession.hidden_by`: nessuna relazione SQLAlchemy verso
+     `User`, compatibile con l'assenza di FK nel resto dello schema e con
+     la modalità legacy senza database utenti (`user.username if user is
+     not None else "legacy"`, stesso fallback già usato ovunque nel file).
+  4. **Creazione idempotente per `(path, added_by)`**: un secondo `POST`
+     sullo stesso path per lo stesso utente restituisce il preferito già
+     esistente invece di duplicarlo — la stella in `PreviewModal` è un
+     toggle, non deve poter creare doppioni cliccando due volte per
+     errore/latenza di rete.
+  5. **Apertura di un preferito da dashboard richiede una sessione viva
+     qualsiasi** (l'ADR lo dice esplicitamente: l'endpoint di preview
+     richiede `require_active_session`, non lega il file a una sessione
+     specifica). Se non ce n'è nessuna, il pulsante "Apri" resta
+     disabilitato con un messaggio esplicito — non un errore silente né un
+     tentativo che fallisce a metà.
+
+- [x] IMP-PW-04-BACKEND | OWNER: SA-IMP | STATUS: DONE | **Fase 4, parte
+  backend — tabella `favorites`, servizio, endpoint, in
+  `backend/app/models.py`, `backend/app/schemas.py`, `backend/app/main.py`,
+  `backend/migrations/versions/`, nuovo `backend/app/services/favorite_service.py`.**
+  Legge prima `docs/adr/015-preview-window-manager.md` e questa voce per
+  intero (incluso `GATE-PW-04`, vincolante).
+
+  **1. Migrazione** `backend/migrations/versions/0010_favorites.py`
+  (`down_revision = "0009"`, verifica comunque che `0009` sia davvero
+  l'ultima revision al momento di scrivere — se nel frattempo ne esiste
+  una più recente, incatenati a quella):
+  ```python
+  """Create per-user favorite file paths."""
+
+  from collections.abc import Sequence
+
+  import sqlalchemy as sa
+  from alembic import op
+
+  revision: str = "0010"
+  down_revision: str | None = "0009"
+  branch_labels: str | Sequence[str] | None = None
+  depends_on: str | Sequence[str] | None = None
+
+
+  def upgrade() -> None:
+      op.create_table(
+          "favorites",
+          sa.Column("id", sa.String(length=32), nullable=False),
+          sa.Column("path", sa.String(length=4096), nullable=False),
+          sa.Column("label", sa.String(length=255), nullable=True),
+          sa.Column("added_by", sa.String(length=64), nullable=False),
+          sa.Column("added_at", sa.DateTime(timezone=True), nullable=False),
+          sa.PrimaryKeyConstraint("id"),
+      )
+      op.create_index("ix_favorites_added_by", "favorites", ["added_by"])
+
+
+  def downgrade() -> None:
+      op.drop_index("ix_favorites_added_by", table_name="favorites")
+      op.drop_table("favorites")
+  ```
+
+  **2. Modello** in `backend/app/models.py`, subito dopo `PushSubscription`:
+  ```python
+  class Favorite(Base):
+      __tablename__ = "favorites"
+
+      id: Mapped[str] = mapped_column(String(32), primary_key=True)
+      path: Mapped[str] = mapped_column(String(4096))
+      label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+      added_by: Mapped[str] = mapped_column(String(64), index=True)
+      added_at: Mapped[datetime] = mapped_column(
+          DateTime(timezone=True), default=lambda: datetime.now(UTC)
+      )
+  ```
+
+  **3. Servizio** nuovo `backend/app/services/favorite_service.py`, stessa
+  forma di `backend/app/services/archive_service.py`:
+  ```python
+  from datetime import UTC, datetime
+  from uuid import uuid4
+
+  from sqlalchemy import select
+  from sqlalchemy.orm import sessionmaker
+
+  from ..models import Favorite
+
+
+  class FavoriteService:
+      def __init__(self, engine) -> None:
+          self._sessions = sessionmaker(engine, expire_on_commit=False)
+
+      def list_for_user(self, username: str) -> list[Favorite]:
+          with self._sessions() as session:
+              return list(
+                  session.scalars(
+                      select(Favorite)
+                      .where(Favorite.added_by == username)
+                      .order_by(Favorite.added_at.desc())
+                  )
+              )
+
+      def create(self, path: str, label: str | None, added_by: str) -> Favorite:
+          with self._sessions.begin() as session:
+              existing = session.scalars(
+                  select(Favorite).where(
+                      Favorite.path == path, Favorite.added_by == added_by
+                  )
+              ).first()
+              if existing is not None:
+                  return existing
+              item = Favorite(
+                  id=str(uuid4()),
+                  path=path,
+                  label=label,
+                  added_by=added_by,
+                  added_at=datetime.now(UTC),
+              )
+              session.add(item)
+          return item
+
+      def delete(self, favorite_id: str, added_by: str) -> bool:
+          with self._sessions.begin() as session:
+              item = session.get(Favorite, favorite_id)
+              if not item or item.added_by != added_by:
+                  return False
+              session.delete(item)
+          return True
+  ```
+
+  **4. Schemi** in `backend/app/schemas.py`, subito dopo le classi
+  `PushSubscription*`:
+  ```python
+  class FavoriteView(BaseModel):
+      id: str
+      path: str
+      label: str | None
+      added_by: str
+      added_at: datetime
+
+
+  class FavoriteList(BaseModel):
+      favorites: list[FavoriteView]
+
+
+  class FavoriteInput(BaseModel):
+      path: str = Field(min_length=1, max_length=4096)
+      label: str | None = Field(default=None, max_length=255)
+  ```
+  (verifica l'import di `datetime` in cima al file, già presente per altri
+  schemi con `created_at`/`archived_at`).
+
+  **5. Wiring in `backend/app/main.py`**:
+  - import: `from .services.favorite_service import FavoriteService` vicino
+    agli altri import di servizi legati al database.
+  - istanza, subito dopo la riga `session_visibility = SessionVisibilityService(database.engine) if database else None`:
+    ```python
+    favorites = FavoriteService(database.engine) if database else None
+    ```
+  - dependency, vicino a `session_visibility_service()`:
+    ```python
+    def favorite_service() -> FavoriteService:
+        if not favorites:
+            raise HTTPException(503, "Favorites require the metadata database")
+        return favorites
+    ```
+  - tre endpoint, colocati vicino a quelli di `/api/v1/archives`:
+    ```python
+    @app.get("/api/v1/favorites", response_model=FavoriteList)
+    async def list_favorites(cookie: str = Depends(require_active_session)) -> FavoriteList:
+        user = active_user(cookie)
+        username = user.username if user is not None else "legacy"
+        items = await asyncio.to_thread(favorite_service().list_for_user, username)
+        return FavoriteList(
+            favorites=[
+                FavoriteView.model_validate(item, from_attributes=True) for item in items
+            ]
+        )
+
+    @app.post("/api/v1/favorites", response_model=FavoriteView, status_code=201)
+    async def create_favorite(
+        payload: FavoriteInput, cookie: str = Depends(require_operator)
+    ) -> FavoriteView:
+        user = active_user(cookie)
+        username = user.username if user is not None else "legacy"
+        item = await asyncio.to_thread(
+            favorite_service().create, payload.path, payload.label, username
+        )
+        return FavoriteView.model_validate(item, from_attributes=True)
+
+    @app.delete("/api/v1/favorites/{favorite_id}", response_model=Accepted)
+    async def delete_favorite(
+        favorite_id: str, cookie: str = Depends(require_operator)
+    ) -> Accepted:
+        user = active_user(cookie)
+        username = user.username if user is not None else "legacy"
+        deleted = await asyncio.to_thread(
+            favorite_service().delete, favorite_id, username
+        )
+        if not deleted:
+            raise HTTPException(404, "Favorite not found")
+        return Accepted()
+    ```
+  - import di `FavoriteView`, `FavoriteList`, `FavoriteInput` nel blocco
+    `from .schemas import (...)` esistente.
+
+  **File da NON toccare**: tutto il frontend, `backend/app/config.py`
+  (nessuna nuova impostazione richiesta), qualunque altro endpoint. Non
+  fare `git commit`. Siamo su un branch (`feat/preview-window-manager`).
+
+  **Test obbligatori**:
+  - `backend/tests/test_database.py::test_database_migrates_to_head_and_is_reentrant`
+    asserisce l'elenco ESATTO delle tabelle dopo la migrazione — va
+    aggiornato aggiungendo `"favorites"` all'insieme atteso, altrimenti
+    fallisce con la nuova migrazione. Non è un test da scrivere ex novo, è
+    un test esistente da correggere per riflettere lo schema aggiornato.
+  - Nuovo test in `backend/tests/test_database.py` (stesso stile di
+    `_bootstrapped_client`/dei test archivio nello stesso file) che copre
+    l'intero ciclo: login, `POST /api/v1/favorites` (verifica 201 e i
+    campi della risposta), secondo `POST` identico (stesso path, stesso
+    utente) verifica che l'`id` restituito sia lo stesso del primo
+    (idempotenza, non duplicato — verificalo anche con `GET
+    /api/v1/favorites` che l'elenco abbia un solo elemento), `GET` che
+    elenca, `DELETE` che rimuove, `GET` successivo che conferma la lista
+    vuota, `DELETE` su un id inesistente/già cancellato che risponde 404.
+  - Un test che verifica l'isolamento per utente: due utenti admin diversi
+    (bootstrap di un secondo utente, stesso pattern di
+    `UserService(...).bootstrap_admin`/creazione utente già usato altrove
+    nei test), ciascuno crea un proprio preferito, `GET` di ciascuno vede
+    solo il proprio.
+  - Un test che verifica che `POST`/`DELETE` richiedano CSRF (`require_operator`)
+    e che `GET` funzioni con la sola sessione attiva (`require_active_session`),
+    stesso schema già usato per gli endpoint di archivio/hidden-sessions
+    esistenti nello stesso file di test.
+
+  **Comandi da eseguire** (nota da `backend-test-image-perms-umask`: se i
+  file del backend risultano a permessi 600 per via dell'umask della
+  sessione, `chmod 664` i file toccati prima di ricostruire l'immagine,
+  altrimenti `docker compose run backend-test` fallisce con
+  `PermissionError`; nota da `docker-compose-build-cache`: `compose run`
+  riusa immagini stantie, va sempre fatto un `build` esplicito prima):
+  ```bash
+  cd backend
+  docker compose -f ../compose.yaml build backend-test
+  docker compose -f ../compose.yaml run --rm backend-test
+  ```
+  Se l'extra `dev` è già installato in locale, in alternativa (iterazione
+  più rapida, poi va comunque confermato almeno una volta col comando
+  Docker sopra prima di dichiarare finito):
+  ```bash
+  cd backend && pytest && ruff check .
+  ```
+
+  Scansione dati personali obbligatoria sul diff prima di dichiarare
+  finito (comando del protocollo, adattato ai file toccati). Chiudi con
+  `STATUS: DONE`, report nello stesso stile delle chiusure di Fase 2/3
+  (cosa hai implementato, comandi con esiti reali, scostamenti se
+  presenti, esito scansione dati personali, elenco file toccati), poi
+  porta `TEST-PW-04-BACKEND-T1` da `BLOCKED` a `READY_FOR_TEST`.
+
+  **Implementato esattamente come da specifica**, con una sola correzione
+  (vedi scostamento sotto): migrazione
+  `backend/migrations/versions/0010_favorites.py` (verificato che `0009`
+  era davvero l'ultima revision presente in
+  `backend/migrations/versions/` al momento di scrivere — nessuna
+  migrazione più recente da incatenare), modello `Favorite` in
+  `backend/app/models.py` subito dopo `PushSubscription`, nuovo
+  `backend/app/services/favorite_service.py` (stessa forma di
+  `archive_service.py`: `list_for_user`, `create` idempotente su
+  `(path, added_by)`, `delete` con controllo di ownership), schemi
+  `FavoriteView`/`FavoriteList`/`FavoriteInput` in `backend/app/schemas.py`
+  subito dopo `PushUnsubscribeInput` (`datetime` già importato in cima al
+  file, nessuna modifica necessaria lì), wiring in `backend/app/main.py`
+  (import `FavoriteService` e degli schemi in ordine alfabetico coerente
+  col resto del blocco import, istanza `favorites = FavoriteService(...)
+  if database else None` subito dopo `session_visibility`, dependency
+  `favorite_service()` subito dopo `session_visibility_service()`, tre
+  endpoint `GET/POST/DELETE /api/v1/favorites{,/{favorite_id}}` colocati
+  subito dopo `delete_archive`, prima della sezione snapshot).
+
+  **Scostamento dalla specifica (documentato, non uno scope creep).** Lo
+  snippet del servizio genera l'id con `str(uuid4())` (36 caratteri, con i
+  trattini), ma lo snippet del modello dichiara la colonna
+  `id: Mapped[str] = mapped_column(String(32), ...)` — le due parti della
+  stessa specifica sono incoerenti fra loro. Il pattern già in uso nel
+  resto del file per una colonna `String(32)` è quello di
+  `AttachmentService.create` (`attachment_id = uuid4().hex`, 32 caratteri
+  esadecimali senza trattini), quindi ho adattato `FavoriteService.create`
+  a `uuid4().hex` invece di `str(uuid4())`, mantenendo `String(32)` nel
+  modello e nella migrazione così come scritti — stesso intento (id opaco
+  univoco), coerente con lo schema realmente dichiarato invece che con lo
+  snippet che lo contraddice. Nessun altro scostamento: nomi, firme, corpo
+  degli endpoint e dei metodi del servizio sono letterali rispetto alla
+  specifica.
+
+  **Test aggiunti/corretti** in `backend/tests/test_database.py`:
+  - `test_database_migrates_to_head_and_is_reentrant`: aggiunta
+    `"favorites"` all'insieme esatto di tabelle attese dopo la migrazione
+    (test esistente corretto, non disabilitato).
+  - `test_favorites_crud_cycle_and_idempotent_create` (nuovo): login,
+    `GET` lista vuota, `POST` (201, verifica `path`/`label`/`added_by`/
+    `id`/`added_at`), secondo `POST` identico stesso path/utente → stesso
+    `id` (idempotenza verificata sia sulla risposta del secondo `POST` sia
+    con un `GET` successivo che conferma un solo elemento in lista),
+    `DELETE` (200, `{"accepted": true}`), `GET` successivo con lista
+    vuota, `DELETE` su id appena cancellato e su id mai esistito → 404 in
+    entrambi i casi.
+  - `test_favorites_are_isolated_per_user` (nuovo): un secondo utente
+    creato via `POST /api/v1/users` (ruolo `operator`, sufficiente per
+    `require_operator`) e login separato; ciascuno crea un proprio
+    preferito, il `GET` di ciascuno vede solo il proprio; verificato anche
+    che l'utente B non possa cancellare il preferito dell'utente A
+    (`DELETE` cross-utente → 404, indistinguibile da un id inesistente,
+    stesso comportamento di `ArchiveService`/pattern esistente).
+  - `test_favorites_require_csrf_and_active_session` (nuovo): `GET` senza
+    CSRF ma con sessione attiva → 200; nessun cookie di sessione → 401 sia
+    su `GET` sia su `POST`; sessione attiva ma header CSRF assente → 403 su
+    `POST` e su `DELETE`, con verifica che il `POST` rifiutato non abbia
+    comunque creato un preferito.
+  L'idempotenza del `POST` e l'isolamento fra utenti richiesti dal compito
+  come verifica personale (non solo delega alla suite) sono verificati
+  esattamente da queste due asserzioni dirette via `TestClient`, eseguite
+  e osservate verdi prima di dichiarare la voce conclusa: stesso
+  `path`/utente due volte → stesso `id` restituito dal secondo `POST`,
+  confermato da un `GET` con un solo elemento in lista (non un secondo
+  record); due utenti distinti, ciascuno vede nel proprio `GET` solo il
+  proprio preferito, e un `DELETE` cross-utente sull'id altrui risponde
+  404 invece di cancellarlo.
+
+  **Comandi eseguiti (esiti reali):**
+  - `cd backend && docker compose -f ../compose.yaml build backend-test`
+    → build completata senza errori (nessun problema di permessi: i file
+    toccati erano già a 664; i due file nuovi, creati a 600 dall'umask
+    della sessione, sono stati portati a 664 prima del build).
+  - `docker compose -f ../compose.yaml run --rm backend-test` → **496
+    passed, 2 warnings in 91.11s** (i due warning sono preesistenti:
+    `StarletteDeprecationWarning` su `httpx`/`starlette.testclient` e un
+    `PytestCacheWarning` di permessi sulla cache, non legati a questa
+    modifica); a seguire `ruff check .` nello stesso container → **All
+    checks passed!** (i due "Permission denied" su cache Rust di ruff sono
+    preesistenti e non bloccanti, stesso pattern già visto in round
+    precedenti).
+  - Scansione dati personali sul diff (comando del protocollo, sui file
+    toccati in questo round): **nessuna occorrenza** — grep vuoto (exit
+    code 1) su `backend/app/models.py`, `backend/app/schemas.py`,
+    `backend/app/main.py`, `backend/migrations/versions/`,
+    `backend/app/services/favorite_service.py`,
+    `backend/tests/test_database.py`.
+
+  File toccati: `backend/migrations/versions/0010_favorites.py` (nuovo),
+  `backend/app/services/favorite_service.py` (nuovo),
+  `backend/app/models.py`, `backend/app/schemas.py`, `backend/app/main.py`,
+  `backend/tests/test_database.py`, `docs/backlog.md`. Working tree
+  pulito a parte questi file più `docs/adr/015-preview-window-manager.md`
+  (già modificato da ROOT prima dell'inizio di questo round, non toccato
+  ulteriormente qui). Nessun frontend, nessun `backend/app/config.py`,
+  nessun altro endpoint toccato. Nessun commit creato (compito di ROOT
+  dopo la verifica indipendente di SA-TEST).
+
+- [x] TEST-PW-04-BACKEND-T1 | OWNER: SA-TEST | STATUS: PASSED | Verifica
+  indipendente di `IMP-PW-04-BACKEND`: rieseguire `docker compose run
+  backend-test` (build esplicito prima, vedi nota permessi/cache sopra) e
+  ispezionare direttamente lo schema DB reale dopo la migrazione (non solo
+  l'esito verde dei test) per confermare che `favorites` esista con le
+  colonne attese. Riprodurre da zero, con richieste HTTP dirette
+  (`TestClient` in uno script/test scritto da zero, non riuso di quello di
+  `SA-IMP`): idempotenza del `POST` (stesso path/utente due volte → stesso
+  id, un solo elemento in lista), isolamento fra due utenti, 404 su delete
+  di un id inesistente, 401/403 su `POST`/`DELETE` senza CSRF o senza
+  sessione attiva. Verificare anche che
+  `test_database_migrates_to_head_and_is_reentrant` sia stato aggiornato
+  (non semplicemente disabilitato) e che il resto della suite backend non
+  sia regredito (confronta il conteggio totale dei test con quello
+  dichiarato da `IMP-PW-04-BACKEND`).
+
+  **Procedura seguita**: letti per intero `docs/adr/015-preview-window-manager.md`
+  e questa sezione del backlog (`GATE-PW-04`, `IMP-PW-04-BACKEND`, incluso
+  lo scostamento dichiarato `uuid4().hex` invece di `str(uuid4())` per
+  rispettare `String(32)`); riletto con `cat`/`git diff` il codice reale
+  (non solo il testo del backlog) di `backend/app/models.py`,
+  `backend/app/schemas.py`, `backend/app/main.py`,
+  `backend/tests/test_database.py` e dei due file nuovi non tracciati
+  `backend/migrations/versions/0010_favorites.py`,
+  `backend/app/services/favorite_service.py`. Confermato a mano che
+  `require_operator` dipende da `require_active_csrf` (403 su CSRF
+  mancante/non valido con sessione altrimenti valida) e che
+  `require_active_session`/`validate_session` in `backend/app/security.py`
+  rispondono 401 senza cookie di sessione valido — coerente con quanto
+  dichiarato da `IMP-PW-04-BACKEND`.
+
+  **1 — Suite reale**: `cd backend && docker compose -f ../compose.yaml
+  build backend-test` (build esplicito, non `run` da solo) poi `docker
+  compose -f ../compose.yaml run --rm backend-test` → **496 passed, 2
+  warnings in 91.15s** — conteggio identico ai 496 dichiarati da
+  `IMP-PW-04-BACKEND`, nessuna regressione. I 2 warning sono gli stessi
+  preesistenti (`StarletteDeprecationWarning` su httpx/TestClient,
+  `PytestCacheWarning` di permessi cache) già osservati nei round
+  precedenti, non legati a questa modifica. `ruff check .` nello stesso
+  container → **All checks passed!** (i due "Permission denied" sulla
+  cache Rust di ruff sono preesistenti e non bloccanti). Permessi dei due
+  file nuovi già a 664 all'inizio di questo round, nessun `chmod`
+  necessario. Confermato inoltre che
+  `test_database_migrates_to_head_and_is_reentrant` è stato aggiornato
+  (aggiunta `"favorites"` all'insieme atteso), non disabilitato o
+  indebolito.
+
+  **2 — Ispezione diretta dello schema DB reale**: script Python scritto da
+  zero (non il test di `SA-IMP`, ispirato solo nel pattern a
+  `test_database_migrates_to_head_and_is_reentrant`), eseguito dentro il
+  container `backend-test` via stdin (`docker compose run --rm -T
+  backend-test python - < script.py`, per evitare i permessi 700 di
+  `/tmp/claude-*` non leggibili dall'utente non-root del container):
+  istanzia `Database(path)`, chiama `migrate("/app/alembic.ini")`, usa
+  `sqlalchemy.inspect` sull'engine risultante. Esito: tabella `favorites`
+  presente con **esattamente** le colonne attese (`id` VARCHAR(32) NOT
+  NULL, `path` VARCHAR(4096) NOT NULL, `label` VARCHAR(255) NULLABLE,
+  `added_by` VARCHAR(64) NOT NULL, `added_at` DATETIME NOT NULL), primary
+  key su `id`, indice `ix_favorites_added_by` su `added_by`; una seconda
+  `migrate()` sullo stesso DB non fallisce (re-entrant, come da pattern del
+  test esistente).
+
+  **3 — Script `TestClient` indipendente**, scritto da zero (nessun riuso
+  del codice di `SA-IMP`, tre `Database`/`TestClient` separati su tre
+  `tmp_path` distinti per isolare i tre gruppi di verifica), eseguito nello
+  stesso modo (via stdin nel container). Tutti i 22 controlli passano:
+  - **Idempotenza del POST**: stesso path, stesso utente, tre `POST`
+    consecutivi (con label diversa/assente) → tutti 201, stesso `id` in
+    tutte e tre le risposte; `GET /api/v1/favorites` mostra **un solo**
+    elemento, non tre.
+  - **Isolamento fra utenti**: un secondo utente creato via `POST
+    /api/v1/users` (ruolo `operator`) e login separato; entrambi creano un
+    preferito con **lo stesso path** — verificato che gli `id` restituiti
+    sono **diversi** (idempotenza è per-utente, non globale, non
+    banalmente vera se il test avesse usato path diversi); il `GET` di
+    ciascuno mostra solo il proprio elemento.
+  - **DELETE dal proprietario** funziona (200, `{"accepted": true}`), `GET`
+    successivo conferma la rimozione (lista vuota). **DELETE cross-utente**
+    (utente B tenta di cancellare il preferito dell'utente A) → **404**,
+    non 403/200: controllo di sicurezza implicito in
+    `FavoriteService.delete` (non elencato esplicitamente in questa voce
+    ma verificato comunque come richiesto), confermato anche che il
+    preferito della vittima resta presente dopo il tentativo.
+  - **DELETE su id mai esistito** (`totally-bogus-id-000`) → 404.
+  - **CSRF**: `GET` funziona con la sola sessione attiva, senza header CSRF
+    (200); `POST`/`DELETE` senza CSRF ma con sessione valida → **403** in
+    entrambi i casi (confermato anche che il `POST` rifiutato non ha
+    creato il preferito, e che il `DELETE` rifiutato non ha cancellato
+    quello esistente).
+  - **Nessun cookie di sessione**: `GET`/`POST`/`DELETE` su `TestClient`
+    senza cookie → **401** in tutti e tre i casi.
+
+  **4 — Scansione dati personali** (`grep -inE` per path assoluti
+  `/home/...`, IP Tailscale, nome/cognome utente, `@gmail.com`,
+  `tailscale`) su `git diff -- backend/app/models.py backend/app/schemas.py
+  backend/app/main.py backend/tests/test_database.py` e sui due file nuovi
+  `backend/migrations/versions/0010_favorites.py`,
+  `backend/app/services/favorite_service.py`: **nessuna occorrenza**
+  (grep vuoto, exit code 1, su entrambi).
+
+  **5 — `git status`**: solo i file dichiarati da `IMP-PW-04-BACKEND`
+  (`backend/app/main.py`, `backend/app/models.py`, `backend/app/schemas.py`,
+  `backend/tests/test_database.py` modificati;
+  `backend/app/services/favorite_service.py`,
+  `backend/migrations/versions/0010_favorites.py` nuovi non tracciati) più
+  `docs/backlog.md` e la modifica preesistente di
+  `docs/adr/015-preview-window-manager.md` (non toccata in questo round).
+  Nessuna modifica preesistente alterata. Lo script di verifica e lo
+  script di ispezione schema sono stati scritti nello scratchpad di
+  sessione (fuori dal repository) ed eseguiti passandoli via stdin al
+  container, mai copiati dentro l'albero di lavoro; rimossi dallo
+  scratchpad al termine — nessun file temporaneo rimasto nel repo.
+
+  **Verdetto: nessun difetto trovato.** Implementazione, migrazione e
+  wiring corrispondono al codice reale ispezionato (non solo al testo del
+  backlog); lo scostamento dichiarato (`uuid4().hex` invece di
+  `str(uuid4())`) è coerente con `String(32)` nel modello/migrazione e con
+  il pattern già in uso in `AttachmentService.create`. `TEST-PW-04-BACKEND-T1`
+  chiude `PASSED`; `IMP-PW-04-FRONTEND` può passare da `BLOCKED` a `READY`
+  (decisione di ROOT, fuori da questa voce).
+
+- [ ] IMP-PW-04-FRONTEND | OWNER: SA-IMP | STATUS: BLOCKED | **Fase 4,
+  parte frontend — UI dei preferiti.** Sbloccato solo da `PASSED` di
+  `TEST-PW-04-BACKEND-T1` (endpoint reali necessari per collaudare
+  l'integrazione, non solo mock). Specifica dettagliata da scrivere da
+  ROOT al momento dello sblocco (fuori scope di questa voce): stella in
+  `PreviewModal` (toggle su `POST`/`DELETE /api/v1/favorites`, stato
+  iniziale da `GET`), nuovo `FavoritesModal` condiviso fra dashboard
+  (`SessionList`, stesso trattamento di Archivio/Audit/Backup) e menu
+  sessione (`Console`, stesso trattamento di `DirectoryModal`/`ArtifactsModal`),
+  apertura di un preferito tramite `openPreviewWindow` + `fetchFileMetadata`
+  per dati freschi (mai fidarsi di valori persistiti), pulsante disabilitato
+  con messaggio esplicito quando non c'è alcuna sessione viva disponibile
+  per aprire (`GATE-PW-04`, punto 5). Vedi `GATE-PW-04` per le decisioni di
+  scope vincolanti (nessun `kind`, nessuna validazione path lato client
+  oltre quella già presente in `PreviewModal`).

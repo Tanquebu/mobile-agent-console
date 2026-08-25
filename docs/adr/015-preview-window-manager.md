@@ -4,11 +4,16 @@
 
 Accettata. Gate prodotto approvato il 25/08/2026 (`GATE-PW-00` in
 `docs/backlog.md`). Fase 1 (`IMP-PW-01`, window manager sollevato in
-`App()`) e Fase 2 (`IMP-PW-02`, tray e minimizzazione) consegnate e
-committate. Fase 3 (`IMP-PW-03`, template di layout affiancati) in corso —
-il trascinamento libero ("flottante") descritto più sotto è stato escluso
-esplicitamente da questa fase (`GATE-PW-03` in `docs/backlog.md`), non solo
+`App()`), Fase 2 (`IMP-PW-02`, tray e minimizzazione) e Fase 3
+(`IMP-PW-03`, template di layout affiancati) consegnate e committate — il
+trascinamento libero ("flottante") descritto più sotto è stato escluso
+esplicitamente dalla Fase 3 (`GATE-PW-03` in `docs/backlog.md`), non solo
 il ridimensionamento libero già rimandato dal testo originale dell'ADR.
+Fase 4 (`IMP-PW-04-BACKEND`/`IMP-PW-04-FRONTEND`, Preferiti) in corso — la
+distinzione `kind` fra file e directory descritta più sotto è ristretta
+solo ai file in questa fase (`GATE-PW-04`), coerentemente con l'unico
+punto di ingresso (la stella in `PreviewModal`, che esiste solo per i
+file).
 
 ## Contesto
 

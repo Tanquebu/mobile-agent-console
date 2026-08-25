@@ -497,3 +497,20 @@ class PushSubscriptionInput(BaseModel):
 
 class PushUnsubscribeInput(BaseModel):
     endpoint: str = Field(min_length=1, max_length=2048)
+
+
+class FavoriteView(BaseModel):
+    id: str
+    path: str
+    label: str | None
+    added_by: str
+    added_at: datetime
+
+
+class FavoriteList(BaseModel):
+    favorites: list[FavoriteView]
+
+
+class FavoriteInput(BaseModel):
+    path: str = Field(min_length=1, max_length=4096)
+    label: str | None = Field(default=None, max_length=255)

@@ -52,6 +52,9 @@ from .schemas import (
     CreateUserInput,
     DirectoryEntryView,
     DirectoryView,
+    FavoriteInput,
+    FavoriteList,
+    FavoriteView,
     FileMetadataView,
     FileView,
     KeyInput,
@@ -96,6 +99,7 @@ from .services.attachment_service import AttachmentError, AttachmentService
 from .services.audit_service import AuditService
 from .services.backup_service import BackupError, BackupService
 from .services.claude_history_service import ClaudeHistoryService
+from .services.favorite_service import FavoriteService
 from .services.host_observability_contract import HostObservabilitySnapshot
 from .services.host_observability_service import (
     HostObservabilityInvalidResponse,
@@ -383,6 +387,7 @@ def create_app(
     users = UserService(database.engine) if database else None
     archives = ArchiveService(database.engine) if database else None
     session_visibility = SessionVisibilityService(database.engine) if database else None
+    favorites = FavoriteService(database.engine) if database else None
     session_profiles = SessionProfileService(settings.session_profiles_path)
     audit = AuditService(database.engine) if database else None
     attachments = (
@@ -631,6 +636,11 @@ def create_app(
         if not session_visibility:
             raise HTTPException(503, "Session visibility requires the metadata database")
         return session_visibility
+
+    def favorite_service() -> FavoriteService:
+        if not favorites:
+            raise HTTPException(503, "Favorites require the metadata database")
+        return favorites
 
     def session_profile(command: str) -> str:
         lowered = command.lower()
@@ -1572,6 +1582,41 @@ def create_app(
             raise HTTPException(404, "Archive not found")
         await asyncio.to_thread(artifacts.delete_archived, archive_id)
         return Response(status_code=204)
+
+    @app.get("/api/v1/favorites", response_model=FavoriteList)
+    async def list_favorites(cookie: str = Depends(require_active_session)) -> FavoriteList:
+        user = active_user(cookie)
+        username = user.username if user is not None else "legacy"
+        items = await asyncio.to_thread(favorite_service().list_for_user, username)
+        return FavoriteList(
+            favorites=[
+                FavoriteView.model_validate(item, from_attributes=True) for item in items
+            ]
+        )
+
+    @app.post("/api/v1/favorites", response_model=FavoriteView, status_code=201)
+    async def create_favorite(
+        payload: FavoriteInput, cookie: str = Depends(require_operator)
+    ) -> FavoriteView:
+        user = active_user(cookie)
+        username = user.username if user is not None else "legacy"
+        item = await asyncio.to_thread(
+            favorite_service().create, payload.path, payload.label, username
+        )
+        return FavoriteView.model_validate(item, from_attributes=True)
+
+    @app.delete("/api/v1/favorites/{favorite_id}", response_model=Accepted)
+    async def delete_favorite(
+        favorite_id: str, cookie: str = Depends(require_operator)
+    ) -> Accepted:
+        user = active_user(cookie)
+        username = user.username if user is not None else "legacy"
+        deleted = await asyncio.to_thread(
+            favorite_service().delete, favorite_id, username
+        )
+        if not deleted:
+            raise HTTPException(404, "Favorite not found")
+        return Accepted()
 
     @app.post(
         "/api/v1/snapshots",
