@@ -9,11 +9,16 @@ Accettata. Gate prodotto approvato il 25/08/2026 (`GATE-PW-00` in
 trascinamento libero ("flottante") descritto più sotto è stato escluso
 esplicitamente dalla Fase 3 (`GATE-PW-03` in `docs/backlog.md`), non solo
 il ridimensionamento libero già rimandato dal testo originale dell'ADR.
-Fase 4 (`IMP-PW-04-BACKEND`/`IMP-PW-04-FRONTEND`, Preferiti) in corso — la
-distinzione `kind` fra file e directory descritta più sotto è ristretta
-solo ai file in questa fase (`GATE-PW-04`), coerentemente con l'unico
+Fase 4 (`IMP-PW-04-BACKEND`/`IMP-PW-04-FRONTEND`, Preferiti) consegnata e
+committata — la distinzione `kind` fra file e directory descritta più
+sotto è ristretta solo ai file (`GATE-PW-04`), coerentemente con l'unico
 punto di ingresso (la stella in `PreviewModal`, che esiste solo per i
-file).
+file); un preferito aperto da un artefatto non è mai stato ammesso, per lo
+stesso motivo per cui l'apertura riusa sempre `_resolve_preview_file`
+all'atto pratico e non un path legato a una sessione specifica. Con
+questo il piano a fasi descritto in questo ADR è completo. Le finestre di
+sessione restano solo un bullet di roadmap (M5), come deciso all'inizio —
+non hanno avuto ulteriore lavoro.
 
 ## Contesto
 
