@@ -154,9 +154,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Anteprima zero-flicker, chip filtri e riepilogo directory",
+  title: "Dashboard compatta: pill rapide e kebab menu",
   description:
-    "Navigazione anteprime fluida con skeleton loader e progress bar senza sfarfallio, chip di filtro rapido per categoria (Cartelle, Codice, Media, Documenti) e badge di riepilogo con conteggio e peso file.",
+    "Intestazione dashboard ottimizzata con pulsanti pill rapidi per nuova sessione e notifiche, e kebab menu dedicato per tutte le azioni secondarie.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -5919,9 +5919,30 @@ function SessionList({
   const [sessionUsageEnabled, setSessionUsageEnabled] = useState(false);
   const [sessionTimelineEnabled, setSessionTimelineEnabled] = useState(false);
   const budgetTriggerRef = useRef<HTMLButtonElement>(null);
+  const dashboardKebabRef = useRef<HTMLDivElement>(null);
   const [dashboardDensity, setDashboardDensity] = useState<DashboardDensity>(readDashboardDensity);
   const [language, setLanguage] = useState<Language>(readLanguage);
   const [openActionsId, setOpenActionsId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!showDashboardActions) return;
+    function handlePointerDown(event: PointerEvent) {
+      if (dashboardKebabRef.current && !dashboardKebabRef.current.contains(event.target as Node)) {
+        setShowDashboardActions(false);
+      }
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setShowDashboardActions(false);
+      }
+    }
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showDashboardActions]);
 
   function chooseLanguage(lang: Language) {
     writeLanguage(lang);
@@ -6240,87 +6261,186 @@ function SessionList({
   return (
     <main className={`shell ${compactDashboard ? "compact-dashboard" : ""}`}>
       <header className="topbar">
-        <div><span className="eyebrow">TMUX / PRIVATE NETWORK</span><h1>{t.sessions}</h1></div>
+        <div className="topbar-brand">
+          <span className="eyebrow">TMUX / PRIVATE NETWORK</span>
+          <h1>{t.sessions}</h1>
+        </div>
         <div className="topbar-actions">
-          <button className="help-button" onClick={() => setShowHelp(true)} aria-label="Help">
+          {identity.role !== "viewer" && (
+            <button
+              type="button"
+              className={`topbar-pill new-session-pill ${creating ? "active" : ""}`}
+              onClick={() => setCreating((value) => !value)}
+              aria-label={t.newSession}
+              title={t.newSession}
+              aria-expanded={creating}
+            >
+              ＋
+            </button>
+          )}
+          {notifySupported && (
+            <button
+              type="button"
+              className={`topbar-pill notify-pill ${notifyEnabled ? "active" : ""}`}
+              onClick={() => void toggleNotifications()}
+              disabled={!notifyEnabled && Notification.permission === "denied"}
+              aria-label={notifyEnabled ? t.notificationsOn : t.notificationsOff}
+              title={
+                Notification.permission === "denied"
+                  ? "Notifiche bloccate dal browser per questo sito"
+                  : (notifyEnabled ? t.notificationsOn : t.notificationsOff)
+              }
+            >
+              {notifyEnabled ? "🔔" : "🔕"}
+            </button>
+          )}
+          <button className="help-button" onClick={() => setShowHelp(true)} aria-label="Help" title="Help">
             ?
           </button>
           <span className="count">
             {searchQuery.trim() ? `${filteredSessions.length}/${sessions.length}` : sessions.length}
           </span>
-        </div>
-      </header>
-      <div className="dashboard-actions-wrap">
-        <div className="dashboard-actions">
-          {identity.role !== "viewer" && (
+          <div className="topbar-kebab-wrap" ref={dashboardKebabRef}>
             <button
-              className="new-session"
-              onClick={() => setCreating((value) => !value)}
-              aria-label={compactDashboard ? t.newSession : undefined}
-              title={compactDashboard ? t.newSession : undefined}
+              type="button"
+              className="session-menu dashboard-more-actions"
+              aria-expanded={showDashboardActions}
+              aria-controls="dashboard-secondary-actions"
+              aria-label={t.moreActions}
+              title={t.moreActions}
+              onClick={() => setShowDashboardActions((value) => !value)}
             >
-              {compactDashboard ? "＋" : `+ ${t.newSession}`}
+              ⋮
             </button>
-          )}
-          {notifySupported && (
-            <button
-              className="snapshot-button"
-              onClick={() => void toggleNotifications()}
-              disabled={!notifyEnabled && Notification.permission === "denied"}
-              title={
-                Notification.permission === "denied"
-                  ? "Notifiche bloccate dal browser per questo sito"
-                  : "Avvisa quando una sessione attende feedback o autorizzazione, anche ad app chiusa"
-              }
-            >
-              {compactDashboard ? (notifyEnabled ? "🔔" : "🔕") : (notifyEnabled ? t.notificationsOn : t.notificationsOff)}
-            </button>
-          )}
-          <button
-            className="snapshot-button dashboard-more-actions"
-            aria-expanded={showDashboardActions}
-            aria-controls="dashboard-secondary-actions"
-            aria-label={compactDashboard ? (showDashboardActions ? t.lessActions : t.moreActions) : undefined}
-            title={compactDashboard ? (showDashboardActions ? t.lessActions : t.moreActions) : undefined}
-            onClick={() => setShowDashboardActions((value) => !value)}
-          >
-            {compactDashboard ? "⋯" : (showDashboardActions ? t.lessActions : t.moreActions)}
-          </button>
-        </div>
-        {showDashboardActions && (
-          <div className="dashboard-secondary-actions" id="dashboard-secondary-actions" role="group" aria-label={t.moreActions}>
-            <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowPreferences(true); }} aria-label={t.settings} title={t.settings}>{compactDashboard ? "⚙" : t.settings}</button>
-            <button className="snapshot-button" onClick={async () => {
-              setShowDashboardActions(false);
-              try {
-                await logout();
-              } catch { /* session clearance on failure */ }
-              onLogout();
-            }} aria-label={t.logout} title={t.logout}>{compactDashboard ? "⎋" : t.logout}</button>
-            {identity.role !== "viewer" && (
-              <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowSnapshots(true); }} aria-label={t.snapshots} title={t.snapshots}>{compactDashboard ? "◫" : t.snapshots}</button>
-            )}
-            {identity.role !== "viewer" && (
-              <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowArchives(true); }} aria-label={t.archivedSessions} title={t.archivedSessions}>{compactDashboard ? "▣" : t.archivedSessions}</button>
-            )}
-            <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowHiddenSessions(true); }} aria-label={t.hiddenSessions} title={t.hiddenSessions}>{compactDashboard ? "◌" : t.hiddenSessions}</button>
-            <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowFavorites(true); }} aria-label={t.favorites} title={t.favorites}>{compactDashboard ? "★" : t.favorites}</button>
-            <button ref={budgetTriggerRef} className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowBudget(true); }} aria-label={t.budget} title={t.budget}>{compactDashboard ? "◔" : t.budget}</button>
-            {identity.role === "admin" && (
-              <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowUsers(true); }} aria-label={t.users} title={t.users}>{compactDashboard ? "♟" : t.users}</button>
-            )}
-            {identity.role === "admin" && (
-              <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowAudit(true); }} aria-label={t.auditLogs} title={t.auditLogs}>{compactDashboard ? "≡" : t.auditLogs}</button>
-            )}
-            {identity.role === "admin" && (
-              <button className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowBackups(true); }} aria-label={t.backups} title={t.backups}>{compactDashboard ? "⇩" : t.backups}</button>
-            )}
-            {identity.role === "admin" && hostObservabilityEnabled && (
-              <button ref={hostTriggerRef} className="snapshot-button" onClick={() => { setShowDashboardActions(false); setShowHost(true); }} aria-label={t.host} title={t.host}>{compactDashboard ? "▥" : t.host}</button>
+            {showDashboardActions && (
+              <div
+                className="dashboard-secondary-actions dashboard-kebab-menu"
+                id="dashboard-secondary-actions"
+                role="menu"
+                aria-label={t.moreActions}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="snapshot-button"
+                  onClick={() => { setShowDashboardActions(false); setShowPreferences(true); }} aria-label={t.settings} title={t.settings}
+                >
+                  <span className="action-icon" aria-hidden="true">⚙</span>
+                  <span className="action-label">{t.settings}</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="snapshot-button"
+                  onClick={async () => {
+                    setShowDashboardActions(false);
+                    try {
+                      await logout();
+                    } catch { /* session clearance on failure */ }
+                    onLogout();
+                  }} aria-label={t.logout} title={t.logout}
+                >
+                  <span className="action-icon" aria-hidden="true">⎋</span>
+                  <span className="action-label">{t.logout}</span>
+                </button>
+                {identity.role !== "viewer" && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="snapshot-button"
+                    onClick={() => { setShowDashboardActions(false); setShowSnapshots(true); }} aria-label={t.snapshots} title={t.snapshots}
+                  >
+                    <span className="action-icon" aria-hidden="true">◫</span>
+                    <span className="action-label">{t.snapshots}</span>
+                  </button>
+                )}
+                {identity.role !== "viewer" && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="snapshot-button"
+                    onClick={() => { setShowDashboardActions(false); setShowArchives(true); }} aria-label={t.archivedSessions} title={t.archivedSessions}
+                  >
+                    <span className="action-icon" aria-hidden="true">▣</span>
+                    <span className="action-label">{t.archivedSessions}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="snapshot-button"
+                  onClick={() => { setShowDashboardActions(false); setShowHiddenSessions(true); }} aria-label={t.hiddenSessions} title={t.hiddenSessions}
+                >
+                  <span className="action-icon" aria-hidden="true">◌</span>
+                  <span className="action-label">{t.hiddenSessions}</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="snapshot-button"
+                  onClick={() => { setShowDashboardActions(false); setShowFavorites(true); }} aria-label={t.favorites} title={t.favorites}
+                >
+                  <span className="action-icon" aria-hidden="true">★</span>
+                  <span className="action-label">{t.favorites}</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  ref={budgetTriggerRef} className="snapshot-button"
+                  onClick={() => { setShowDashboardActions(false); setShowBudget(true); }} aria-label={t.budget} title={t.budget}
+                >
+                  <span className="action-icon" aria-hidden="true">◔</span>
+                  <span className="action-label">{t.budget}</span>
+                </button>
+                {identity.role === "admin" && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="snapshot-button"
+                    onClick={() => { setShowDashboardActions(false); setShowUsers(true); }} aria-label={t.users} title={t.users}
+                  >
+                    <span className="action-icon" aria-hidden="true">♟</span>
+                    <span className="action-label">{t.users}</span>
+                  </button>
+                )}
+                {identity.role === "admin" && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="snapshot-button"
+                    onClick={() => { setShowDashboardActions(false); setShowAudit(true); }} aria-label={t.auditLogs} title={t.auditLogs}
+                  >
+                    <span className="action-icon" aria-hidden="true">≡</span>
+                    <span className="action-label">{t.auditLogs}</span>
+                  </button>
+                )}
+                {identity.role === "admin" && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="snapshot-button"
+                    onClick={() => { setShowDashboardActions(false); setShowBackups(true); }} aria-label={t.backups} title={t.backups}
+                  >
+                    <span className="action-icon" aria-hidden="true">⇩</span>
+                    <span className="action-label">{t.backups}</span>
+                  </button>
+                )}
+                {identity.role === "admin" && hostObservabilityEnabled && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    ref={hostTriggerRef} className="snapshot-button"
+                    onClick={() => { setShowDashboardActions(false); setShowHost(true); }} aria-label={t.host} title={t.host}
+                  >
+                    <span className="action-icon" aria-hidden="true">▥</span>
+                    <span className="action-label">{t.host}</span>
+                  </button>
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      </header>
       {creating && <form className="create-form" onSubmit={async (event) => {
         event.preventDefault();
         const normalizedName = name.trim().normalize("NFC");
