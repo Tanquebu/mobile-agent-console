@@ -154,9 +154,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Anteprime anche per path spezzati",
+  title: "Video MP4 negli allegati",
   description:
-    "La vista Blocchi riconosce ora i percorsi assoluti di immagini, media e Markdown anche nel codice o quando una TUI li divide su più righe.",
+    "Puoi allegare video MP4 direttamente a un prompt o caricarli nella directory della sessione, con controllo del formato basato sul contenuto.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1164,7 +1164,7 @@ function joinPath(base: string, name: string): string {
   return base.endsWith("/") ? `${base}${name}` : `${base}/${name}`;
 }
 
-const DOWNLOADABLE_FILE = /\.(?:bmp|docx?|gif|jpe?g|m4a|mp3|pdf|png|tiff?|webp)$/i;
+const DOWNLOADABLE_FILE = /\.(?:bmp|docx?|gif|jpe?g|m4a|mp3|mp4|pdf|png|tiff?|webp)$/i;
 
 function isDownloadable(name: string): boolean {
   return DOWNLOADABLE_FILE.test(name);
@@ -2329,6 +2329,7 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
     ".pdf",
     ".md",
     ".mp3",
+    ".mp4",
   ];
   const allowedExtensions = appConfig?.upload_allowed_extensions || defaultAllowedExtensions;
   const maxUploadBytes = appConfig?.max_upload_bytes || 10 * 1024 * 1024;
@@ -8081,7 +8082,7 @@ function Console({
           className="file-input"
           type="file"
           multiple
-          accept=".csv,.json,.md,.markdown,.mp3,.pdf,.txt,.xml,audio/mpeg,image/jpeg,image/png,image/webp"
+          accept=".csv,.json,.md,.markdown,.mp3,.mp4,.pdf,.txt,.xml,audio/mpeg,video/mp4,image/jpeg,image/png,image/webp"
           onChange={(event) => void selectFiles(event.target.files)}
         />
         {showSpecialKeys && (

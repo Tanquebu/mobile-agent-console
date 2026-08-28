@@ -3,22 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .attachment_service import SIGNATURE_MEDIA_TYPES, TEXT_MEDIA_TYPES, is_mp3
-
-# Major brand values in the ftyp box that we accept as video/mp4. Kept
-# deliberately narrow: other ISO-BMFF containers (.mov, .m4a, .3gp, ...)
-# share the same ftyp structure but are not mp4 video.
-MP4_MAJOR_BRANDS = frozenset(
-    {
-        b"isom",
-        b"iso2",
-        b"mp41",
-        b"mp42",
-        b"avc1",
-        b"M4V ",
-        b"3gp5",
-    }
-)
+from .attachment_service import SIGNATURE_MEDIA_TYPES, TEXT_MEDIA_TYPES, is_mp3, is_mp4
 
 # M4A con un major brand esplicito: non basta l'estensione, perché artefatti e
 # browser di directory espongono file prodotti da processi esterni. Tenere il
@@ -50,11 +35,14 @@ def sniff_media_type(path: Path) -> str | None:
             return media_type
     if len(prefix) >= 12 and prefix[:4] == b"RIFF" and prefix[8:12] == b"WEBP":
         return "image/webp"
-    if len(prefix) >= 12 and prefix[4:8] == b"ftyp":
-        if prefix[8:12] in MP4_MAJOR_BRANDS:
-            return "video/mp4"
-        if prefix[8:12] in M4A_MAJOR_BRANDS:
-            return "audio/mp4"
+    if is_mp4(prefix):
+        return "video/mp4"
+    if (
+        len(prefix) >= 12
+        and prefix[4:8] == b"ftyp"
+        and prefix[8:12] in M4A_MAJOR_BRANDS
+    ):
+        return "audio/mp4"
     if path.suffix.lower() == ".mp3" and is_mp3(prefix):
         return "audio/mpeg"
     suffix = path.suffix.lower()
@@ -236,4 +224,3 @@ class ArtifactService:
             archive_dir.parent.rmdir()
         except OSError:
             pass
-

@@ -158,6 +158,7 @@ class Settings(BaseSettings):
         ".pdf",
         ".md",
         ".mp3",
+        ".mp4",
     ]
     login_rate_limit: int = Field(default=5, ge=1, le=1000)
     login_rate_window_seconds: int = Field(default=60, ge=1, le=3600)

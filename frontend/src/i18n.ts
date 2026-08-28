@@ -221,8 +221,8 @@ export const translations = {
 
     // Release Box
     whatsNew: "Cosa c'è di nuovo",
-    latestReleaseTitle: "Uploader file in Contenuto Directory",
-    latestReleaseDesc: "È ora disponibile un pulsante 'Carica file' nella vista 'Contenuto directory' per caricare immagini, PDF, documenti Markdown e file audio MP3 direttamente nel percorso di lavoro.",
+    latestReleaseTitle: "Video MP4 negli allegati",
+    latestReleaseDesc: "Ora puoi allegare video MP4 direttamente ai prompt o caricarli nella directory della sessione, con validazione del formato basata sul contenuto.",
 
     // Preferences & Settings
     settings: "Preferenze",
@@ -450,8 +450,8 @@ export const translations = {
 
     // Release Box
     whatsNew: "What's new",
-    latestReleaseTitle: "Directory File Uploader",
-    latestReleaseDesc: "A 'Upload file' button is now available in the 'Directory Content' view to upload images, PDFs, Markdown documents, and MP3 audio files directly into the working path.",
+    latestReleaseTitle: "MP4 video attachments",
+    latestReleaseDesc: "MP4 videos can now be attached directly to prompts or uploaded into the session directory, with content-based format validation.",
 
     // Preferences & Settings
     settings: "Preferences",

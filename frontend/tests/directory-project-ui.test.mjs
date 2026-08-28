@@ -68,6 +68,11 @@ test("i file MP3 restano scaricabili e possono anche usare il player audio", () 
   assert.match(app, /<audio className="file-media" src=\{source\.url/);
 });
 
+test("i file MP4 sono ammessi dall'uploader di progetto e restano scaricabili", () => {
+  assert.match(app, /DOWNLOADABLE_FILE = \/.*mp4/);
+  assert.match(app, /const defaultAllowedExtensions = \[[\s\S]*"\.mp4"/);
+});
+
 test("i file M4A aprono il player audio in directory e artefatti", () => {
   assert.match(app, /PREVIEWABLE_AUDIO.*m4a\|mp3/);
   assert.match(app, /return "audio"/);

@@ -1869,6 +1869,53 @@ def test_upload_mp3_attachment_and_reference_it_in_prompt(tmp_path) -> None:
     assert invalid.status_code == 400
 
 
+def test_upload_mp4_attachment_and_reference_it_in_prompt(tmp_path) -> None:
+    fake = FakeTmux()
+    settings = Settings(
+        login_password=PASSWORD,
+        session_secret=SECRET,
+        cookie_secure=False,
+        cors_origins=["http://testserver"],
+        attachments_root=str(tmp_path),
+        attachments_prompt_root="/workspace/.agent-attachments",
+        max_attachment_bytes=1024,
+        database_path=migrated_database_with_admin(tmp_path),
+        database_auth_enabled=True,
+        push_vapid_key_path=str(tmp_path / "vapid.pem"),
+    )
+    client = TestClient(create_app(settings, fake))
+    csrf = login_admin(client)
+    headers = {"X-CSRF-Token": csrf, "Content-Type": "video/mp4"}
+    content = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 32
+
+    uploaded = client.post(
+        "/api/v1/sessions/1/attachments?filename=clip.mp4",
+        content=content,
+        headers=headers,
+    )
+    assert uploaded.status_code == 201
+    attachment = uploaded.json()
+    assert attachment["name"] == "clip.mp4"
+    assert attachment["media_type"] == "video/mp4"
+    assert attachment["path"].endswith(".mp4")
+
+    sent = client.post(
+        "/api/v1/sessions/1/input",
+        headers={"X-CSRF-Token": csrf},
+        json={"text": "Analizza il video", "attachment_ids": [attachment["id"]]},
+    )
+    assert sent.status_code == 202
+    assert '"clip.mp4"' in fake.texts[-1]
+    assert attachment["path"] in fake.texts[-1]
+
+    invalid = client.post(
+        "/api/v1/sessions/1/attachments?filename=fake.mp4",
+        content=b"not really a video",
+        headers=headers,
+    )
+    assert invalid.status_code == 400
+
+
 def test_attachment_preview_only_for_images(tmp_path) -> None:
     settings = Settings(
         login_password=PASSWORD,

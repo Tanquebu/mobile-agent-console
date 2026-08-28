@@ -31,6 +31,21 @@ SIGNATURE_MEDIA_TYPES = {
 IMAGE_MEDIA_TYPES = {"image/png", "image/jpeg", "image/webp"}
 THUMBNAIL_MAX_SIZE = (256, 256)
 
+# Major brand ISO-BMFF accettati come video MP4. Il controllo resta stretto:
+# MOV, M4A e altri container con box ``ftyp`` non diventano allegati video
+# soltanto perche' il client dichiara ``video/mp4``.
+MP4_MAJOR_BRANDS = frozenset(
+    {
+        b"isom",
+        b"iso2",
+        b"mp41",
+        b"mp42",
+        b"avc1",
+        b"M4V ",
+        b"3gp5",
+    }
+)
+
 
 def is_mp3(prefix: bytes) -> bool:
     if prefix.startswith(b"ID3"):
@@ -42,6 +57,14 @@ def is_mp3(prefix: bytes) -> bool:
     bitrate = (prefix[2] >> 4) & 0x0F
     sample_rate = (prefix[2] >> 2) & 0x03
     return version != 0x01 and layer != 0 and bitrate not in (0, 0x0F) and sample_rate != 0x03
+
+
+def is_mp4(prefix: bytes) -> bool:
+    return (
+        len(prefix) >= 12
+        and prefix[4:8] == b"ftyp"
+        and prefix[8:12] in MP4_MAJOR_BRANDS
+    )
 
 
 class AttachmentError(ValueError):
@@ -106,6 +129,10 @@ class AttachmentService:
             if not is_mp3(prefix):
                 raise AttachmentError("Attachment content does not match its media type")
             return ".mp3"
+        if normalized == "video/mp4":
+            if not is_mp4(prefix):
+                raise AttachmentError("Attachment content does not match its media type")
+            return ".mp4"
         signature = SIGNATURE_MEDIA_TYPES.get(normalized)
         if not signature:
             raise AttachmentError("Attachment media type is not allowed")

@@ -36,8 +36,9 @@ test("Clear e Model inviano testo ed Enter come operazioni distinte solo nei con
   assert.doesNotMatch(consoleView, /sendText\([^\n]*"\/model[^\n]*Enter/);
 });
 
-test("il selettore Allega abilita gli MP3", () => {
+test("il selettore Allega abilita MP3 e MP4", () => {
   assert.match(consoleView, /accept="[^"]*\.mp3[^"]*audio\/mpeg/);
+  assert.match(consoleView, /accept="[^"]*\.mp4[^"]*video\/mp4/);
 });
 
 test("il riepilogo archivio è richiesto all'agente con un'azione esplicita", () => {

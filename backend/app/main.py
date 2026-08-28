@@ -179,6 +179,7 @@ DOWNLOADABLE_EXTENSIONS = {
     ".jpg",
     ".m4a",
     ".mp3",
+    ".mp4",
     ".pdf",
     ".png",
     ".tif",
