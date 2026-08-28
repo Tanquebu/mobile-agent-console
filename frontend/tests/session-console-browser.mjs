@@ -37,7 +37,12 @@ try {
             data: JSON.stringify({
               type: "snapshot",
               sequence_id: 1,
-              content: "• Ho creato il report `/tmp/mac-preview-browser/report.md`.",
+              content: [
+                "• Ho creato il report `/tmp/mac-preview-browser/report.md` e l'immagine",
+                "",
+                "/tmp/mac-preview-browser/chronicles/demo-chronicle-campana-",
+                "  v1.png.",
+              ].join("\n"),
             }),
           });
         }, 0);
@@ -56,6 +61,7 @@ try {
     { id: "fav-existing", path: "/workspace/notes.md", label: null, added_by: "admin", added_at: "2026-08-20T09:00:00Z" },
   ];
   const favoritesRequests = [];
+  const metadataPaths = [];
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -72,13 +78,16 @@ try {
     if (/^\/api\/v1\/sessions\/\d+\/panes$/.test(path)) return json(route, {
       panes: [{ id: "1", index: 0, title: "main", active: true, width: 80, height: 24 }],
     });
-    if (/^\/api\/v1\/sessions\/\d+\/file\/metadata$/.test(path)) return json(route, {
-      session_id: "1",
-      path: url.searchParams.get("path"),
-      size: 19,
-      modified_at: "2026-08-22T11:45:00Z",
-      media_type: "text/markdown",
-    });
+    if (/^\/api\/v1\/sessions\/\d+\/file\/metadata$/.test(path)) {
+      metadataPaths.push(url.searchParams.get("path"));
+      return json(route, {
+        session_id: "1",
+        path: url.searchParams.get("path"),
+        size: 19,
+        modified_at: "2026-08-22T11:45:00Z",
+        media_type: "text/markdown",
+      });
+    }
     if (/^\/api\/v1\/sessions\/\d+\/file$/.test(path)) return json(route, {
       session_id: "1",
       path: url.searchParams.get("path"),
@@ -176,6 +185,18 @@ try {
   await page.locator(".help-modal-fullscreen").waitFor();
   await previewDialog.getByRole("button", { name: "Torna all'elenco" }).click();
   assert.equal(await previewDialog.count(), 0);
+
+  const wrappedPreviewLink = page.getByRole("button", {
+    name: "Apri anteprima file: /tmp/mac-preview-browser/chronicles/demo-chronicle-campana-v1.png",
+  });
+  await wrappedPreviewLink.click();
+  await previewDialog.waitFor();
+  assert.equal(
+    metadataPaths.at(-1),
+    "/tmp/mac-preview-browser/chronicles/demo-chronicle-campana-v1.png",
+    "il backend deve ricevere il path ricomposto senza newline o indentazione TUI",
+  );
+  await previewDialog.getByRole("button", { name: "Torna all'elenco" }).click();
 
   await page.getByRole("button", { name: "Funzioni", exact: true }).click();
   const specialActions = page.locator(".special-actions");

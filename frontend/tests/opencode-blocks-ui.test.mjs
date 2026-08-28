@@ -266,6 +266,43 @@ test("la regex dei blocchi rileva solo path assoluti con tipi anteprimabili", ()
   assert.deepEqual(paths, ["/tmp/demo/report.md", "/tmp/demo/audio.mp3"]);
 });
 
+test("i path spezzati su righe fisiche dalla TUI diventano un unico target di anteprima", () => {
+  const regexStart = app.indexOf("const BLOCK_PREVIEW_PATH_RE =");
+  const regex = app.slice(regexStart, app.indexOf("\n", regexStart));
+  const partsFn = extractFunction(app, "previewPathParts");
+  const { outputText } = tsModule.transpileModule(
+    `${regex}\n${partsFn}\nmodule.exports = { previewPathParts };\n`,
+    { compilerOptions: { module: tsModule.ModuleKind.CommonJS, target: tsModule.ScriptTarget.ES2022 } },
+  );
+  const module = { exports: {} };
+  // eslint-disable-next-line no-new-func
+  new Function("module", "exports", outputText)(module, module.exports);
+
+  const wrapped = [
+    "/home/example/projects/demo/public/assets/chronicles/demo-chronicle-campana-",
+    "  v1.png.",
+    "",
+    "/home/example/projects/demo/public/assets/chronicles/demo-chronicle-campana-",
+    "  v1.webp",
+  ].join("\n");
+  const parts = module.exports.previewPathParts(wrapped);
+  assert.deepEqual(
+    parts.flatMap((part) => part.path ? [part.path] : []),
+    [
+      "/home/example/projects/demo/public/assets/chronicles/demo-chronicle-campana-v1.png",
+      "/home/example/projects/demo/public/assets/chronicles/demo-chronicle-campana-v1.webp",
+    ],
+  );
+  assert.ok(parts[0].value.includes("\n  v1.png"), "il testo conserva il wrapping originale");
+
+  const distinct = module.exports.previewPathParts("/tmp/incompleto\n/tmp/reale.png");
+  assert.deepEqual(
+    distinct.flatMap((part) => part.path ? [part.path] : []),
+    ["/tmp/reale.png"],
+    "un secondo path assoluto non deve essere unito al primo",
+  );
+});
+
 test("i path nei blocchi aprono la PreviewModal centralizzata dopo la validazione metadata", () => {
   const chatBlock = app.slice(app.indexOf("function ChatBlockItem("), app.indexOf("function formatSize("));
   assert.match(chatBlock, /PreviewPathText text=\{displayContent\} onPreviewPath=\{onPreviewPath\}/);

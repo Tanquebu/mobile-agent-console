@@ -49,6 +49,35 @@ interazione con client tmux già collegati e semantica di ripristino. La
 soluzione dovrebbe confluire nel lavoro M1 su pane selection/resize o nel
 terminal mode previsto in M3.
 
+## Adapter cronologia strutturata Codex per la vista Blocchi
+
+**Stato:** differito; il linkifier multilinea mitiga i path spezzati, ma non
+elimina la perdita semantica della cattura terminale.
+
+La vista Blocchi delle sessioni Codex usa oggi lo snapshot testuale di tmux.
+`capture-pane -J` ricompone i soft-wrap conosciuti da tmux, ma la TUI Codex
+disegna anche righe fisiche già spezzate: il frontend non può distinguere in
+modo generale quei newline da ritorni a capo intenzionali. Il riconoscimento
+mirato dei path anteprimabili può ricongiungere segmenti adiacenti con vincoli
+stretti, ma resta un'euristica e non ricostruisce Markdown, link e struttura
+originali in tutti i casi.
+
+La soluzione architetturale è un adapter opt-in per la cronologia strutturata
+di Codex, analogo agli adapter Claude/OpenCode già usati da Blocchi. Prima di
+implementarlo occorre definire e documentare almeno:
+
+- discovery e correlazione fail-closed tra sessione tmux e conversazione Codex;
+- lettura host-side in sola lettura, senza montare transcript o home Codex nel
+  backend stateless;
+- formato derivato minimo, limiti, staleness e cancellazione, escludendo prompt,
+  output e percorsi da audit e log;
+- fallback allo stream tmux quando la sorgente strutturata non è disponibile;
+- compatibilità con sessioni riprese, subagent e cambi futuri del formato Codex.
+
+La decisione richiede un ADR o un addendum dedicato al threat model prima del
+deploy, perché amplia il boundary dei transcript anche se il core tmux resta
+agent-agnostic.
+
 ## INC-AS-01 — falso stato “in elaborazione” su sessione inattiva
 
 **Stato:** risolto il 05/08/2026 alle 01:05 Europe/Rome, quarto round dopo tre

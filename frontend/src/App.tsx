@@ -154,9 +154,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Dashboard compatta: pill rapide e kebab menu",
+  title: "Anteprime anche per path spezzati",
   description:
-    "Intestazione dashboard ottimizzata con pulsanti pill rapidi per nuova sessione e notifiche, e kebab menu dedicato per tutte le azioni secondarie.",
+    "La vista Blocchi riconosce ora i percorsi assoluti di immagini, media e Markdown anche quando una TUI li divide su più righe.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -435,7 +435,11 @@ type InlineToken =
 
 type PreviewPathHandler = (path: string) => void;
 
-const BLOCK_PREVIEW_PATH_RE = /\/[^\s<>"'`()\[\]{}]+?\.(?:md|markdown|mp3|m4a|mp4|jpe?g|png|webp)(?=$|[\s,.;:!?"'`)\]}])/gi;
+// `capture-pane -J` ricompone i soft-wrap di tmux, ma le TUI possono disegnare
+// direttamente righe fisiche già spezzate. Accettiamo quindi continuazioni
+// senza spazi su righe immediatamente adiacenti; `(?!\/)` impedisce che un
+// secondo path assoluto venga inglobato nel primo candidato incompleto.
+const BLOCK_PREVIEW_PATH_RE = /\/[^\s<>"'`()\[\]{}]+?(?:\r?\n[ \t]*(?!\/)[^\s<>"'`()\[\]{}]+)*?\.(?:md|markdown|mp3|m4a|mp4|jpe?g|png|webp)(?=$|[\s,.;:!?"'`)\]}])/gi;
 const EXACT_BLOCK_PREVIEW_PATH_RE = /^\/[^\n\0]+\.(?:md|markdown|mp3|m4a|mp4|jpe?g|png|webp)$/i;
 
 function previewPathParts(text: string) {
@@ -447,7 +451,10 @@ function previewPathParts(text: string) {
     if (match.index > lastIndex) {
       parts.push({ value: text.slice(lastIndex, match.index), path: null });
     }
-    parts.push({ value: match[0], path: match[0] });
+    parts.push({
+      value: match[0],
+      path: match[0].replace(/\r?\n[ \t]*/g, ""),
+    });
     lastIndex = BLOCK_PREVIEW_PATH_RE.lastIndex;
   }
   if (lastIndex < text.length) parts.push({ value: text.slice(lastIndex), path: null });
