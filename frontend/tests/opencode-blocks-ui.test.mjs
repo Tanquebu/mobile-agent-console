@@ -305,8 +305,12 @@ test("i path spezzati su righe fisiche dalla TUI diventano un unico target di an
 
 test("i path nei blocchi aprono la PreviewModal centralizzata dopo la validazione metadata", () => {
   const chatBlock = app.slice(app.indexOf("function ChatBlockItem("), app.indexOf("function formatSize("));
+  const markdownInline = app.slice(app.indexOf("function MarkdownInline("), app.indexOf("function MarkdownCodeBlock("));
+  const markdownCodeBlock = app.slice(app.indexOf("function MarkdownCodeBlock("), app.indexOf("type TableAlign"));
   assert.match(chatBlock, /PreviewPathText text=\{displayContent\} onPreviewPath=\{onPreviewPath\}/);
   assert.match(chatBlock, /MarkdownContent content=\{displayContent\} onPreviewPath=\{onPreviewPath\}/);
+  assert.match(markdownInline, /<PreviewPathText text=\{token\.value\} onPreviewPath=\{onPreviewPath\} \/>/);
+  assert.match(markdownCodeBlock, /<PreviewPathText text=\{code\} onPreviewPath=\{onPreviewPath\} \/>/);
   assert.match(consoleView, /await fetchFileMetadata\(session\.id, path\)/);
   // IMP-PW-01: Console non renderizza più <PreviewModal> inline — apre una
   // finestra nel window manager globale, che la renderizza altrove (fratello

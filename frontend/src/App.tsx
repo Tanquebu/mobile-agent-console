@@ -156,7 +156,7 @@ const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spa
 const LATEST_RELEASE = {
   title: "Anteprime anche per path spezzati",
   description:
-    "La vista Blocchi riconosce ora i percorsi assoluti di immagini, media e Markdown anche quando una TUI li divide su più righe.",
+    "La vista Blocchi riconosce ora i percorsi assoluti di immagini, media e Markdown anche nel codice o quando una TUI li divide su più righe.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -571,7 +571,11 @@ function MarkdownInline({ text, onPreviewPath }: { text: string; onPreviewPath?:
               </button>
             );
           }
-          return <code key={idx}>{token.value}</code>;
+          return (
+            <code key={idx}>
+              <PreviewPathText text={token.value} onPreviewPath={onPreviewPath} />
+            </code>
+          );
         }
         if (token.type === "bold") return <strong key={idx}><PreviewPathText text={token.value} onPreviewPath={onPreviewPath} /></strong>;
         if (token.type === "italic") return <em key={idx}><PreviewPathText text={token.value} onPreviewPath={onPreviewPath} /></em>;
@@ -615,7 +619,15 @@ function MarkdownInline({ text, onPreviewPath }: { text: string; onPreviewPath?:
   );
 }
 
-function MarkdownCodeBlock({ code, lang }: { code: string; lang: string }) {
+function MarkdownCodeBlock({
+  code,
+  lang,
+  onPreviewPath,
+}: {
+  code: string;
+  lang: string;
+  onPreviewPath?: PreviewPathHandler;
+}) {
   const [copied, setCopied] = useState(false);
   const handleCopy = async () => {
     if (await copyToClipboard(code)) {
@@ -631,7 +643,7 @@ function MarkdownCodeBlock({ code, lang }: { code: string; lang: string }) {
           {copied ? "Copiato" : "Copia"}
         </button>
       </div>
-      <pre><code>{code}</code></pre>
+      <pre><code><PreviewPathText text={code} onPreviewPath={onPreviewPath} /></code></pre>
     </div>
   );
 }
@@ -854,7 +866,14 @@ function MarkdownContent({ content, onPreviewPath }: { content: string; onPrevie
     <>
       {blocks.map((block, idx) => {
         if (block.type === "code_block") {
-          return <MarkdownCodeBlock key={idx} code={block.code} lang={block.lang} />;
+          return (
+            <MarkdownCodeBlock
+              key={idx}
+              code={block.code}
+              lang={block.lang}
+              onPreviewPath={onPreviewPath}
+            />
+          );
         }
         if (block.type === "heading") {
           const id = slugFor(block.text);
