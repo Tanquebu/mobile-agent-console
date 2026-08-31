@@ -85,6 +85,8 @@ export const translations = {
     noEventsRecorded: "Nessun evento registrato.",
     noBackupsAvailable: "Nessun backup disponibile.",
     minimizePreview: "Riduci a icona",
+    minimizeDirectory: "Riduci directory a icona",
+    restoreDirectory: "Ripristina directory",
     previewTray: "Anteprime ridotte a icona",
     layout1x1: "Finestra singola",
     layout2Vertical: "2 verticali",
@@ -221,8 +223,8 @@ export const translations = {
 
     // Release Box
     whatsNew: "Cosa c'è di nuovo",
-    latestReleaseTitle: "Video MP4 negli allegati",
-    latestReleaseDesc: "Ora puoi allegare video MP4 direttamente ai prompt o caricarli nella directory della sessione, con validazione del formato basata sul contenuto.",
+    latestReleaseTitle: "Directory riducibile a icona",
+    latestReleaseDesc: "Ora puoi ridurre la directory senza chiuderla, rileggere l’output in Blocchi o Terminale e ripristinarla mantenendo il percorso aperto.",
 
     // Preferences & Settings
     settings: "Preferenze",
@@ -314,6 +316,8 @@ export const translations = {
     noEventsRecorded: "No events recorded.",
     noBackupsAvailable: "No backups available.",
     minimizePreview: "Minimize",
+    minimizeDirectory: "Minimize directory",
+    restoreDirectory: "Restore directory",
     previewTray: "Minimized previews",
     layout1x1: "Single window",
     layout2Vertical: "2 vertical",
@@ -450,8 +454,8 @@ export const translations = {
 
     // Release Box
     whatsNew: "What's new",
-    latestReleaseTitle: "MP4 video attachments",
-    latestReleaseDesc: "MP4 videos can now be attached directly to prompts or uploaded into the session directory, with content-based format validation.",
+    latestReleaseTitle: "Minimizable directory",
+    latestReleaseDesc: "You can now minimize the directory without closing it, review Blocks or Terminal output, and restore it at the same open path.",
 
     // Preferences & Settings
     settings: "Preferences",

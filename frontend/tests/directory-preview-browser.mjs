@@ -77,7 +77,7 @@ try {
   // deve mai andare a capo per i modali con un solo bottone di chiusura
   // (regressione introdotta da `flex-wrap: wrap` in IMP-PW-02, poi rimosso).
   await page.getByRole("button", { name: "Altre azioni", exact: true }).click();
-  await page.getByRole("button", { name: "Sessioni nascoste", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Sessioni nascoste", exact: true }).click();
   await page.locator("#hidden-sessions-title").waitFor();
   const hiddenTitle = await page.locator(".help-modal > header h2").boundingBox();
   const hiddenClose = await page.locator(".help-modal > header .modal-close").boundingBox();
@@ -92,6 +92,14 @@ try {
   await page.locator(".special-section-toggle").click();
   await page.getByRole("button", { name: "Contenuto directory", exact: true }).click();
   await page.getByLabel("Ordina").selectOption("date-desc");
+  await page.getByRole("button", { name: "Riduci directory a icona" }).click();
+  assert.equal(await page.locator(".directory-modal:visible").count(), 0);
+  await page.locator(".output-wrap").waitFor({ state: "visible" });
+  const directoryTray = page.locator(".directory-minimized-tray");
+  await directoryTray.waitFor();
+  assert.match(await directoryTray.innerText(), /\/workspace/);
+  await page.getByRole("button", { name: "Ripristina directory" }).click();
+  assert.equal(await page.getByLabel("Ordina").inputValue(), "date-desc");
   await page.locator(".directory-open", { hasText: "zeta.md" }).click();
   await assertPosition(page, "1 / 2");
   await page.locator(".preview-modified", { hasText: "Ultimo aggiornamento" }).waitFor();

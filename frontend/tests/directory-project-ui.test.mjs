@@ -49,6 +49,17 @@ test("la directory espone ricerca e ordinamento senza mutare il listing autorevo
   assert.match(directoryModal, /displayedEntries\.map/);
 });
 
+test("la directory si riduce senza smontarsi e conserva lo stato fino alla chiusura", () => {
+  assert.match(console_, /directoryState, setDirectoryState/);
+  assert.match(console_, /setDirectoryState\("closed"\); \}, \[session\.id\]\)/);
+  assert.match(console_, /directoryState !== "closed"/);
+  assert.match(console_, /minimized=\{directoryState === "minimized"\}/);
+  assert.match(directoryModal, /hidden=\{minimized\}/);
+  assert.match(directoryModal, /className="directory-minimized-tray"/);
+  assert.match(directoryModal, /onClick=\{onRestore\}/);
+  assert.match(directoryModal, /event\.key !== "Escape" \|\| minimized/);
+});
+
 test("immagini e video aprono l'anteprima prima del ramo download", () => {
   const openEntry = directoryModal.slice(
     directoryModal.indexOf("function openEntry("),
@@ -91,7 +102,7 @@ test("la chiusura dell'anteprima conserva scroll, path e filtri della directory"
   // più esistere nessun meccanismo di questo tipo dentro DirectoryModal.
   assert.doesNotMatch(directoryModal, /openFile|previewFullscreen|savedScrollTopRef|restoreScrollRef|closeFilePreview/);
   assert.match(directoryModal, /const \{ openPreviewWindow, hasActivePreviewWindow \} = usePreviewWindows\(\);/);
-  assert.match(directoryModal, /if \(event\.key !== "Escape" \|\| hasActivePreviewWindow\) return;/);
+  assert.match(directoryModal, /if \(event\.key !== "Escape" \|\| minimized \|\| hasActivePreviewWindow\) return;/);
 });
 
 test("l'anteprima naviga tra i file anteprimabili della stessa directory nell'ordine selezionato", () => {

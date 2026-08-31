@@ -154,9 +154,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Video MP4 negli allegati",
+  title: "Directory riducibile a icona",
   description:
-    "Puoi allegare video MP4 direttamente a un prompt o caricarli nella directory della sessione, con controllo del formato basato sul contenuto.",
+    "Puoi ridurre la directory senza chiuderla, rileggere l’output in Blocchi o Terminale e ripristinarla mantenendo il percorso aperto.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -2169,7 +2169,19 @@ function FavoritesModal({ onClose, sessionId }: { onClose: () => void; sessionId
   );
 }
 
-function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
+function DirectoryModal({
+  sessionId,
+  minimized,
+  onMinimize,
+  onRestore,
+  onClose,
+}: {
+  sessionId: string;
+  minimized: boolean;
+  onMinimize: () => void;
+  onRestore: () => void;
+  onClose: () => void;
+}) {
   const [currentPath, setCurrentPath] = useState<string | undefined>(undefined);
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [error, setError] = useState("");
@@ -2218,12 +2230,12 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || hasActivePreviewWindow) return;
+      if (event.key !== "Escape" || minimized || hasActivePreviewWindow) return;
       onClose();
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose, hasActivePreviewWindow]);
+  }, [onClose, minimized, hasActivePreviewWindow]);
 
   const [copiedKey, setCopiedKey] = useState("");
 
@@ -2397,14 +2409,16 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
   }
 
   return (
-    <div
-      className="modal-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        onClose();
-      }}
-    >
+    <>
+      <div
+        className="modal-backdrop"
+        role="presentation"
+        hidden={minimized}
+        onMouseDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          onClose();
+        }}
+      >
       <section
         ref={modalRef}
         className="help-modal directory-modal"
@@ -2460,7 +2474,18 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
                   </div>
                 </div>
               </div>
-              <button className="modal-close" onClick={onClose} aria-label={translations[readLanguage()].close}>×</button>
+              <div className="modal-header-actions">
+                <button
+                  type="button"
+                  className="modal-minimize"
+                  onClick={onMinimize}
+                  aria-label={translations[readLanguage()].minimizeDirectory}
+                  title={translations[readLanguage()].minimizeDirectory}
+                >
+                  –
+                </button>
+                <button className="modal-close" onClick={onClose} aria-label={translations[readLanguage()].close}>×</button>
+              </div>
             </header>
             {(listing || error) && (
               <div className="directory-nav-bar">
@@ -2692,8 +2717,28 @@ function DirectoryModal({ sessionId, onClose }: { sessionId: string; onClose: ()
               </>
             )}
         </>
-      </section>
-    </div>
+        </section>
+      </div>
+      {minimized && (
+        <aside className="directory-minimized-tray" aria-label={translations[readLanguage()].restoreDirectory}>
+          <button
+            type="button"
+            className="directory-minimized-open"
+            onClick={onRestore}
+            title={listing?.path ?? currentPath}
+          >
+            <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            </svg>
+            <span>
+              <strong>{translations[readLanguage()].restoreDirectory}</strong>
+              <small>{listing?.path ?? currentPath ?? "…"}</small>
+            </span>
+          </button>
+          <button type="button" className="directory-minimized-close" onClick={onClose} aria-label={translations[readLanguage()].close}>×</button>
+        </aside>
+      )}
+    </>
   );
 }
 
@@ -6939,7 +6984,8 @@ function Console({
   const [changingModel, setChangingModel] = useState(false);
   const [sendingArtifactPrompt, setSendingArtifactPrompt] = useState(false);
   const [sendingArchiveSummaryPrompt, setSendingArchiveSummaryPrompt] = useState(false);
-  const [showDirectory, setShowDirectory] = useState(false);
+  const [directoryState, setDirectoryState] = useState<"closed" | "open" | "minimized">("closed");
+  useEffect(() => { setDirectoryState("closed"); }, [session.id]);
   const [showArtifacts, setShowArtifacts] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
   const [fullscreenOutput, setFullscreenOutput] = useState(false);
@@ -8109,7 +8155,7 @@ function Console({
                   <button
                     disabled={connection === "closed"}
                     type="button"
-                    onClick={() => setShowDirectory(true)}
+                    onClick={() => setDirectoryState("open")}
                   >
                     <svg className="action-icon-sm" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
@@ -8353,8 +8399,14 @@ function Console({
             </div>
           </div>
         )}
-        {showDirectory && (
-          <DirectoryModal sessionId={session.id} onClose={() => setShowDirectory(false)} />
+        {directoryState !== "closed" && (
+          <DirectoryModal
+            sessionId={session.id}
+            minimized={directoryState === "minimized"}
+            onMinimize={() => setDirectoryState("minimized")}
+            onRestore={() => setDirectoryState("open")}
+            onClose={() => setDirectoryState("closed")}
+          />
         )}
         {showArtifacts && (
           <ArtifactsModal sessionId={session.id} onClose={() => setShowArtifacts(false)} />
