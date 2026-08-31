@@ -156,7 +156,7 @@ const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spa
 const LATEST_RELEASE = {
   title: "Directory riducibile a icona",
   description:
-    "Puoi ridurre la directory senza chiuderla, rileggere l’output in Blocchi o Terminale e ripristinarla mantenendo il percorso aperto.",
+    "Puoi ridurre la directory senza chiuderla e ripristinarla mantenendo il percorso aperto; su mobile il richiamo resta sopra i comandi senza coprirli.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1446,6 +1446,8 @@ function slotsForLayout(mode: LayoutMode): number {
 
 type PreviewWindowsContextValue = {
   hasActivePreviewWindow: boolean;
+  minimizedPreviewWindows: PreviewWindowState[];
+  setInlinePreviewTrayActive: (active: boolean) => void;
   openPreviewWindow: (init: {
     resolveSource: (path: string) => PreviewSourceInput;
     siblings: string[];
@@ -1473,6 +1475,7 @@ const MAX_PREVIEW_WINDOWS = 8;
 
 function PreviewWindowsProvider({ children, active }: { children: ReactNode; active: boolean }) {
   const [windows, setWindows] = useState<PreviewWindowState[]>([]);
+  const [inlinePreviewTrayActive, setInlinePreviewTrayActive] = useState(false);
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("1x1");
   const layoutModeRef = useRef<LayoutMode>("1x1");
   useEffect(() => { layoutModeRef.current = layoutMode; }, [layoutMode]);
@@ -1565,6 +1568,8 @@ function PreviewWindowsProvider({ children, active }: { children: ReactNode; act
 
   const value = useMemo<PreviewWindowsContextValue>(() => ({
     hasActivePreviewWindow: visibleWindows.length > 0,
+    minimizedPreviewWindows: minimizedWindows,
+    setInlinePreviewTrayActive,
     openPreviewWindow,
     closePreviewWindow,
     toggleWindowFullscreen,
@@ -1573,7 +1578,7 @@ function PreviewWindowsProvider({ children, active }: { children: ReactNode; act
     restorePreviewWindow,
     layoutMode,
     changeLayoutMode,
-  }), [visibleWindows.length, openPreviewWindow, closePreviewWindow, toggleWindowFullscreen, navigateWindow, minimizePreviewWindow, restorePreviewWindow, layoutMode, changeLayoutMode]);
+  }), [visibleWindows.length, minimizedWindows, openPreviewWindow, closePreviewWindow, toggleWindowFullscreen, navigateWindow, minimizePreviewWindow, restorePreviewWindow, layoutMode, changeLayoutMode]);
 
   return (
     <PreviewWindowsContext.Provider value={value}>
@@ -1587,17 +1592,24 @@ function PreviewWindowsProvider({ children, active }: { children: ReactNode; act
       ) : visibleWindows.length > 0 ? (
         <PreviewWorkspace windows={visibleWindows} layoutMode={layoutMode} minimizedWindows={minimizedWindows} />
       ) : null}
-      {visibleWindows.length === 0 && minimizedWindows.length > 0 && <PreviewTray windows={minimizedWindows} />}
+      {!inlinePreviewTrayActive && visibleWindows.length === 0 && minimizedWindows.length > 0 && <PreviewTray windows={minimizedWindows} />}
       {!fullscreenWindow && windows.length > 0 && <PreviewLayoutSwitcher />}
     </PreviewWindowsContext.Provider>
   );
 }
 
-function PreviewTray({ windows }: { windows: PreviewWindowState[] }) {
+function PreviewTrayOutlet() {
+  const { minimizedPreviewWindows, hasActivePreviewWindow } = usePreviewWindows();
+  return !hasActivePreviewWindow && minimizedPreviewWindows.length > 0
+    ? <PreviewTray windows={minimizedPreviewWindows} inline />
+    : null;
+}
+
+function PreviewTray({ windows, inline = false }: { windows: PreviewWindowState[]; inline?: boolean }) {
   const { restorePreviewWindow, closePreviewWindow } = usePreviewWindows();
   const t = translations[readLanguage()];
   return (
-    <div className="preview-tray" role="toolbar" aria-label={t.previewTray}>
+    <div className={`preview-tray${inline ? " preview-tray-inline" : ""}`} role="toolbar" aria-label={t.previewTray}>
       {windows.map((entry) => {
         const source = entry.resolveSource(entry.currentPath);
         const lastSlash = source.name.lastIndexOf("/");
@@ -7043,7 +7055,12 @@ function Console({
     window.setTimeout(() => setCopiedAgentBlock((value) => value === blockKey ? "" : value), 2_000);
   }
 
-  const { openPreviewWindow } = usePreviewWindows();
+  const { openPreviewWindow, setInlinePreviewTrayActive } = usePreviewWindows();
+  const inlinePreviewTrayAvailable = directoryState !== "open" && !showArtifacts && !showFavorites;
+  useEffect(() => {
+    setInlinePreviewTrayActive(inlinePreviewTrayAvailable);
+    return () => setInlinePreviewTrayActive(false);
+  }, [inlinePreviewTrayAvailable, setInlinePreviewTrayActive]);
 
   async function openBlockPreview(path: string) {
     setControlError("");
@@ -8399,6 +8416,7 @@ function Console({
             </div>
           </div>
         )}
+        {inlinePreviewTrayAvailable && <PreviewTrayOutlet />}
         {directoryState !== "closed" && (
           <DirectoryModal
             sessionId={session.id}

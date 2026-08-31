@@ -60,6 +60,23 @@ test("la directory si riduce senza smontarsi e conserva lo stato fino alla chius
   assert.match(directoryModal, /event\.key !== "Escape" \|\| minimized/);
 });
 
+test("il richiamo della directory minimizzata parte nel flusso mobile e diventa flottante solo su desktop", () => {
+  const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(styles, /\.directory-minimized-tray \{ position: relative;/);
+  assert.match(styles, /@media \(min-width: 720px\) \{\s*\.directory-minimized-tray \{ position: fixed;/);
+});
+
+test("il tray file usa l'outlet della console per non coprire i comandi su mobile", () => {
+  const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(previewWindowManager, /function PreviewTrayOutlet\(\)/);
+  assert.match(previewWindowManager, /inlinePreviewTrayActive/);
+  assert.match(previewWindowManager, /!hasActivePreviewWindow && minimizedPreviewWindows\.length > 0/);
+  assert.match(console_, /<PreviewTrayOutlet \/>/);
+  assert.match(console_, /inlinePreviewTrayAvailable = directoryState !== "open" && !showArtifacts && !showFavorites/);
+  assert.match(styles, /\.preview-tray-inline \{ position: relative;/);
+  assert.match(styles, /@media \(min-width: 720px\)[\s\S]*\.preview-tray-inline \{ position: fixed;/);
+});
+
 test("immagini e video aprono l'anteprima prima del ramo download", () => {
   const openEntry = directoryModal.slice(
     directoryModal.indexOf("function openEntry("),
@@ -222,7 +239,7 @@ test("il selettore di layout è separato dal tray e usa le 4 etichette dei templ
 test("il tray resta nascosto in modalità solitaria e riappare nel workspace con 2+ finestre", () => {
   assert.match(
     previewWindowManager,
-    /\{visibleWindows\.length === 0 && minimizedWindows\.length > 0 && <PreviewTray windows=\{minimizedWindows\} \/>\}/,
+    /\{!inlinePreviewTrayActive && visibleWindows\.length === 0 && minimizedWindows\.length > 0 && <PreviewTray windows=\{minimizedWindows\} \/>\}/,
   );
   assert.match(
     previewWindowManager,

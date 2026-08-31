@@ -98,6 +98,10 @@ try {
   const directoryTray = page.locator(".directory-minimized-tray");
   await directoryTray.waitFor();
   assert.match(await directoryTray.innerText(), /\/workspace/);
+  const trayBox = await directoryTray.boundingBox();
+  const actionsBox = await page.locator(".actions").boundingBox();
+  assert.ok(trayBox && actionsBox && trayBox.y + trayBox.height <= actionsBox.y,
+    `il richiamo directory non deve coprire i comandi: tray=${JSON.stringify(trayBox)}, actions=${JSON.stringify(actionsBox)}`);
   await page.getByRole("button", { name: "Ripristina directory" }).click();
   assert.equal(await page.getByLabel("Ordina").inputValue(), "date-desc");
   await page.locator(".directory-open", { hasText: "zeta.md" }).click();
@@ -126,6 +130,14 @@ try {
   assert.equal(await page.getByRole("dialog", { name: "Anteprima file" }).count(), 0);
   const trayChip = page.locator(".preview-tray-chip", { hasText: "alpha.txt" });
   await trayChip.waitFor();
+  // Quando la directory sottostante viene chiusa, il tray entra nel composer
+  // e non deve intersecare la riga dei comandi principali.
+  await page.getByRole("button", { name: "Chiudi", exact: true }).click();
+  await page.locator(".preview-tray-inline").waitFor();
+  const previewTrayBox = await page.locator(".preview-tray-inline").boundingBox();
+  const previewActionsBox = await page.locator(".actions").boundingBox();
+  assert.ok(previewTrayBox && previewActionsBox && previewTrayBox.y + previewTrayBox.height <= previewActionsBox.y,
+    `il tray file non deve coprire i comandi: tray=${JSON.stringify(previewTrayBox)}, actions=${JSON.stringify(previewActionsBox)}`);
   await trayChip.locator(".preview-tray-chip-open").click();
   await page.locator("h2.preview-file-name", { hasText: "alpha.txt" }).waitFor();
   await assertPosition(page, "2 / 2");
@@ -134,6 +146,8 @@ try {
   await trayChip.locator(".preview-tray-chip-close").click();
   assert.equal(await page.locator(".preview-tray-chip").count(), 0);
   assert.equal(await page.locator(".preview-tray").count(), 0);
+  await page.getByRole("button", { name: "Contenuto directory", exact: true }).click();
+  await page.getByLabel("Ordina").selectOption("date-desc");
 
   // IMP-PW-02-R1 (Difetto 2): il tray non deve mai comparire sovrapposto a
   // una finestra a fuoco (GATE-PW-02) — apre due file in sequenza dal

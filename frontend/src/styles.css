@@ -585,7 +585,7 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .modal-fullscreen { font-size: 1.15rem; }
 .modal-fullscreen[aria-pressed="true"] { background: #2a3f30; color: #8ee2aa; }
 .modal-minimize { width: 44px; border: 0; border-radius: 12px; background: #1d2921; color: white; font-size: 1.4rem; }
-.directory-minimized-tray { position: fixed; z-index: 120; right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); display: flex; align-items: stretch; max-width: min(420px, calc(100vw - 24px)); min-height: 48px; border: 1px solid #3b7454; border-radius: 14px; background: #15271df2; box-shadow: 0 10px 30px #0008; backdrop-filter: blur(12px); overflow: hidden; }
+.directory-minimized-tray { position: relative; z-index: 1; display: flex; align-items: stretch; width: 100%; min-height: 48px; margin-top: 8px; border: 1px solid #3b7454; border-radius: 14px; background: #15271df2; box-shadow: 0 6px 18px #0006; overflow: hidden; }
 .directory-minimized-open { display: flex; align-items: center; gap: 9px; min-width: 0; border: 0; padding: 7px 10px 7px 12px; background: transparent; color: #a4f0c1; text-align: left; }
 .directory-minimized-open > span { display: grid; min-width: 0; gap: 1px; }
 .directory-minimized-open strong { font-size: .75rem; }
@@ -605,6 +605,7 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
   backdrop-filter: blur(12px);
   border-top: 1px solid #26352c;
 }
+.preview-tray-inline { position: relative; z-index: 1; left: auto; right: auto; bottom: auto; width: 100%; margin-top: 8px; border: 1px solid #26352c; border-radius: 14px; padding: 4px 6px; background: #101713; backdrop-filter: none; }
 .preview-tray-chip { display: inline-flex; align-items: center; flex: 0 0 auto; max-width: 220px; min-height: 40px; border: 1px solid #344b3b; border-radius: 999px; padding-left: 11px; background: #18231c; color: #d2e3d7; font-size: .78rem; }
 .preview-tray-chip-open { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: inherit; font: inherit; padding: 0; min-height: 40px; overflow: hidden; }
 .preview-tray-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
@@ -618,6 +619,9 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .preview-layout-button:hover { background: #244634; color: #a4f0c1; }
 .preview-layout-button[aria-pressed="true"] { background: #2a3f30; color: #8ee2aa; }
 @media (min-width: 720px) {
+  .directory-minimized-tray { position: fixed; z-index: 120; right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); width: auto; max-width: min(420px, calc(100vw - 24px)); margin-top: 0; box-shadow: 0 10px 30px #0008; backdrop-filter: blur(12px); }
+  .preview-tray-inline { position: fixed; z-index: 110; left: 0; right: 0; bottom: 0; width: auto; margin-top: 0; border: 0; border-top: 1px solid #26352c; border-radius: 0; padding: 8px 12px max(8px, env(safe-area-inset-bottom)); background: #101713ee; backdrop-filter: blur(12px); }
+  .composer:has(.directory-minimized-tray) > .preview-tray-inline { bottom: 60px; }
   .preview-workspace-grid { display: grid; overflow: hidden; }
   .preview-workspace-grid[data-layout="2v"] { grid-template-columns: repeat(2, 1fr); }
   .preview-workspace-grid[data-layout="2h"] { grid-template-rows: repeat(2, 1fr); }

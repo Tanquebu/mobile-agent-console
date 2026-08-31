@@ -224,7 +224,7 @@ export const translations = {
     // Release Box
     whatsNew: "Cosa c'è di nuovo",
     latestReleaseTitle: "Directory riducibile a icona",
-    latestReleaseDesc: "Ora puoi ridurre la directory senza chiuderla, rileggere l’output in Blocchi o Terminale e ripristinarla mantenendo il percorso aperto.",
+    latestReleaseDesc: "Ora puoi ridurre la directory senza chiuderla e ripristinarla mantenendo il percorso aperto; su mobile il richiamo resta sopra i comandi senza coprirli.",
 
     // Preferences & Settings
     settings: "Preferenze",
@@ -455,7 +455,7 @@ export const translations = {
     // Release Box
     whatsNew: "What's new",
     latestReleaseTitle: "Minimizable directory",
-    latestReleaseDesc: "You can now minimize the directory without closing it, review Blocks or Terminal output, and restore it at the same open path.",
+    latestReleaseDesc: "You can now minimize the directory without closing it and restore it at the same open path; on mobile, its control stays above the main actions without covering them.",
 
     // Preferences & Settings
     settings: "Preferences",
