@@ -233,6 +233,11 @@ I path assoluti di media e Markdown rilevati nei blocchi usano lo stesso
 contro `MAC_ALLOWED_ROOTS` oppure contro la allowlist di sola anteprima
 `MAC_PREVIEW_ROOTS`; in container le root esterne sono montate read-only sotto
 `MAC_PREVIEW_MOUNT_ROOT` senza diventare directory navigabili (ADR 014).
+I file HTML UTF-8 condividono la stessa anteprima nelle viste Directory e
+Artefatti: il sorgente e' letto come testo e la resa formattata avviene via
+`srcdoc` in un iframe senza permessi sandbox. Una CSP incorporata blocca rete,
+script, form e base URL; sono consentiti soltanto stili inline e immagini/font
+`data:`. Il backend non serve mai questi file inline dalla stessa origine.
 
 L'osservabilità host usa un boundary separato descritto in ADR 009. Una user
 socket unit systemd `AF_UNIX` attiva un collector one-shot soltanto quando il

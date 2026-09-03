@@ -46,6 +46,16 @@ def sniff_media_type(path: Path) -> str | None:
     if path.suffix.lower() == ".mp3" and is_mp3(prefix):
         return "audio/mpeg"
     suffix = path.suffix.lower()
+    if suffix == ".htm":
+        try:
+            content = path.read_bytes()
+        except OSError:
+            return None
+        try:
+            content.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+        return "text/html"
     for media_type, extension in TEXT_MEDIA_TYPES.items():
         if extension != suffix:
             continue

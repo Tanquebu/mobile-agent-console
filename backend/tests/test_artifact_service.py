@@ -41,6 +41,8 @@ def test_list_returns_only_recognized_files_within_size_limit(tmp_path) -> None:
     session_dir = service.ensure_session_dir("1")
     (session_dir / "photo.png").write_bytes(PNG_HEADER)
     (session_dir / "note.txt").write_text("hello world", encoding="utf-8")
+    (session_dir / "report.html").write_text("<h1>Report</h1>", encoding="utf-8")
+    (session_dir / "summary.htm").write_text("<p>Summary</p>", encoding="utf-8")
     (session_dir / "unknown.bin").write_bytes(b"\x01\x02\x03\x04")
     (session_dir / "too-big.txt").write_text("x" * 64, encoding="utf-8")
     (session_dir / "empty.txt").write_bytes(b"")
@@ -55,6 +57,8 @@ def test_list_returns_only_recognized_files_within_size_limit(tmp_path) -> None:
     assert set(artifacts) == {
         "photo.png",
         "note.txt",
+        "report.html",
+        "summary.htm",
         "screenshot/shot.png",
         "clip.mp4",
         "recording.mp3",
@@ -62,6 +66,8 @@ def test_list_returns_only_recognized_files_within_size_limit(tmp_path) -> None:
     }
     assert artifacts["photo.png"].media_type == "image/png"
     assert artifacts["note.txt"].media_type == "text/plain"
+    assert artifacts["report.html"].media_type == "text/html"
+    assert artifacts["summary.htm"].media_type == "text/html"
     assert artifacts["screenshot/shot.png"].media_type == "image/png"
     assert artifacts["clip.mp4"].media_type == "video/mp4"
     assert artifacts["clip.mp4"].size == len(MP4_HEADER)

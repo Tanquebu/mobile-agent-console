@@ -154,9 +154,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Directory riducibile a icona",
+  title: "Anteprima HTML negli artefatti",
   description:
-    "Puoi ridurre la directory senza chiuderla e ripristinarla mantenendo il percorso aperto; su mobile il richiamo resta sopra i comandi senza coprirli.",
+    "I file HTML sono ora visibili sia negli Artefatti sia nella Directory, con passaggio tra codice sorgente e resa formattata in un riquadro isolato.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1176,8 +1176,9 @@ const PREVIEWABLE_VIDEO = /\.mp4$/i;
 const PREVIEWABLE_IMAGE = /\.(?:jpe?g|png|webp)$/i;
 const PREVIEWABLE_AUDIO = /\.(?:m4a|mp3)$/i;
 const PREVIEWABLE_MARKDOWN = /\.(?:md|markdown)$/i;
+const PREVIEWABLE_HTML = /\.html?$/i;
 
-type PreviewKind = "image" | "video" | "audio" | "text" | "markdown";
+type PreviewKind = "image" | "video" | "audio" | "text" | "markdown" | "html";
 
 type PreviewContent = {
   content: string;
@@ -1197,6 +1198,7 @@ type PreviewSource = {
 
 function previewKindFor(name: string, mediaType?: string): PreviewKind {
   if (mediaType === "text/markdown" || PREVIEWABLE_MARKDOWN.test(name)) return "markdown";
+  if (mediaType === "text/html" || PREVIEWABLE_HTML.test(name)) return "html";
   if (mediaType === "video/mp4" || PREVIEWABLE_VIDEO.test(name)) return "video";
   if (mediaType?.startsWith("image/") || PREVIEWABLE_IMAGE.test(name)) return "image";
   if ((mediaType === "audio/mpeg" || mediaType === "audio/mp4") || PREVIEWABLE_AUDIO.test(name)) return "audio";
@@ -1780,7 +1782,7 @@ function PreviewModal({
   const [showLineNumbers, setShowLineNumbers] = useState(false);
   const t = translations[readLanguage()];
   const { isFavorite, toggleFavorite } = useFavorites();
-  const isText = source.kind === "text" || source.kind === "markdown";
+  const isText = source.kind === "text" || source.kind === "markdown" || source.kind === "html";
   const lastSlash = source.name.lastIndexOf("/");
   const fileName = lastSlash >= 0 ? source.name.slice(lastSlash + 1) : source.name;
   const filePath = lastSlash >= 0 ? source.name.slice(0, lastSlash) : "";
@@ -1912,7 +1914,7 @@ function PreviewModal({
             ›
           </button>
         </nav>
-        {source.kind === "markdown" && (
+        {(source.kind === "markdown" || source.kind === "html") && (
           <div className="preview-toggle-group">
             <button
               type="button"
@@ -1930,7 +1932,7 @@ function PreviewModal({
             </button>
           </div>
         )}
-        {(source.kind === "text" || (source.kind === "markdown" && viewMode === "source")) && (
+        {(source.kind === "text" || ((source.kind === "markdown" || source.kind === "html") && viewMode === "source")) && (
           <button
             type="button"
             className={`preview-option-btn${showLineNumbers ? " active" : ""}`}
@@ -2002,6 +2004,18 @@ function PreviewModal({
                   <div className={`chat-markdown markdown-preview preview-fade-in${fullscreen ? " is-fullscreen" : ""}`}>
                     <MarkdownContent content={content} />
                   </div>
+                ) : (
+                  <p className="empty">{t.emptyFile}</p>
+                )
+              ) : source.kind === "html" && viewMode === "rendered" ? (
+                content ? (
+                  <iframe
+                    className={`html-preview preview-fade-in${fullscreen ? " is-fullscreen" : ""}`}
+                    title={`${t.renderedView}: ${fileName}`}
+                    sandbox=""
+                    referrerPolicy="no-referrer"
+                    srcDoc={`<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; form-action 'none'; base-uri 'none'">${content}`}
+                  />
                 ) : (
                   <p className="empty">{t.emptyFile}</p>
                 )
@@ -2756,6 +2770,7 @@ function DirectoryModal({
 
 const PREVIEWABLE_TEXT_TYPES = new Set([
   "text/plain",
+  "text/html",
   "text/markdown",
   "application/json",
   "text/csv",

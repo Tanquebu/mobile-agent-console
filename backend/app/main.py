@@ -188,8 +188,10 @@ DOWNLOADABLE_EXTENSIONS = {
 }
 # Tipi che il browser puo' rendere *dentro* la pagina. Deliberatamente stretta e
 # definita per media type dedotto dal contenuto, non per estensione: servire
-# text/html o image/svg+xml inline dalla stessa origine sarebbe XSS memorizzato,
-# perche' il browser di directory legge da tutta la radice consentita.
+# text/html o image/svg+xml serviti inline dalla stessa origine sarebbero XSS
+# memorizzati, perche' il browser di directory legge da tutta la radice
+# consentita. L'HTML resta quindi un'anteprima *testuale*: il client lo rende
+# soltanto in un iframe sandboxed via srcdoc, mai da questo endpoint inline.
 INLINE_PREVIEW_MEDIA_TYPES = {
     "image/jpeg",
     "image/png",
@@ -198,7 +200,10 @@ INLINE_PREVIEW_MEDIA_TYPES = {
     "audio/mpeg",
     "video/mp4",
 }
-REFERENCE_PREVIEW_MEDIA_TYPES = INLINE_PREVIEW_MEDIA_TYPES | {"text/markdown"}
+REFERENCE_PREVIEW_MEDIA_TYPES = INLINE_PREVIEW_MEDIA_TYPES | {
+    "text/html",
+    "text/markdown",
+}
 SNAPSHOT_RESUME_COMMANDS = {
     "codex": "codex resume",
     "claude": "claude --resume",
@@ -1935,7 +1940,7 @@ def create_app(
             raise HTTPException(400, "Not a file")
         if external_preview:
             _, media_type = await asyncio.to_thread(_validate_previewable_file, file_path)
-            if media_type != "text/markdown":
+            if media_type not in {"text/html", "text/markdown"}:
                 raise HTTPException(400, "File type has no text preview")
         try:
             content, size, truncated = await asyncio.to_thread(_read_text_file, file_path)

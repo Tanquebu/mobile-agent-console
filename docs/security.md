@@ -17,6 +17,7 @@ FastAPI, FastAPI ↔ tmux e host ↔ rete Tailscale.
 | Input interpretato da tmux | `load-buffer -` + `paste-buffer`; tasti su endpoint separato |
 | Path traversal | nessun path dal client nello slice; poi resolve + `is_relative_to` allowlist |
 | Anteprime da path esterni | `MAC_PREVIEW_ROOTS` opt-in, mount read-only separato, risoluzione canonica e symlink confinati; nessuna directory/upload/download sulla root esterna |
+| HTML malevolo in anteprima | mai servito inline same-origin; resa via `srcdoc` in iframe sandbox senza permessi, CSP `default-src 'none'`, niente referrer, form o base URL |
 | Upload malevoli | nomi fisici UUID, tipi e signature allowlist, limite dimensione, nessuna estrazione archivi; anteprime immagine generate da Pillow in modo best-effort (eccezioni di decodifica non bloccano l'upload, semplicemente non producono thumbnail) |
 | Abuso risorse | limiti payload; rate limit in memoria separati per login e mutazioni; quota aggregata di byte allegati per sessione oltre al limite per singolo file |
 | WebSocket hijacking | cookie autenticato e Origin allowlist; nessun token nell'URL |

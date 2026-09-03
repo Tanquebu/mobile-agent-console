@@ -19,6 +19,7 @@ TEXT_MEDIA_TYPES = {
     "application/json": ".json",
     "application/xml": ".xml",
     "text/csv": ".csv",
+    "text/html": ".html",
     "text/markdown": ".md",
     "text/plain": ".txt",
     "text/xml": ".xml",

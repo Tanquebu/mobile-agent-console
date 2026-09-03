@@ -12,6 +12,7 @@ const session = {
   hidden: false,
 };
 const artifacts = [
+  { name: "report.html", media_type: "text/html", size: 37, modified_at: "2026-08-19T10:00:00Z" },
   { name: "alpha.md", media_type: "text/markdown", size: 5, modified_at: "2026-08-20T10:00:00Z" },
   { name: "manual.pdf", media_type: "application/pdf", size: 6, modified_at: "2026-08-21T10:00:00Z" },
   { name: "zeta.txt", media_type: "text/plain", size: 4, modified_at: "2026-08-22T10:00:00Z" },
@@ -66,6 +67,9 @@ try {
     if (path === "/api/v1/sessions/1/artifacts") return json(route, artifacts);
     if (path === "/api/v1/sessions/1/artifact-directory") return json(route, { path: "/workspace/.agent-artifacts/1" });
     if (path.startsWith("/api/v1/sessions/1/artifacts/")) {
+      if (path.endsWith("/report.html")) {
+        return route.fulfill({ status: 200, contentType: "text/html", body: "<h1>Report formattato</h1><script>parent.htmlPreviewEscaped = true</script>" });
+      }
       return route.fulfill({ status: 200, contentType: "text/plain", body: path });
     }
     return json(route, { detail: "not found" }, 404);
@@ -178,12 +182,21 @@ try {
   await page.getByRole("button", { name: "Artefatti", exact: true }).click();
   await page.getByLabel("Ordina").selectOption("date-desc");
   await page.locator(".directory-open", { hasText: "zeta.txt" }).click();
-  await assertPosition(page, "1 / 2");
+  await assertPosition(page, "1 / 3");
   assert.match(await page.locator(".preview-modified").innerText(), /22\/08\/2026/);
   await page.getByRole("button", { name: "File successivo" }).click();
-  await assertPosition(page, "2 / 2");
+  await assertPosition(page, "2 / 3");
   await page.locator("h2.preview-file-name", { hasText: "alpha.md" }).waitFor();
   assert.match(await page.locator(".preview-modified").innerText(), /20\/08\/2026/);
+  await page.getByRole("button", { name: "File successivo" }).click();
+  await assertPosition(page, "3 / 3");
+  await page.locator("h2.preview-file-name", { hasText: "report.html" }).waitFor();
+  const htmlFrame = page.frameLocator("iframe.html-preview");
+  await htmlFrame.getByRole("heading", { name: "Report formattato" }).waitFor();
+  assert.equal(await page.evaluate(() => window.htmlPreviewEscaped), undefined);
+  assert.equal(await page.locator("iframe.html-preview").getAttribute("sandbox"), "");
+  await page.getByRole("button", { name: /Sorgente/ }).click();
+  await page.locator("pre.file-preview", { hasText: "<h1>Report formattato</h1>" }).waitFor();
 
   const layout = await page.locator(".preview-navigation").evaluate((node) => ({
     scrollWidth: node.scrollWidth,

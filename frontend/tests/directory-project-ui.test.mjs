@@ -165,6 +165,16 @@ test("l'anteprima mostra la data di ultimo aggiornamento del file corrente", () 
   assert.match(app, /modifiedAt: item\.modified_at/);
 });
 
+test("HTML è anteprimabile da directory e artefatti in modalità resa e sorgente isolate", () => {
+  assert.match(app, /const PREVIEWABLE_HTML = \/\\\.html\?\$\/i;/);
+  assert.match(app, /mediaType === "text\/html"/);
+  assert.match(app, /source\.kind === "markdown" \|\| source\.kind === "html"/);
+  assert.match(previewModal, /className=\{`html-preview/);
+  assert.match(previewModal, /sandbox=""/);
+  assert.match(previewModal, /Content-Security-Policy/);
+  assert.match(previewModal, /default-src 'none'/);
+});
+
 test("la PreviewModal centralizza anche la copia del path completo", () => {
   assert.match(app, /className="preview-path-copy"/);
   assert.match(app, /copyToClipboard\(source\.name\)/);

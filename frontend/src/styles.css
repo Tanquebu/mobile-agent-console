@@ -728,7 +728,8 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .category-chip.active { background: #254731; border-color: #4da073; color: #a4f0c1; box-shadow: 0 1px 4px rgba(0,0,0,0.25); }
 .preview-viewport { position: relative; min-height: 240px; margin-top: 10px; }
 .preview-viewport.is-loading > pre,
-.preview-viewport.is-loading > .markdown-preview { opacity: 0.45; pointer-events: none; filter: blur(0.5px); transition: opacity .15s ease, filter .15s ease; }
+.preview-viewport.is-loading > .markdown-preview,
+.preview-viewport.is-loading > .html-preview { opacity: 0.45; pointer-events: none; filter: blur(0.5px); transition: opacity .15s ease, filter .15s ease; }
 .preview-loading-bar { position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #344b3b 0%, #75d493 50%, #344b3b 100%); background-size: 200% 100%; animation: loading-pulse 1.2s infinite ease-in-out; border-radius: 3px; z-index: 10; }
 @keyframes loading-pulse { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
 .preview-skeleton-loader { display: flex; flex-direction: column; gap: 12px; padding: 20px 16px; border: 1px solid #263b2d; border-radius: 14px; background: #090d0a; min-height: 240px; }
@@ -742,7 +743,7 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .code-line-row { display: table-row; }
 .code-line-num { display: table-cell; padding-right: 12px; text-align: right; color: #4e6b57; user-select: none; font-size: .72rem; vertical-align: top; width: 1%; min-width: 2.2em; border-right: 1px solid #1e3324; }
 .code-line-text { display: table-cell; padding-left: 12px; white-space: pre-wrap; word-break: break-all; }
-.file-preview.is-fullscreen, .markdown-preview.is-fullscreen { max-height: calc(100dvh - 170px); }
+.file-preview.is-fullscreen, .markdown-preview.is-fullscreen, .html-preview.is-fullscreen { max-height: calc(100dvh - 170px); }
 .snapshot-create { display: grid; gap: 12px; margin-top: 18px; }
 .snapshot-create > label { display: grid; gap: 6px; color: #a9bcaf; font-size: .78rem; }
 .snapshot-create > label input, .snapshot-session select { width: 100%; min-height: 42px; border: 1px solid #344b3b; border-radius: 10px; padding: 8px 10px; background: #18231c; color: white; }
@@ -1095,4 +1096,13 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
   font-size: .88rem;
   max-height: 60vh;
   overflow: auto;
+}
+.html-preview {
+  display: block;
+  width: 100%;
+  min-height: 50vh;
+  margin: 14px 0 0;
+  border: 1px solid #263b2d;
+  border-radius: 14px;
+  background: #fff;
 }
