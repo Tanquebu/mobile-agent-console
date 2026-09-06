@@ -414,3 +414,168 @@ def test_agent_status_subagent_count_defaults_to_zero_without_panel() -> None:
     assert status.state == "idle"
     assert status.subagent_count == 0
     assert "· 10.1s" not in status.summary
+
+
+# ── INC-AS-02: chrome UI attivo sopra prompt vuoto ────────────────────────────
+# Codex e Claude posizionano il marker di turno attivo ("• Working … esc to
+# interrupt", "✻ Thinking… esc to interrupt") SOPRA il prompt vuoto "›"/❯",
+# non dopo. La guardia prompt-first di INC-AS-01 lo classificava come "idle".
+# Il fix usa ACTIVE_CHROME_PATTERNS (pattern strutturali con glifo marker non
+# equivocabili con prosa) sulle righe immediatamente precedenti al prompt vuoto.
+
+
+def test_agent_status_chrome_active_marker_before_empty_prompt_is_active() -> None:
+    # Frame reale Codex attivo: "• Working (5m 51s • esc to interrupt)" sopra "› "
+    service = AgentStatusService(active_window_seconds=8)
+
+    codex_active = service.classify(
+        "1",
+        "codex",
+        "• Working (5m 51s • esc to interrupt)\n› \n  gpt-5.6-sol high · ~/projects/demo",
+        now=0,
+    )
+    assert codex_active is not None
+    assert codex_active.state == "active", "Codex: Working sopra prompt vuoto"
+
+    codex_reasoning = service.classify(
+        "2",
+        "codex",
+        "• Reasoning (8s • esc to interrupt)\n› \n  gpt-5.6-sol high · ~/projects/demo",
+        now=0,
+    )
+    assert codex_reasoning is not None
+    assert codex_reasoning.state == "active", "Codex: Reasoning sopra prompt vuoto"
+
+    # Frame reale Claude attivo: "✻ Thinking… (esc to interrupt · 12s)" sopra "❯ "
+    claude_thinking = service.classify(
+        "3",
+        "claude",
+        "✻ Thinking… (esc to interrupt · 12s)\n❯ \n  Opus 5 | /home/max/projects/demo",
+        now=0,
+    )
+    assert claude_thinking is not None
+    assert claude_thinking.state == "active", "Claude: Thinking sopra prompt vuoto"
+
+    claude_working = service.classify(
+        "4",
+        "claude",
+        "• Working (esc to interrupt · 5s)\n❯ \n  Opus 5 | /home/max/projects/demo",
+        now=0,
+    )
+    assert claude_working is not None
+    assert claude_working.state == "active", "Claude: Working sopra prompt vuoto"
+
+
+def test_agent_status_narrative_before_empty_prompt_stays_idle() -> None:
+    # Parole generiche come "working"/"thinking"/"esc to interrupt" usate in
+    # prosa narrativa prima del prompt vuoto non devono forzare lo stato attivo:
+    # non matchano ACTIVE_CHROME_PATTERNS (mancano il glifo marker e il formato
+    # temporale strutturale) — non-regressione su INC-AS-01 con prompt vuoto.
+    service = AgentStatusService(active_window_seconds=8)
+
+    codex_narrative = service.classify(
+        "1",
+        "codex",
+        "La working directory è rimasta quella di prima.\n› \n  gpt-5.6-sol high",
+        now=0,
+    )
+    assert codex_narrative is not None
+    assert codex_narrative.state == "idle", "Codex: working narrativo prima di prompt vuoto"
+
+    codex_esc_narrative = service.classify(
+        "2",
+        "codex",
+        "Ho terminato: esc to interrupt non serve più.\n› \n  gpt-5.6-sol high",
+        now=0,
+    )
+    assert codex_esc_narrative is not None
+    assert codex_esc_narrative.state == "idle", "Codex: 'esc to interrupt' narrativo prima di prompt vuoto"
+
+    claude_narrative = service.classify(
+        "3",
+        "claude",
+        "Una cosa da sapere: lavora nello stesso working tree.\n❯ \n  Opus 5",
+        now=0,
+    )
+    assert claude_narrative is not None
+    assert claude_narrative.state == "idle", "Claude: INC-AS-01 con prompt vuoto"
+
+    claude_esc_narrative = service.classify(
+        "4",
+        "claude",
+        "Il comando è stato interrotto con esc to interrupt in un turno precedente.\n❯ \n  Opus 5",
+        now=0,
+    )
+    assert claude_esc_narrative is not None
+    assert claude_esc_narrative.state == "idle", "Claude: 'esc to interrupt' narrativo prima di prompt vuoto"
+
+
+def test_agent_status_historic_chrome_with_prose_between_stays_idle() -> None:
+    # Un marker chrome storico (turno precedente) sopra il prompt vuoto ma con
+    # testo narrativo di risposta in mezzo: il marker è a distanza > 3 righe
+    # dal prompt, quindi fuori dalla finestra immediata — deve restare idle.
+    service = AgentStatusService(active_window_seconds=8)
+
+    status = service.classify(
+        "1",
+        "claude",
+        "✻ Thinking… (esc to interrupt · 12s)\n"
+        "Fatto, ho aggiornato il file richiesto.\n"
+        "Puoi eseguire i test con pytest.\n"
+        "❯ \n"
+        "  Opus 5 | /home/max/projects/demo",
+        now=0,
+    )
+    assert status is not None
+    assert status.state == "idle", "Chrome storico a distanza > 3 righe prima di prompt vuoto"
+
+
+def test_agent_status_chrome_active_non_empty_prompt_stays_idle() -> None:
+    # Un marker chrome attivo sopra il prompt NON vuoto (l'utente ha già
+    # inviato un nuovo turno e il prompt contiene il testo del messaggio):
+    # il turno in corso non è quello con il marker sopra, è già stato inviato.
+    service = AgentStatusService(active_window_seconds=8)
+
+    codex_busy = service.classify(
+        "1",
+        "codex",
+        "• Working (5m 51s • esc to interrupt)\n› riscrivi il modulo\n  gpt-5.6-sol",
+        now=0,
+    )
+    assert codex_busy is not None
+    assert codex_busy.state == "idle", "Codex: Working sopra prompt con testo → idle"
+
+    claude_busy = service.classify(
+        "2",
+        "claude",
+        "✻ Thinking… (esc to interrupt · 12s)\n❯ Cambia inquadratura\n  Opus 5",
+        now=0,
+    )
+    assert claude_busy is not None
+    assert claude_busy.state == "idle", "Claude: Thinking sopra prompt con testo → idle"
+
+
+def test_agent_status_codex_placeholder_treated_as_empty_prompt() -> None:
+    # Frame reale Codex: il campo di input vuoto mostra il placeholder
+    # "Ask Codex to do anything" — non è testo utente, è chrome della TUI.
+    # Con marker attivo sopra deve restituire active; senza marker deve restare idle.
+    service = AgentStatusService(active_window_seconds=8)
+
+    active_with_placeholder = service.classify(
+        "1",
+        "codex",
+        "• Working (5m 51s • esc to interrupt)\n› Ask Codex to do anything\n  gpt-5.6-sol high",
+        now=0,
+    )
+    assert active_with_placeholder is not None
+    assert active_with_placeholder.state == "active", "Codex: Working + placeholder → active"
+
+    idle_with_placeholder = service.classify(
+        "2",
+        "codex",
+        "Task completed.\n› Ask Codex to do anything\n  gpt-5.6-sol high",
+        now=0,
+    )
+    assert idle_with_placeholder is not None
+    assert idle_with_placeholder.state == "idle", "Codex: nessun marker + placeholder → idle"
+

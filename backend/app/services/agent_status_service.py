@@ -97,6 +97,36 @@ ACTIVE_PATTERNS = {
         r"⬝",
     ),
 }
+# Pattern strutturali del chrome UI attivo che compaiono **sopra il prompt vuoto**
+# durante un turno in corso. Diversamente da ACTIVE_PATTERNS (parole generiche
+# come \bworking\b o \bthinking\b), questi richiedono il glifo marker specifico
+# del TUI + un formato riconoscibile; non possono comparire in prosa narrativa
+# italiana/inglese ordinaria (es. "lavora nello stesso working tree" o
+# "Ho terminato: esc to interrupt non serve più"). Usati solo nel ramo
+# "prompt vuoto" di classify() per recuperare lo stato attivo che la guardia
+# prompt-first di INC-AS-01 altrimenti occulterebbe (INC-AS-02).
+#
+# Codex: "• Working (5m 32s • esc to interrupt)" — punto bullet Unicode +
+#   verbo + durata tra parentesi con "esc to interrupt".
+# Claude: "✻ Thinking… (esc to interrupt · 12s)" — spinner Unicode (✻ e
+#   varianti glitterate) + verbo + durata tra parentesi con "esc to interrupt".
+#   Il glifo cambia (✱✽✢✳✶) ma tutti rientrano nella classe Unicode.
+ACTIVE_CHROME_PATTERNS: dict[str, tuple[str, ...]] = {
+    "codex": (
+        # Riga status Codex durante il turno: bullet + verbo + "(N[m]s • esc to interrupt)"
+        r"•\s+\w.*?\(\d+.*?esc to interrupt\)",
+        # Variante senza durata esplicita (primi secondi)
+        r"•\s+(?:Working|Reasoning|Thinking|Exploring|Reading|Writing|Editing).*esc to interrupt",
+    ),
+    "claude": (
+        # Riga spinner Claude durante il turno: glifo ✻ (e varianti) + verbo + "esc to interrupt"
+        r"[✻✱✽✢✳✶]\s+\w.*?esc to interrupt",
+        # Variante: solo spinner + verbo (nei primissimi frame prima che appaia la durata)
+        r"[✻✱✽✢✳✶]\s+(?:Working|Thinking|Reasoning|Reading|Writing|Exploring|Editing)",
+    ),
+    "antigravity": (),
+    "opencode": (),
+}
 # Marker di inattività esplicita della TUI OpenCode, verificati sui frame reali:
 # - "Ask anything..." e "● Tip Run /connect": schermata iniziale, nessun turno;
 # - "+ Thought:" : pensiero completato (04-completato, 06-interrotto);
@@ -117,6 +147,19 @@ PROMPT_PATTERNS = {
     "codex": re.compile(r"^\s*[›>]\s*"),
     "claude": re.compile(r"^\s*[>❯]\s*"),
     "antigravity": re.compile(r"^\s*>\s*"),
+}
+# Testo placeholder del campo di input mostrato quando non è stato digitato
+# nulla: visivamente distinto dall'input reale perché è suggerimento della TUI,
+# non contenuto dell'utente. Il prompt con solo placeholder deve essere
+# trattato come "prompt vuoto" nel ramo INC-AS-02 di classify(), esattamente
+# come il prompt con soli spazi dopo il glifo.
+# Codex: "Ask Codex to do anything" — riga completa come placeholder.
+# Claude non ha un placeholder fisso (il cursore è l'unica indicazione).
+PROMPT_PLACEHOLDER_PATTERNS: dict[str, re.Pattern[str] | None] = {
+    "codex": re.compile(r"Ask\s+Codex\s+to\s+do\s+anything", re.IGNORECASE),
+    "claude": None,
+    "antigravity": None,
+    "opencode": None,
 }
 # Righe di "chrome" dell'interfaccia (prompt, marcatori di tool/attività,
 # separatori, barre di stato, suggerimenti tastiera) da escludere dal
@@ -363,6 +406,41 @@ class AgentStatusService:
                     summary,
                     subagent_count,
                 )
+            # INC-AS-02: quando il prompt è *vuoto* (solo glifo, nessun testo
+            # utente digitato), il TUI di Codex e Claude posiziona il chrome
+            # UI del turno in corso — "• Working (5m 32s • esc to interrupt)"
+            # per Codex, "✻ Thinking… (esc to interrupt · 12s)" per Claude —
+            # **sopra** il prompt, non dopo. La guardia prompt-first di INC-AS-01
+            # lo occulterebbe per sempre come "idle". Si usa ACTIVE_CHROME_PATTERNS
+            # (pattern strutturali con glifo marker specifico, non parole generiche)
+            # sulle righe immediatamente precedenti al prompt: il glifo e il formato
+            # "(N s … esc to interrupt)" non possono comparire in prosa narrativa
+            # ordinaria, quindi non riaprono la vulnerabilità a falsi positivi
+            # lessicali che INC-AS-01 aveva chiuso.
+            prompt_line = recent_lines[prompt_index]
+            prompt_pat = PROMPT_PATTERNS.get(provider)
+            prompt_match = prompt_pat.match(prompt_line) if prompt_pat else None
+            after_glyph = prompt_line[prompt_match.end():].strip() if prompt_match else None
+            placeholder_pat = PROMPT_PLACEHOLDER_PATTERNS.get(provider)
+            prompt_is_empty = prompt_match is not None and (
+                after_glyph == ""
+                or (placeholder_pat is not None and after_glyph is not None and bool(placeholder_pat.fullmatch(after_glyph)))
+            )
+            if prompt_is_empty and ACTIVE_CHROME_PATTERNS.get(provider):
+                immediate_before = "\n".join(
+                    recent_lines[max(0, prompt_index - 3) : prompt_index]
+                )
+                if self._matches(ACTIVE_CHROME_PATTERNS[provider], immediate_before):
+                    return AgentStatus(
+                        provider,
+                        "active",
+                        "Elaborazione in corso",
+                        changed_at,
+                        permission_state,
+                        permission_detail,
+                        summary,
+                        subagent_count,
+                    )
             return AgentStatus(
                 provider,
                 "idle",

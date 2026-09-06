@@ -154,9 +154,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Anteprima HTML negli artefatti",
+  title: "Indicatore di stato agente più preciso",
   description:
-    "I file HTML sono ora visibili sia negli Artefatti sia nella Directory, con passaggio tra codice sorgente e resa formattata in un riquadro isolato.",
+    "Risolto INC-AS-02: Codex e Claude venivano mostrati come 'inattivi' anche durante un turno attivo. Il marker UI '• Working' e '✻ Thinking' sopra il prompt vuoto viene ora riconosciuto correttamente come elaborazione in corso.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
