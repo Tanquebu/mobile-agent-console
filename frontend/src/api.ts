@@ -73,7 +73,21 @@ async function request(path: string, init?: RequestInit) {
     let detail = `Request failed (${response.status})`;
     try {
       const body = await response.json();
-      detail = body.detail ?? detail;
+      // FastAPI restituisce sugli errori 422 un `detail` array di oggetti
+      // {msg, loc, type}, non una stringa: usato così com'era finiva
+      // stringificato in "[object Object]" nella UI (es. login senza
+      // password). Estrai i singoli messaggi quando è un array.
+      if (Array.isArray(body.detail)) {
+        detail = body.detail
+          .map((item: unknown) =>
+            item && typeof item === "object" && "msg" in item
+              ? String((item as { msg: unknown }).msg)
+              : JSON.stringify(item),
+          )
+          .join("; ");
+      } else if (typeof body.detail === "string") {
+        detail = body.detail;
+      }
     } catch { /* keep status fallback */ }
     if (response.status === 401) unauthorizedHandler?.();
     throw new ApiError(response.status, detail);

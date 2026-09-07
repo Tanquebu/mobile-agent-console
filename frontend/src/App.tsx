@@ -8520,6 +8520,7 @@ export default function App() {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
   useEffect(() => {
     window.localStorage.setItem(RECENT_SESSIONS_KEY, JSON.stringify(recentSessions));
   }, [recentSessions]);
@@ -8563,11 +8564,23 @@ export default function App() {
       <main className="login">
         <form onSubmit={async (event) => {
           event.preventDefault();
+          if (loggingIn) return;
+          setLoggingIn(true);
+          setLoginError("");
           try {
             setIdentity(await login(username, password));
-            setLoginError("");
-          } catch {
-            setLoginError("Credenziali non valide");
+          } catch (err) {
+            // Solo un 401 significa davvero "password sbagliata": altri
+            // errori (backend/tmux in riavvio, rete irraggiungibile) non
+            // vanno etichettati come credenziali errate, altrimenti si
+            // confonde chi ha la password salvata e invariata nel browser.
+            setLoginError(
+              err instanceof ApiError && err.status === 401
+                ? "Credenziali non valide"
+                : errorMessage(err),
+            );
+          } finally {
+            setLoggingIn(false);
           }
         }}>
           <span className="eyebrow">PRIVATE CONSOLE</span>
@@ -8579,10 +8592,21 @@ export default function App() {
             aria-label="Nome utente"
             placeholder="Nome utente"
             value={username}
+            disabled={loggingIn}
+            required
             onChange={(event) => setUsername(event.target.value)}
           />
-          <input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
-          <button type="submit">Continua</button>
+          <input
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            disabled={loggingIn}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+          <button type="submit" disabled={loggingIn} aria-busy={loggingIn}>
+            {loggingIn ? (<><span className="spinner" aria-hidden="true" /> Accesso in corso…</>) : "Continua"}
+          </button>
           {loginError && <p className="error">{loginError}</p>}
         </form>
       </main>
