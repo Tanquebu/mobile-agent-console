@@ -249,7 +249,7 @@ test("un blocco collassato parsa solo l'anteprima ma copia il contenuto completo
   assert.match(chatBlock, /onCopy\(blockKey, block\.content\)/);
 });
 
-test("la regex dei blocchi rileva solo path assoluti con tipi anteprimabili", () => {
+test("la regex dei blocchi rileva path con tipi anteprimabili, assoluti o relativi con uno slash", () => {
   const regexStart = app.indexOf("const BLOCK_PREVIEW_PATH_RE =");
   const regex = app.slice(regexStart, app.indexOf("\n", regexStart));
   const partsFn = extractFunction(app, "previewPathParts");
@@ -264,6 +264,14 @@ test("la regex dei blocchi rileva solo path assoluti con tipi anteprimabili", ()
     "Creati /tmp/demo/report.md, /tmp/demo/audio.mp3 e relativo.png; ignora /tmp/demo/archive.zip.",
   ).flatMap((part) => part.path ? [part.path] : []);
   assert.deepEqual(paths, ["/tmp/demo/report.md", "/tmp/demo/audio.mp3"]);
+
+  // Gli agenti annunciano spesso un allegato con un path relativo alla cwd
+  // del pane (es. "[file] data/output.mp4"): serve almeno uno slash, così
+  // "relativo.png" sopra resta escluso ma "data/output.mp4" viene rilevato.
+  const relative = module.exports.previewPathParts(
+    "[file] data/postproduction/cataniaaiai/puntata-06-v1.mp4 (11.7MB)",
+  ).flatMap((part) => part.path ? [part.path] : []);
+  assert.deepEqual(relative, ["data/postproduction/cataniaaiai/puntata-06-v1.mp4"]);
 });
 
 test("i path spezzati su righe fisiche dalla TUI diventano un unico target di anteprima", () => {
@@ -311,7 +319,11 @@ test("i path nei blocchi aprono la PreviewModal centralizzata dopo la validazion
   assert.match(chatBlock, /MarkdownContent content=\{displayContent\} onPreviewPath=\{onPreviewPath\}/);
   assert.match(markdownInline, /<PreviewPathText text=\{token\.value\} onPreviewPath=\{onPreviewPath\} \/>/);
   assert.match(markdownCodeBlock, /<PreviewPathText text=\{code\} onPreviewPath=\{onPreviewPath\} \/>/);
-  assert.match(consoleView, /await fetchFileMetadata\(session\.id, path\)/);
+  assert.match(consoleView, /await fetchFileMetadata\(session\.id, resolvedPath\)/);
+  // Un riferimento relativo (senza "/" iniziale) va ancorato alla cwd del
+  // pane prima della richiesta al backend, che altrimenti lo risolverebbe
+  // contro la cwd del processo backend.
+  assert.match(consoleView, /joinPath\(\(await fetchDirectory\(session\.id\)\)\.path, path\)/);
   // IMP-PW-01: Console non renderizza più <PreviewModal> inline — apre una
   // finestra nel window manager globale, che la renderizza altrove (fratello
   // dello switch SessionList/Console in App()), così sopravvive al remount
@@ -320,4 +332,79 @@ test("i path nei blocchi aprono la PreviewModal centralizzata dopo la validazion
   assert.match(consoleView, /resolveSource: \(\) => filePreviewSource\(session\.id, metadata\.path, metadata\.modified_at, metadata\.media_type\)/);
   assert.doesNotMatch(consoleView, /<PreviewModal/);
   assert.match(previewWindowManager, /<PreviewModal/);
+});
+
+test("un blocco che è solo un annuncio di file diventa una BlockFileCard cliccabile", () => {
+  const regexStart = app.indexOf("const BLOCK_PREVIEW_PATH_RE =");
+  const regex = app.slice(regexStart, app.indexOf("\n", regexStart));
+  const partsFn = extractFunction(app, "previewPathParts");
+  const mentionFn = extractFunction(app, "standaloneFileMention");
+  const prefixStart = app.indexOf("const FILE_MENTION_PREFIX_RE =");
+  const prefixRe = app.slice(prefixStart, app.indexOf("\n", prefixStart));
+  const suffixStart = app.indexOf("const FILE_MENTION_SUFFIX_RE =");
+  const suffixRe = app.slice(suffixStart, app.indexOf("\n", suffixStart));
+  const { outputText } = tsModule.transpileModule(
+    `${regex}\n${partsFn}\n${prefixRe}\n${suffixRe}\n${mentionFn}\nmodule.exports = { standaloneFileMention };\n`,
+    { compilerOptions: { module: tsModule.ModuleKind.CommonJS, target: tsModule.ScriptTarget.ES2022 } },
+  );
+  const module = { exports: {} };
+  // eslint-disable-next-line no-new-func
+  new Function("module", "exports", outputText)(module, module.exports);
+
+  const announced = module.exports.standaloneFileMention(
+    "› [file] data/postproduction/cataniaaiai/puntata-06-\nv1.mp4 (11.7MB)",
+  );
+  assert.deepEqual(announced, {
+    path: "data/postproduction/cataniaaiai/puntata-06-v1.mp4",
+    size: "11.7MB",
+  });
+
+  // Un path citato dentro una frase più lunga non deve diventare una card:
+  // resta il solito link inline dentro il paragrafo.
+  assert.equal(
+    module.exports.standaloneFileMention("guarda /tmp/output.png per il render, poi conferma."),
+    null,
+  );
+
+  // Wiring nel render: il ramo "paragraph" di MarkdownContent monta la card
+  // solo quando il blocco è davvero un annuncio isolato.
+  const markdownContent = app.slice(app.indexOf("function MarkdownContent("), app.indexOf("function ChatBlockItem("));
+  assert.match(markdownContent, /const mention = standaloneFileMention\(block\.text\);/);
+  assert.match(markdownContent, /<BlockFileCard key=\{idx\} path=\{mention\.path\} size=\{mention\.size\} onPreviewPath=\{onPreviewPath\} \/>/);
+});
+
+test("un path annunciato con solo il primo segmento in code span resta un unico link", () => {
+  const regexStart = app.indexOf("const BLOCK_PREVIEW_PATH_RE =");
+  const regex = app.slice(regexStart, app.indexOf("\n", regexStart));
+  const inlineFn = extractFunction(app, "parseInlineTokens");
+  const mergeFn = extractFunction(app, "mergeFileMentionCodeTokens");
+  const { outputText } = tsModule.transpileModule(
+    `${regex}\n${inlineFn}\n${mergeFn}\nmodule.exports = { parseInlineTokens, mergeFileMentionCodeTokens };\n`,
+    { compilerOptions: { module: tsModule.ModuleKind.CommonJS, target: tsModule.ScriptTarget.ES2022 } },
+  );
+  const module = { exports: {} };
+  // eslint-disable-next-line no-new-func
+  new Function("module", "exports", outputText)(module, module.exports);
+
+  // Caso reale osservato: l'agente mette in code span solo la prima cartella
+  // ("`data`/postproduction/x.mp4") — senza il merge, "data" resterebbe un
+  // <code> inerte e solo il resto diventerebbe un link.
+  const merged = module.exports.mergeFileMentionCodeTokens(
+    module.exports.parseInlineTokens("Master: `data`/postproduction/cataniaaiai/cataniaaiai_2026_06.mp4, 21,04 s"),
+  );
+  assert.deepEqual(merged.map((token) => token.type), ["text", "text"]);
+  assert.equal(merged[1].value, "data/postproduction/cataniaaiai/cataniaaiai_2026_06.mp4, 21,04 s");
+
+  // Un code span legittimo che non fa parte di un path resta intatto.
+  const untouched = module.exports.mergeFileMentionCodeTokens(
+    module.exports.parseInlineTokens("stato `approved`, titolo qui"),
+  );
+  assert.deepEqual(untouched.map((token) => token.type), ["text", "code", "text"]);
+
+  // Uno spazio tra il code span e il path successivo non deve unirli: sono
+  // due riferimenti distinti, non uno spezzato dal tokenizer.
+  const notMerged = module.exports.mergeFileMentionCodeTokens(
+    module.exports.parseInlineTokens("vedi `codice` /abs/path.png"),
+  );
+  assert.deepEqual(notMerged.map((token) => token.type), ["text", "code", "text"]);
 });

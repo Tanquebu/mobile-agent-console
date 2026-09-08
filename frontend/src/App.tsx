@@ -473,7 +473,9 @@ function previewPathParts(text: string) {
 const FILE_MENTION_PREFIX_RE = /^[\s›❯>*•-]*(?:\[file\]\s*)?$/i;
 const FILE_MENTION_SUFFIX_RE = /^\s*(?:\(([^()\n]{1,40})\))?\s*$/;
 
-function standaloneFileMention(text: string): { path: string; size: string | null } | null {
+type FileMention = { path: string; size: string | null };
+
+function standaloneFileMention(text: string): FileMention | null {
   const parts = previewPathParts(text.trim());
   const pathIndex = parts.findIndex((part) => part.path);
   if (pathIndex === -1 || parts.some((part, idx) => idx !== pathIndex && part.path)) return null;
