@@ -352,6 +352,13 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .block-preview-link:hover { background: #245033; color: #a3f2bd; }
 .block-preview-link.code { padding: 0; background: transparent; text-decoration: none; }
 .block-preview-link.code code { outline: 1px dashed #4d8a60; outline-offset: 1px; }
+.block-file-card { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 320px; margin: 4px 0; border: 1px solid #293a30; border-radius: 12px; padding: 8px 10px; background: #141d17; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.block-file-card:hover { background: #1b271f; border-color: #3a5142; }
+.block-file-card .directory-icon { margin: 0; }
+.block-file-card-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.block-file-card-name { overflow-wrap: anywhere; font-weight: 600; color: #d7e5dc; }
+.block-file-card-meta { display: flex; align-items: center; gap: 6px; font-size: .76rem; color: #8ba393; }
+.block-file-card-ext { border-radius: 4px; padding: 1px 5px; background: #22332a; color: #9fe3b4; font-weight: 700; letter-spacing: .02em; }
 .chat-markdown hr { border: 0; border-top: 1px solid #2a3c30; margin: 12px 0; }
 .chat-markdown .markdown-table-wrap { overflow-x: auto; margin: 0 0 8px; }
 .chat-markdown table { width: 100%; border-collapse: collapse; font-size: .82rem; }

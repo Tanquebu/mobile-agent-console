@@ -439,8 +439,12 @@ type PreviewPathHandler = (path: string) => void;
 // direttamente righe fisiche già spezzate. Accettiamo quindi continuazioni
 // senza spazi su righe immediatamente adiacenti; `(?!\/)` impedisce che un
 // secondo path assoluto venga inglobato nel primo candidato incompleto.
-const BLOCK_PREVIEW_PATH_RE = /\/[^\s<>"'`()\[\]{}]+?(?:\r?\n[ \t]*(?!\/)[^\s<>"'`()\[\]{}]+)*?\.(?:md|markdown|mp3|m4a|mp4|jpe?g|png|webp)(?=$|[\s,.;:!?"'`)\]}])/gi;
-const EXACT_BLOCK_PREVIEW_PATH_RE = /^\/[^\n\0]+\.(?:md|markdown|mp3|m4a|mp4|jpe?g|png|webp)$/i;
+// Il prefisso `[^\s<>"'`()\[\]{}]*\/` (invece di un `/` fisso in testa) accetta
+// anche i path relativi che gli agenti annunciano spesso (es. "[file] data/...mp4"):
+// serve almeno uno slash da qualche parte, così una parola qualunque che finisce
+// per caso con un'estensione media non diventa un falso positivo.
+const BLOCK_PREVIEW_PATH_RE = /[^\s<>"'`()\[\]{}]*\/[^\s<>"'`()\[\]{}]+?(?:\r?\n[ \t]*(?!\/)[^\s<>"'`()\[\]{}]+)*?\.(?:md|markdown|mp3|m4a|mp4|jpe?g|png|webp)(?=$|[\s,.;:!?"'`)\]}])/gi;
+const EXACT_BLOCK_PREVIEW_PATH_RE = /^[^\n\0]*\/[^\n\0]+\.(?:md|markdown|mp3|m4a|mp4|jpe?g|png|webp)$/i;
 
 function previewPathParts(text: string) {
   const parts: Array<{ value: string; path: string | null }> = [];
@@ -459,6 +463,60 @@ function previewPathParts(text: string) {
   }
   if (lastIndex < text.length) parts.push({ value: text.slice(lastIndex), path: null });
   return parts;
+}
+
+// Un paragrafo che, tolti i marcatori decorativi con cui gli agenti annunciano
+// un allegato ("› ", "[file] ", una dimensione finale tra parentesi), contiene
+// solo un riferimento a file diventa una card invece del solito testo con link
+// sottolineato inline (vedi BlockFileCard) — coerente con come gli host nativi
+// (es. l'app Claude Code) presentano questi annunci.
+const FILE_MENTION_PREFIX_RE = /^[\s›❯>*•-]*(?:\[file\]\s*)?$/i;
+const FILE_MENTION_SUFFIX_RE = /^\s*(?:\(([^()\n]{1,40})\))?\s*$/;
+
+function standaloneFileMention(text: string): { path: string; size: string | null } | null {
+  const parts = previewPathParts(text.trim());
+  const pathIndex = parts.findIndex((part) => part.path);
+  if (pathIndex === -1 || parts.some((part, idx) => idx !== pathIndex && part.path)) return null;
+  const before = parts.slice(0, pathIndex).map((part) => part.value).join("");
+  const after = parts.slice(pathIndex + 1).map((part) => part.value).join("");
+  if (!FILE_MENTION_PREFIX_RE.test(before)) return null;
+  const suffixMatch = FILE_MENTION_SUFFIX_RE.exec(after.replace(/\r?\n/g, " "));
+  if (!suffixMatch) return null;
+  return { path: parts[pathIndex].path!, size: suffixMatch[1] ?? null };
+}
+
+function BlockFileCard({
+  path,
+  size,
+  onPreviewPath,
+}: {
+  path: string;
+  size: string | null;
+  onPreviewPath: PreviewPathHandler;
+}) {
+  const t = translations[readLanguage()];
+  const name = path.split("/").pop() || path;
+  const ext = name.includes(".") ? name.split(".").pop()!.toUpperCase() : "";
+  return (
+    <button
+      type="button"
+      className="block-file-card"
+      onClick={() => onPreviewPath(path)}
+      aria-label={`${t.openFilePreview}: ${name}`}
+      title={path}
+    >
+      <FileTypeIcon type="file" name={name} />
+      <span className="block-file-card-body">
+        <span className="block-file-card-name">{name}</span>
+        {(ext || size) && (
+          <span className="block-file-card-meta">
+            {ext && <span className="block-file-card-ext">{ext}</span>}
+            {size && <span>{size}</span>}
+          </span>
+        )}
+      </span>
+    </button>
+  );
 }
 
 function PreviewPathText({
@@ -526,6 +584,33 @@ function parseInlineTokens(text: string): InlineToken[] {
   return tokens;
 }
 
+// Alcuni agenti annunciano un file mettendo in code span solo il primo
+// segmento del path (es. "`data`/postproduction/x.mp4") e proseguendo il
+// resto come testo semplice, senza spazio. `parseInlineTokens` li separa
+// quindi in due token adiacenti prima che il rilevamento dei path li possa
+// vedere come un'unica stringa. Qui si ricongiungono in un token di testo
+// solo quando insieme formano davvero un path riconosciuto (altrimenti un
+// riferimento a codice legittimo come "`approved`" resterebbe intatto).
+function mergeFileMentionCodeTokens(tokens: InlineToken[]): InlineToken[] {
+  const result: InlineToken[] = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i];
+    const next = tokens[i + 1];
+    if (token.type === "code" && next?.type === "text") {
+      const combined = token.value + next.value;
+      BLOCK_PREVIEW_PATH_RE.lastIndex = 0;
+      const match = BLOCK_PREVIEW_PATH_RE.exec(combined);
+      if (match && match.index === 0 && match[0].length > token.value.length) {
+        result.push({ type: "text", value: combined });
+        i += 1;
+        continue;
+      }
+    }
+    result.push(token);
+  }
+  return result;
+}
+
 // Genera uno slug "alla GitHub" a partire dal testo di un header: minuscolo,
 // senza punteggiatura (lettere/numeri unicode, spazi e trattini preservati),
 // spazi collassati in trattini singoli.
@@ -553,7 +638,8 @@ function handleHashLinkClick(event: React.MouseEvent<HTMLAnchorElement>, href: s
 }
 
 function MarkdownInline({ text, onPreviewPath }: { text: string; onPreviewPath?: PreviewPathHandler }) {
-  const tokens = parseInlineTokens(text);
+  const rawTokens = parseInlineTokens(text);
+  const tokens = onPreviewPath ? mergeFileMentionCodeTokens(rawTokens) : rawTokens;
   return (
     <>
       {tokens.map((token, idx) => {
@@ -943,6 +1029,12 @@ function MarkdownContent({ content, onPreviewPath }: { content: string; onPrevie
               </table>
             </div>
           );
+        }
+        if (onPreviewPath) {
+          const mention = standaloneFileMention(block.text);
+          if (mention) {
+            return <BlockFileCard key={idx} path={mention.path} size={mention.size} onPreviewPath={onPreviewPath} />;
+          }
         }
         return (
           <p key={idx}>
@@ -7080,7 +7172,14 @@ function Console({
   async function openBlockPreview(path: string) {
     setControlError("");
     try {
-      const metadata = await fetchFileMetadata(session.id, path);
+      // Un riferimento a file annunciato dall'agente può essere relativo
+      // (es. "data/output.mp4"): il backend risolve i path solo dentro le
+      // radici consentite, quindi va prima ancorato alla cwd del pane —
+      // altrimenti verrebbe risolto contro la cwd del processo backend.
+      const resolvedPath = path.startsWith("/")
+        ? path
+        : joinPath((await fetchDirectory(session.id)).path, path);
+      const metadata = await fetchFileMetadata(session.id, resolvedPath);
       openPreviewWindow({
         resolveSource: () => filePreviewSource(session.id, metadata.path, metadata.modified_at, metadata.media_type),
         siblings: [metadata.path],
