@@ -123,6 +123,11 @@ ACTIVE_CHROME_PATTERNS: dict[str, tuple[str, ...]] = {
         r"[✻✱✽✢✳✶]\s+\w.*?esc to interrupt",
         # Variante: solo spinner + verbo (nei primissimi frame prima che appaia la durata)
         r"[✻✱✽✢✳✶]\s+(?:Working|Thinking|Reasoning|Reading|Writing|Exploring|Editing)",
+        # Claude usa a volte anche il bullet "•" invece dello spinner: "• Working
+        # (esc to interrupt · 5s)" — a differenza del formato Codex l'ordine dei
+        # token tra parentesi non è garantito, quindi non si richiede la durata
+        # prima di "esc to interrupt".
+        r"•\s+(?:Working|Thinking|Reasoning|Reading|Writing|Exploring|Editing).*?esc to interrupt",
     ),
     "antigravity": (),
     "opencode": (),
@@ -413,10 +418,15 @@ class AgentStatusService:
             # **sopra** il prompt, non dopo. La guardia prompt-first di INC-AS-01
             # lo occulterebbe per sempre come "idle". Si usa ACTIVE_CHROME_PATTERNS
             # (pattern strutturali con glifo marker specifico, non parole generiche)
-            # sulle righe immediatamente precedenti al prompt: il glifo e il formato
-            # "(N s … esc to interrupt)" non possono comparire in prosa narrativa
-            # ordinaria, quindi non riaprono la vulnerabilità a falsi positivi
-            # lessicali che INC-AS-01 aveva chiuso.
+            # sulla riga immediatamente precedente al prompt — una sola riga,
+            # non una finestra: un marker storico di un turno concluso, con
+            # prosa di risposta reale in mezzo, non deve riattivare lo stato
+            # (vedi test_agent_status_historic_marker_before_prompt_is_idle e
+            # test_agent_status_historic_chrome_with_prose_between_stays_idle).
+            # Il glifo e il formato "(N s … esc to interrupt)" non possono
+            # comparire in prosa narrativa ordinaria, quindi non riaprono la
+            # vulnerabilità a falsi positivi lessicali che INC-AS-01 aveva
+            # chiuso.
             prompt_line = recent_lines[prompt_index]
             prompt_pat = PROMPT_PATTERNS.get(provider)
             prompt_match = prompt_pat.match(prompt_line) if prompt_pat else None
@@ -426,10 +436,8 @@ class AgentStatusService:
                 after_glyph == ""
                 or (placeholder_pat is not None and after_glyph is not None and bool(placeholder_pat.fullmatch(after_glyph)))
             )
-            if prompt_is_empty and ACTIVE_CHROME_PATTERNS.get(provider):
-                immediate_before = "\n".join(
-                    recent_lines[max(0, prompt_index - 3) : prompt_index]
-                )
+            if prompt_is_empty and prompt_index > 0 and ACTIVE_CHROME_PATTERNS.get(provider):
+                immediate_before = recent_lines[prompt_index - 1]
                 if self._matches(ACTIVE_CHROME_PATTERNS[provider], immediate_before):
                     return AgentStatus(
                         provider,
