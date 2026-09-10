@@ -311,6 +311,34 @@ test("i path spezzati su righe fisiche dalla TUI diventano un unico target di an
   );
 });
 
+test("un path spezzato dopo una slash dentro un elenco resta cliccabile", () => {
+  const regexStart = app.indexOf("const BLOCK_PREVIEW_PATH_RE =");
+  const regex = app.slice(regexStart, app.indexOf("\n", regexStart));
+  const partsFn = extractFunction(app, "previewPathParts");
+  const markdownFn = extractFunction(app, "parseMarkdownBlocks");
+  const { outputText } = tsModule.transpileModule(
+    `${regex}\n${partsFn}\n${markdownFn}\nmodule.exports = { previewPathParts, parseMarkdownBlocks };\n`,
+    { compilerOptions: { module: tsModule.ModuleKind.CommonJS, target: tsModule.ScriptTarget.ES2022 } },
+  );
+  const module = { exports: {} };
+  // eslint-disable-next-line no-new-func
+  new Function("module", "exports", outputText)(module, module.exports);
+
+  const [list] = module.exports.parseMarkdownBlocks([
+    "• A: /home/max/projects/ai-media-lab/assets/references/basole-characters/",
+    "  basola-standard-v2-model-sheet.png",
+  ].join("\n"));
+  assert.equal(list.type, "ul");
+  assert.equal(
+    list.items[0],
+    "A: /home/max/projects/ai-media-lab/assets/references/basole-characters/\nbasola-standard-v2-model-sheet.png",
+  );
+  assert.deepEqual(
+    module.exports.previewPathParts(list.items[0]).flatMap((part) => part.path ? [part.path] : []),
+    ["/home/max/projects/ai-media-lab/assets/references/basole-characters/basola-standard-v2-model-sheet.png"],
+  );
+});
+
 test("i path nei blocchi aprono la PreviewModal centralizzata dopo la validazione metadata", () => {
   const chatBlock = app.slice(app.indexOf("function ChatBlockItem("), app.indexOf("function formatSize("));
   const markdownInline = app.slice(app.indexOf("function MarkdownInline("), app.indexOf("function MarkdownCodeBlock("));

@@ -154,9 +154,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Indicatore di stato agente più preciso",
+  title: "Riferimenti file affidabili nei blocchi",
   description:
-    "Risolto INC-AS-02: Codex e Claude venivano mostrati come 'inattivi' anche durante un turno attivo. Il marker UI '• Working' e '✻ Thinking' sopra il prompt vuoto viene ora riconosciuto correttamente come elaborazione in corso.",
+    "I path lunghi spezzati da tmux anche subito dopo una slash restano cliccabili nei blocchi e aprono correttamente l'anteprima del file.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -443,7 +443,7 @@ type PreviewPathHandler = (path: string) => void;
 // anche i path relativi che gli agenti annunciano spesso (es. "[file] data/...mp4"):
 // serve almeno uno slash da qualche parte, così una parola qualunque che finisce
 // per caso con un'estensione media non diventa un falso positivo.
-const BLOCK_PREVIEW_PATH_RE = /[^\s<>"'`()\[\]{}]*\/[^\s<>"'`()\[\]{}]+?(?:\r?\n[ \t]*(?!\/)[^\s<>"'`()\[\]{}]+)*?\.(?:md|markdown|mp3|m4a|mp4|jpe?g|png|webp)(?=$|[\s,.;:!?"'`)\]}])/gi;
+const BLOCK_PREVIEW_PATH_RE = /[^\s<>"'`()\[\]{}]*\/(?:\r?\n[ \t]*)?[^\s<>"'`()\[\]{}]+?(?:\r?\n[ \t]*(?!\/)[^\s<>"'`()\[\]{}]+)*?\.(?:md|markdown|mp3|m4a|mp4|jpe?g|png|webp)(?=$|[\s,.;:!?"'`)\]}])/gi;
 const EXACT_BLOCK_PREVIEW_PATH_RE = /^[^\n\0]*\/[^\n\0]+\.(?:md|markdown|mp3|m4a|mp4|jpe?g|png|webp)$/i;
 
 function previewPathParts(text: string) {
@@ -867,7 +867,11 @@ function parseMarkdownBlocks(text: string): MarkdownBlockItem[] {
           !tableRowRe.test(lines[i]) &&
           !horizontalRuleRe.test(lines[i])
         ) {
-          itemText += ` ${lines[i].trim()}`;
+          // Conserva il confine fisico: tmux può spezzare un path subito dopo
+          // una `/`. Il renderer HTML collassa comunque il newline come uno
+          // spazio nel testo normale, mentre previewPathParts può ricomporre
+          // correttamente il riferimento prima di inviarlo al backend.
+          itemText += `\n${lines[i].trim()}`;
           i += 1;
         }
         items.push(itemText);
@@ -892,7 +896,9 @@ function parseMarkdownBlocks(text: string): MarkdownBlockItem[] {
           !tableRowRe.test(lines[i]) &&
           !horizontalRuleRe.test(lines[i])
         ) {
-          itemText += ` ${lines[i].trim()}`;
+          // Vedi l'elenco puntato qui sopra: il newline è significativo solo
+          // per il rilevatore dei path, non cambia la resa del testo.
+          itemText += `\n${lines[i].trim()}`;
           i += 1;
         }
         items.push(itemText);
