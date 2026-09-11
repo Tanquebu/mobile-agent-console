@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
 import {
@@ -154,9 +154,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Riferimenti file affidabili nei blocchi",
+  title: "Lettura stabile dei blocchi live",
   description:
-    "I path lunghi spezzati da tmux anche subito dopo una slash restano cliccabili nei blocchi e aprono correttamente l'anteprima del file.",
+    "Quando interrompi Segui output per leggere, i nuovi blocchi live non spostano più il punto del testo che stai consultando.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -7141,6 +7141,17 @@ function Console({
     agenticView ? readDefaultAgentView() : "terminal",
   );
   const outputRef = useRef<HTMLPreElement | HTMLDivElement>(null);
+  // L'ancora nativa del browser può scegliere un blocco che cambia durante
+  // un refresh (o viene rimontato da React), spostando il testo sotto gli
+  // occhi dell'utente. Conserviamo invece noi scrollTop e scrollHeight della
+  // vista in pausa, così l'altezza aggiunta sopra il punto di lettura viene
+  // compensata prima del paint successivo.
+  const pausedOutputScrollRef = useRef<{
+    sessionId: string;
+    outputMode: "blocks" | "history";
+    scrollTop: number;
+    scrollHeight: number;
+  } | null>(null);
   const outputLinesRef = useRef<string[]>([]);
   const outputSequenceRef = useRef(0);
   const [contentRevision, setContentRevision] = useState(0);
@@ -7727,6 +7738,39 @@ function Console({
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
   }, [content, history, opencodeHistory, followingOutput, outputMode]);
+
+  useLayoutEffect(() => {
+    const output = outputRef.current;
+    if (!output || outputMode === "terminal" || followingOutput) {
+      pausedOutputScrollRef.current = null;
+      return;
+    }
+
+    const previous = pausedOutputScrollRef.current;
+    if (previous && previous.sessionId === session.id && previous.outputMode === outputMode) {
+      output.scrollTop = previous.scrollTop + (output.scrollHeight - previous.scrollHeight);
+    }
+    pausedOutputScrollRef.current = {
+      sessionId: session.id,
+      outputMode,
+      scrollTop: output.scrollTop,
+      scrollHeight: output.scrollHeight,
+    };
+
+    return () => {
+      // Il cleanup di useLayoutEffect gira prima della successiva mutazione
+      // DOM: cattura quindi la posizione effettiva scelta dall'utente,
+      // compreso uno scroll avvenuto fra due aggiornamenti live.
+      const current = outputRef.current;
+      if (!current || followingOutput) return;
+      pausedOutputScrollRef.current = {
+        sessionId: session.id,
+        outputMode,
+        scrollTop: current.scrollTop,
+        scrollHeight: current.scrollHeight,
+      };
+    };
+  }, [content, followingOutput, history, opencodeHistory, outputMode, session.id]);
 
   function updateScrollMode() {
     const output = outputRef.current;

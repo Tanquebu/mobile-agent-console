@@ -25,6 +25,13 @@ test("la bozza testuale resta separata per session id e non usa persistenza", ()
   assert.doesNotMatch(draftState, /localStorage|sessionStorage|indexedDB/);
 });
 
+test("la vista Blocchi mantiene il punto di lettura quando Segui output è in pausa", () => {
+  assert.match(consoleView, /useLayoutEffect\(\(\) => \{[\s\S]*pausedOutputScrollRef/);
+  assert.match(consoleView, /output\.scrollTop = previous\.scrollTop \+ \(output\.scrollHeight - previous\.scrollHeight\)/);
+  assert.match(consoleView, /if \(!output \|\| outputMode === "terminal" \|\| followingOutput\)/);
+  assert.match(styles, /\.output \{[^}]*overflow-anchor: none/);
+});
+
 test("Clear e Model inviano testo ed Enter come operazioni distinte solo nei controlli agentici", () => {
   assert.match(consoleView, /await sendText\(session\.id, "\/clear", \[\], paneId \|\| undefined\);[\s\S]*await sendEnter\(session\.id, paneId \|\| undefined\)/);
   assert.match(consoleView, /await sendText\(session\.id, "\/model", \[\], paneId \|\| undefined\);[\s\S]*await sendEnter\(session\.id, paneId \|\| undefined\)/);
