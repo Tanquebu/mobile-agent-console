@@ -27,7 +27,8 @@ test("la bozza testuale resta separata per session id e non usa persistenza", ()
 
 test("la vista Blocchi mantiene il punto di lettura quando Segui output è in pausa", () => {
   assert.match(consoleView, /useLayoutEffect\(\(\) => \{[\s\S]*pausedOutputScrollRef/);
-  assert.match(consoleView, /output\.scrollTop = previous\.scrollTop \+ \(output\.scrollHeight - previous\.scrollHeight\)/);
+  assert.match(consoleView, /current\.querySelectorAll<HTMLElement>\("\.chat-block"\)/);
+  assert.match(consoleView, /output\.scrollTop \+= currentRelativeTop - previous\.relativeTop/);
   assert.match(consoleView, /if \(!output \|\| outputMode === "terminal" \|\| followingOutput\)/);
   assert.match(styles, /\.output \{[^}]*overflow-anchor: none/);
 });

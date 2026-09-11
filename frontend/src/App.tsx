@@ -7143,14 +7143,15 @@ function Console({
   const outputRef = useRef<HTMLPreElement | HTMLDivElement>(null);
   // L'ancora nativa del browser può scegliere un blocco che cambia durante
   // un refresh (o viene rimontato da React), spostando il testo sotto gli
-  // occhi dell'utente. Conserviamo invece noi scrollTop e scrollHeight della
-  // vista in pausa, così l'altezza aggiunta sopra il punto di lettura viene
-  // compensata prima del paint successivo.
+  // occhi dell'utente. Conserviamo invece il primo blocco visibile: se un
+  // refresh lo sposta, compensiamo soltanto quello spostamento. La sola
+  // differenza di scrollHeight sarebbe errata quando i blocchi nuovi sono
+  // aggiunti sotto al testo che si sta leggendo.
   const pausedOutputScrollRef = useRef<{
     sessionId: string;
     outputMode: "blocks" | "history";
-    scrollTop: number;
-    scrollHeight: number;
+    anchor: HTMLElement;
+    relativeTop: number;
   } | null>(null);
   const outputLinesRef = useRef<string[]>([]);
   const outputSequenceRef = useRef(0);
@@ -7747,15 +7748,30 @@ function Console({
     }
 
     const previous = pausedOutputScrollRef.current;
-    if (previous && previous.sessionId === session.id && previous.outputMode === outputMode) {
-      output.scrollTop = previous.scrollTop + (output.scrollHeight - previous.scrollHeight);
+    if (
+      previous
+      && previous.sessionId === session.id
+      && previous.outputMode === outputMode
+      && output.contains(previous.anchor)
+    ) {
+      const currentRelativeTop = previous.anchor.getBoundingClientRect().top - output.getBoundingClientRect().top;
+      output.scrollTop += currentRelativeTop - previous.relativeTop;
     }
-    pausedOutputScrollRef.current = {
-      sessionId: session.id,
-      outputMode,
-      scrollTop: output.scrollTop,
-      scrollHeight: output.scrollHeight,
+
+    const rememberVisibleBlock = (current: HTMLPreElement | HTMLDivElement) => {
+      const outputTop = current.getBoundingClientRect().top;
+      const anchor = Array.from(current.querySelectorAll<HTMLElement>(".chat-block"))
+        .find((block) => block.getBoundingClientRect().bottom > outputTop);
+      pausedOutputScrollRef.current = anchor
+        ? {
+            sessionId: session.id,
+            outputMode,
+            anchor,
+            relativeTop: anchor.getBoundingClientRect().top - outputTop,
+          }
+        : null;
     };
+    rememberVisibleBlock(output);
 
     return () => {
       // Il cleanup di useLayoutEffect gira prima della successiva mutazione
@@ -7763,12 +7779,7 @@ function Console({
       // compreso uno scroll avvenuto fra due aggiornamenti live.
       const current = outputRef.current;
       if (!current || followingOutput) return;
-      pausedOutputScrollRef.current = {
-        sessionId: session.id,
-        outputMode,
-        scrollTop: current.scrollTop,
-        scrollHeight: current.scrollHeight,
-      };
+      rememberVisibleBlock(current);
     };
   }, [content, followingOutput, history, opencodeHistory, outputMode, session.id]);
 
