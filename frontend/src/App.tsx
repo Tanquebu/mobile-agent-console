@@ -6123,7 +6123,7 @@ function SessionList({
   identity,
   onLogout,
 }: {
-  onOpen: (session: Session) => void;
+  onOpen: (session: Session, directoryPath?: string) => void;
   identity: Identity;
   onLogout: () => void;
 }) {
@@ -7082,7 +7082,14 @@ function SessionList({
       {showUsers && <UserModal onClose={() => setShowUsers(false)} />}
       {showAudit && <AuditModal onClose={() => setShowAudit(false)} />}
       {showFavorites && (
-        <FavoritesModal onClose={() => setShowFavorites(false)} sessionId={sessions[0]?.id ?? null} />
+        <FavoritesModal
+          onClose={() => setShowFavorites(false)}
+          sessionId={sessions[0]?.id ?? null}
+          onOpenDirectory={(path) => {
+            const session = sessions[0];
+            if (session) onOpen(session, path);
+          }}
+        />
       )}
       {showBackups && <BackupModal onClose={() => setShowBackups(false)} />}
       {showHiddenSessions && (
@@ -7122,6 +7129,7 @@ function SessionList({
 
 function Console({
   session,
+  initialDirectoryPath,
   onBack,
   onSwitch,
   recentSessions,
@@ -7130,6 +7138,7 @@ function Console({
   onDraftChange,
 }: {
   session: Session;
+  initialDirectoryPath?: string;
   onBack: () => void;
   onSwitch: (session: Session) => void;
   recentSessions: Session[];
@@ -7152,9 +7161,14 @@ function Console({
   const [changingModel, setChangingModel] = useState(false);
   const [sendingArtifactPrompt, setSendingArtifactPrompt] = useState(false);
   const [sendingArchiveSummaryPrompt, setSendingArchiveSummaryPrompt] = useState(false);
-  const [directoryState, setDirectoryState] = useState<"closed" | "open" | "minimized">("closed");
-  const [directoryInitialPath, setDirectoryInitialPath] = useState<string | undefined>(undefined);
-  useEffect(() => { setDirectoryState("closed"); setDirectoryInitialPath(undefined); }, [session.id]);
+  const [directoryState, setDirectoryState] = useState<"closed" | "open" | "minimized">(
+    initialDirectoryPath ? "open" : "closed",
+  );
+  const [directoryInitialPath, setDirectoryInitialPath] = useState<string | undefined>(initialDirectoryPath);
+  useEffect(() => {
+    setDirectoryState(initialDirectoryPath ? "open" : "closed");
+    setDirectoryInitialPath(initialDirectoryPath);
+  }, [session.id, initialDirectoryPath]);
   const [showArtifacts, setShowArtifacts] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
   const [fullscreenOutput, setFullscreenOutput] = useState(false);
@@ -8672,6 +8686,7 @@ function Console({
 export default function App() {
   const online = useOnlineStatus();
   const [active, setActive] = useState<Session | null>(null);
+  const [initialDirectoryPath, setInitialDirectoryPath] = useState<string | undefined>(undefined);
   const [draftsBySession, setDraftsBySession] = useState<Record<string, string>>({});
   const [recentSessions, setRecentSessions] = useState<Session[]>(readRecentSessions);
   const [identity, setIdentity] = useState<Identity | null | undefined>(undefined);
@@ -8690,12 +8705,14 @@ export default function App() {
       return [session, ...current.filter((item) => item.id !== session.id)].slice(0, 2);
     });
   }
-  function openSession(next: Session) {
+  function openSession(next: Session, directoryPath?: string) {
     if (active && active.id !== next.id) rememberSession(active);
+    setInitialDirectoryPath(directoryPath);
     setActive(next);
   }
   function closeSession() {
     if (active) rememberSession(active);
+    setInitialDirectoryPath(undefined);
     setActive(null);
   }
   function setSessionDraft(sessionId: string, draft: string) {
@@ -8775,6 +8792,7 @@ export default function App() {
         <Console
           key={active.id}
           session={active}
+          initialDirectoryPath={initialDirectoryPath}
           identity={identity}
           onBack={closeSession}
           onSwitch={openSession}

@@ -431,6 +431,7 @@ try {
           parent: null,
           truncated: false,
           entries: [
+            { name: "src-dir", type: "dir", size: 0, created_at: "2026-08-19T10:00:00Z", modified_at: "2026-08-20T10:00:00Z" },
             { name: "favme.txt", type: "file", size: 4, created_at: "2026-08-19T10:00:00Z", modified_at: "2026-08-20T10:00:00Z" },
           ],
         });
@@ -449,6 +450,7 @@ try {
           id: `fav-${favoriteSeq}`,
           path: body.path,
           label: body.label ?? null,
+          kind: body.kind ?? "file",
           added_by: "admin",
           added_at: "2026-08-25T10:00:00Z",
         };
@@ -470,25 +472,38 @@ try {
     await favPage.getByRole("button", { name: "Funzioni", exact: true }).click();
     await favPage.locator(".special-section-toggle").click();
     await favPage.getByRole("button", { name: "Contenuto directory", exact: true }).click();
+
+    const directoryRow = favPage.locator(".directory-entry", { hasText: "src-dir" });
+    await directoryRow.getByRole("button", { name: "Aggiungi ai preferiti" }).click();
+    await directoryRow.getByRole("button", { name: "Rimuovi dai preferiti" }).waitFor();
+    assert.deepEqual(favoritesRequests[0], {
+      method: "POST",
+      path: "/api/v1/favorites",
+      body: { path: "/workspace/src-dir", label: null, kind: "dir" },
+    });
+    await directoryRow.getByRole("button", { name: "Rimuovi dai preferiti" }).click();
+    await directoryRow.getByRole("button", { name: "Aggiungi ai preferiti" }).waitFor();
+
     await favPage.locator(".directory-open", { hasText: "favme.txt" }).click();
     await favPage.locator("h2.preview-file-name", { hasText: "favme.txt" }).waitFor();
 
-    const star = favPage.getByRole("button", { name: "Aggiungi ai preferiti" });
+    const previewDialog = favPage.getByRole("dialog", { name: "Anteprima file" });
+    const star = previewDialog.getByRole("button", { name: "Aggiungi ai preferiti" });
     await star.waitFor();
     assert.equal(await star.getAttribute("aria-pressed"), "false");
     await star.click();
-    await favPage.getByRole("button", { name: "Rimuovi dai preferiti" }).waitFor();
-    assert.equal(favoritesRequests.length, 1);
-    assert.equal(favoritesRequests[0].method, "POST");
-    assert.equal(favoritesRequests[0].body.path, "/workspace/favme.txt");
-    assert.equal(await favPage.getByRole("button", { name: "Rimuovi dai preferiti" }).getAttribute("aria-pressed"), "true");
+    await previewDialog.getByRole("button", { name: "Rimuovi dai preferiti" }).waitFor();
+    assert.equal(favoritesRequests.length, 3);
+    assert.equal(favoritesRequests[2].method, "POST");
+    assert.equal(favoritesRequests[2].body.path, "/workspace/favme.txt");
+    assert.equal(await previewDialog.getByRole("button", { name: "Rimuovi dai preferiti" }).getAttribute("aria-pressed"), "true");
 
-    await favPage.getByRole("button", { name: "Rimuovi dai preferiti" }).click();
-    await favPage.getByRole("button", { name: "Aggiungi ai preferiti" }).waitFor();
-    assert.equal(favoritesRequests.length, 2);
-    assert.equal(favoritesRequests[1].method, "DELETE");
-    assert.equal(favoritesRequests[1].id, "fav-1");
-    assert.equal(await favPage.getByRole("button", { name: "Aggiungi ai preferiti" }).getAttribute("aria-pressed"), "false");
+    await previewDialog.getByRole("button", { name: "Rimuovi dai preferiti" }).click();
+    await star.waitFor();
+    assert.equal(favoritesRequests.length, 4);
+    assert.equal(favoritesRequests[3].method, "DELETE");
+    assert.equal(favoritesRequests[3].id, "fav-2");
+    assert.equal(await star.getAttribute("aria-pressed"), "false");
 
     await favContext.close();
   }

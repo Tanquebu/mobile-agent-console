@@ -51,7 +51,9 @@ test("la directory espone ricerca e ordinamento senza mutare il listing autorevo
 
 test("la directory si riduce senza smontarsi e conserva lo stato fino alla chiusura", () => {
   assert.match(console_, /directoryState, setDirectoryState/);
-  assert.match(console_, /setDirectoryState\("closed"\); setDirectoryInitialPath\(undefined\); \}, \[session\.id\]\)/);
+  assert.match(console_, /setDirectoryState\(initialDirectoryPath \? "open" : "closed"\);/);
+  assert.match(console_, /setDirectoryInitialPath\(initialDirectoryPath\);/);
+  assert.match(console_, /\[session\.id, initialDirectoryPath\]/);
   assert.match(console_, /directoryState !== "closed"/);
   assert.match(console_, /minimized=\{directoryState === "minimized"\}/);
   assert.match(directoryModal, /hidden=\{minimized\}/);
@@ -336,7 +338,7 @@ test("api.ts espone listFavorites/addFavorite/deleteFavorite", () => {
 test("i punti di ingresso dashboard e Console aprono FavoritesModal, non ristretti per ruolo", () => {
   assert.match(sessionList, /const \[showFavorites, setShowFavorites\] = useState\(false\);/);
   assert.match(sessionList, /setShowFavorites\(true\); \}\} aria-label=\{t\.favorites\}/);
-  assert.match(sessionList, /<FavoritesModal onClose=\{\(\) => setShowFavorites\(false\)\} sessionId=\{sessions\[0\]\?\.id \?\? null\}/);
+  assert.match(sessionList, /<FavoritesModal[\s\S]*?onClose=\{\(\) => setShowFavorites\(false\)\}[\s\S]*?sessionId=\{sessions\[0\]\?\.id \?\? null\}[\s\S]*?onOpenDirectory=\{\(path\) => \{[\s\S]*?if \(session\) onOpen\(session, path\);/);
   assert.match(console_, /const \[showFavorites, setShowFavorites\] = useState\(false\);/);
   assert.match(console_, /onClick=\{\(\) => setShowFavorites\(true\)\}/);
   assert.match(console_, /<FavoritesModal\s[\s\S]*?onClose=\{\(\) => setShowFavorites\(false\)\}[\s\S]*?sessionId=\{session\.id\}/);
