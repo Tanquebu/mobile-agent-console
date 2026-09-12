@@ -294,6 +294,15 @@ test("FavoritesProvider/useFavorites esistono con reset su !active, stesso patte
   assert.match(favoritesBlock, /removeFavoriteById = useCallback\(async \(id: string\) => \{/);
 });
 
+test("il controllo preferiti delle directory è riconoscibile anche visivamente su mobile", () => {
+  const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  const i18n = readFileSync(new URL("../src/i18n.ts", import.meta.url), "utf8");
+  assert.match(directoryModal, /className="directory-favorite-hint"/);
+  assert.match(directoryModal, /favoriteDirectoryHint/);
+  assert.match(styles, /\.directory-icon-btn\.preview-favorite-toggle \{[^}]*color: #f5d66f;/);
+  assert.match(i18n, /favoriteDirectoryHint: "Tocca la stella dorata/);
+});
+
 test("la stella dei preferiti compare solo quando source.favoritePath è impostato", () => {
   assert.match(previewModal, /const \{ isFavorite, toggleFavorite \} = useFavorites\(\);/);
   assert.match(previewModal, /\{source\.favoritePath && \(/);

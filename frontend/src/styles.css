@@ -713,6 +713,11 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .directory-icon-btn { flex: 0 0 34px; width: 34px; min-height: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #3a5142; border-radius: 9px; background: #1b2820; color: #d2e3d7; font-size: .72rem; font-weight: 700; transition: background-color .15s ease, border-color .15s ease; }
 .directory-icon-btn:hover:not(:disabled) { background: #22382a; border-color: #4a6d54; }
 .directory-icon-btn:disabled { opacity: .4; cursor: default; }
+.directory-icon-btn.preview-favorite-toggle { border-color: #806f36; color: #f5d66f; font-size: 1.05rem; }
+.directory-icon-btn.preview-favorite-toggle:hover:not(:disabled) { border-color: #b99c3f; background: #302c19; color: #ffe58a; }
+.directory-icon-btn.preview-favorite-toggle[aria-pressed="true"] { border-color: #b99c3f; background: #3a3218; color: #ffe58a; }
+.directory-favorite-hint { display: flex; align-items: center; gap: 7px; margin: 12px 2px 0; color: #aebba8; font-size: .72rem; line-height: 1.4; }
+.directory-favorite-hint > span { color: #f5d66f; font-size: 1.05rem; line-height: 1; }
 .directory-download { border-color: #3b7454; color: #9be5b3; }
 .directory-download:hover:not(:disabled) { border-color: #4da073; color: #c0f7d5; background: #1e3a2b; }
 .copy-check { color: #86dda2; stroke-width: 2.5; }

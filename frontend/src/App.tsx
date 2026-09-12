@@ -156,7 +156,7 @@ const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spa
 const LATEST_RELEASE = {
   title: "Preferiti per le directory e trattino nei nomi file",
   description:
-    "Le directory possono ora essere aggiunte ai preferiti (★ accanto a ogni cartella nella vista directory): cliccandole si apre direttamente la directory. In upload, i nomi file possono contenere il trattino ('-') oltre a lettere, numeri e underscore.",
+    "Le directory possono ora essere aggiunte ai preferiti tramite la stella dorata accanto a ogni cartella: dai Preferiti si riaprono direttamente. In upload, i nomi file possono contenere il trattino ('-') oltre a lettere, numeri e underscore.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -2794,6 +2794,11 @@ function DirectoryModal({
             {error && <p className="error">{error}</p>}
             {!loading && !error && listing && (
               <>
+                {listing.entries.some((entry) => entry.type === "dir") && (
+                  <p className="directory-favorite-hint">
+                    <span aria-hidden="true">☆</span> {translations[readLanguage()].favoriteDirectoryHint}
+                  </p>
+                )}
                 <ul className="directory-list">
                   {displayedEntries.map((entry) => (
                     <li key={entry.name} className="directory-entry">
