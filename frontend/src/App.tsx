@@ -152,11 +152,12 @@ const SWIPE_PX_PER_TICK = 32;
 const SWIPE_MAX_TICKS_PER_REQUEST = 5;
 const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
+const OPEN_DIRECTORY_EVENT = "mac:open-directory";
 
 const LATEST_RELEASE = {
-  title: "Preferiti per le directory e trattino nei nomi file",
+  title: "Apri la cartella di un file",
   description:
-    "Le directory possono ora essere aggiunte ai preferiti tramite la stella dorata accanto a ogni cartella: dai Preferiti si riaprono direttamente. In upload, i nomi file possono contenere il trattino ('-') oltre a lettere, numeri e underscore.",
+    "Nell’anteprima file, il nuovo comando “Apri percorso” apre direttamente la cartella che contiene il file. L’anteprima viene ridotta a icona e resta disponibile.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1307,6 +1308,7 @@ type PreviewSource = {
   onBack: () => void;
   eyebrow?: string;
   favoritePath?: string | null;
+  sessionId?: string | null;
 };
 
 function previewKindFor(name: string, mediaType?: string): PreviewKind {
@@ -1517,6 +1519,7 @@ function filePreviewSource(
     fetchContent: () => fetchFile(sessionId, path).then((file) => ({ content: file.content, truncated: file.truncated })),
     eyebrow: translations[readLanguage()].readOnlyFile,
     favoritePath: path,
+    sessionId,
   };
 }
 
@@ -1961,26 +1964,43 @@ function PreviewModal({
           <span className="eyebrow">{source.eyebrow ?? t.preview}</span>
           <div className="preview-path-row">
             <h2 className="preview-file-name" title={source.name}>{fileName}</h2>
-            {source.favoritePath && (
+            <div className="preview-path-actions">
+              {source.favoritePath && (
+                <button
+                  type="button"
+                  className="preview-favorite-toggle"
+                  onClick={() => void toggleFavorite(source.favoritePath!)}
+                  aria-pressed={isFavorite(source.favoritePath)}
+                  aria-label={isFavorite(source.favoritePath) ? t.removeFavorite : t.addFavorite}
+                  title={isFavorite(source.favoritePath) ? t.removeFavorite : t.addFavorite}
+                >
+                  {isFavorite(source.favoritePath) ? "★" : "☆"}
+                </button>
+              )}
               <button
                 type="button"
-                className="preview-favorite-toggle"
-                onClick={() => void toggleFavorite(source.favoritePath!)}
-                aria-pressed={isFavorite(source.favoritePath)}
-                aria-label={isFavorite(source.favoritePath) ? t.removeFavorite : t.addFavorite}
-                title={isFavorite(source.favoritePath) ? t.removeFavorite : t.addFavorite}
+                className="preview-path-copy"
+                onClick={() => void copyPath()}
+                aria-label={`${t.copyPath}: ${source.name}`}
               >
-                {isFavorite(source.favoritePath) ? "★" : "☆"}
+                {pathCopied ? t.copied : t.copyPath}
               </button>
-            )}
-            <button
-              type="button"
-              className="preview-path-copy"
-              onClick={() => void copyPath()}
-              aria-label={`${t.copyPath}: ${source.name}`}
-            >
-              {pathCopied ? t.copied : t.copyPath}
-            </button>
+              {source.sessionId && filePath && (
+                <button
+                  type="button"
+                  className="preview-path-copy preview-path-open"
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent(OPEN_DIRECTORY_EVENT, {
+                      detail: { sessionId: source.sessionId, path: filePath },
+                    }));
+                    onMinimize();
+                  }}
+                  aria-label={`${t.openPath}: ${filePath}`}
+                >
+                  {t.openPath}
+                </button>
+              )}
+            </div>
           </div>
           {filePath && <p className="preview-file-dir" title={filePath}>{filePath}</p>}
           {source.modifiedAt && (
@@ -6154,6 +6174,15 @@ function SessionList({
   const [showDashboardActions, setShowDashboardActions] = useState(false);
   const [showHiddenSessions, setShowHiddenSessions] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
+  useEffect(() => {
+    const openDirectory = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId: string; path: string }>).detail;
+      const session = sessions.find((item) => item.id === detail.sessionId);
+      if (session) onOpen(session, detail.path);
+    };
+    window.addEventListener(OPEN_DIRECTORY_EVENT, openDirectory);
+    return () => window.removeEventListener(OPEN_DIRECTORY_EVENT, openDirectory);
+  }, [sessions, onOpen]);
   const [showHost, setShowHost] = useState(false);
   const [restoreHostFocus, setRestoreHostFocus] = useState(false);
   const [hostObservabilityEnabled, setHostObservabilityEnabled] = useState(false);
@@ -7174,6 +7203,16 @@ function Console({
     setDirectoryState(initialDirectoryPath ? "open" : "closed");
     setDirectoryInitialPath(initialDirectoryPath);
   }, [session.id, initialDirectoryPath]);
+  useEffect(() => {
+    const openDirectory = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId: string; path: string }>).detail;
+      if (detail.sessionId !== session.id) return;
+      setDirectoryInitialPath(detail.path);
+      setDirectoryState("open");
+    };
+    window.addEventListener(OPEN_DIRECTORY_EVENT, openDirectory);
+    return () => window.removeEventListener(OPEN_DIRECTORY_EVENT, openDirectory);
+  }, [session.id]);
   const [showArtifacts, setShowArtifacts] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
   const [fullscreenOutput, setFullscreenOutput] = useState(false);

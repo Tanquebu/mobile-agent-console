@@ -645,7 +645,8 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .whats-new { border: 1px solid #31533c; border-radius: 16px; padding: 16px; background: #17261c; }
 .whats-new h3 { margin: 7px 0 5px; font-size: 1rem; }
 .whats-new p { margin: 0; color: #a9bcaf; line-height: 1.45; }
-.preview-path-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.preview-path-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.preview-path-actions { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .directory-header-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .directory-header-path-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
 .help-modal h2.directory-path,
@@ -656,6 +657,7 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .help-modal h2.preview-file-name { flex: 1; min-width: 0; margin: 0; overflow-wrap: anywhere; font-size: 1rem; }
 .preview-file-dir { min-width: 0; margin: 4px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #778a7d; font: .7rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .preview-path-copy { flex: 0 0 auto; min-height: 32px; border: 1px solid #3a5142; border-radius: 9px; padding: 0 9px; background: #1b2820; color: #9be5b3; font-size: .68rem; font-weight: 750; }
+.preview-path-open { border-color: #3b7454; background: #1c3628; color: #a4f0c1; }
 .preview-favorite-toggle { flex: 0 0 auto; min-width: 32px; min-height: 32px; border: 1px solid #3a5142; border-radius: 9px; background: #1b2820; color: #e8c766; font-size: .95rem; }
 .preview-favorite-toggle[aria-pressed="true"] { background: #2a3f30; }
 .favorites-list { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }

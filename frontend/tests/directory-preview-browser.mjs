@@ -505,6 +505,10 @@ try {
     assert.equal(favoritesRequests[3].id, "fav-2");
     assert.equal(await star.getAttribute("aria-pressed"), "false");
 
+    await previewDialog.getByRole("button", { name: "Apri percorso: /workspace" }).click();
+    await favPage.getByRole("dialog", { name: "/workspace" }).waitFor();
+    assert.equal(await favPage.getByRole("dialog", { name: "Anteprima file" }).count(), 0);
+
     await favContext.close();
   }
 } finally {

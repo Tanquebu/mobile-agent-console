@@ -183,6 +183,16 @@ test("la PreviewModal centralizza anche la copia del path completo", () => {
   assert.match(app, /pathCopied \? t\.copied : t\.copyPath/);
 });
 
+test("l'anteprima di un file può aprire la directory che lo contiene", () => {
+  assert.match(app, /sessionId,\s*\};\s*\}/);
+  assert.match(previewModal, /className="preview-path-copy preview-path-open"/);
+  assert.match(previewModal, /new CustomEvent\(OPEN_DIRECTORY_EVENT/);
+  assert.match(previewModal, /detail: \{ sessionId: source\.sessionId, path: filePath \}/);
+  assert.match(previewModal, /\{t\.openPath\}/);
+  assert.match(console_, /window\.addEventListener\(OPEN_DIRECTORY_EVENT, openDirectory\)/);
+  assert.match(console_, /setDirectoryInitialPath\(detail\.path\);\s*setDirectoryState\("open"\);/);
+});
+
 test("il selettore progetto mostra ricerca, ordinamento e risultati accessibili", () => {
   assert.match(sessionList, /projectSearchPlaceholder/);
   assert.match(sessionList, /projectSortNameAsc/);
