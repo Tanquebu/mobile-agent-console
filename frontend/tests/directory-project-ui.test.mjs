@@ -51,7 +51,7 @@ test("la directory espone ricerca e ordinamento senza mutare il listing autorevo
 
 test("la directory si riduce senza smontarsi e conserva lo stato fino alla chiusura", () => {
   assert.match(console_, /directoryState, setDirectoryState/);
-  assert.match(console_, /setDirectoryState\("closed"\); \}, \[session\.id\]\)/);
+  assert.match(console_, /setDirectoryState\("closed"\); setDirectoryInitialPath\(undefined\); \}, \[session\.id\]\)/);
   assert.match(console_, /directoryState !== "closed"/);
   assert.match(console_, /minimized=\{directoryState === "minimized"\}/);
   assert.match(directoryModal, /hidden=\{minimized\}/);
@@ -288,7 +288,7 @@ test("FavoritesProvider/useFavorites esistono con reset su !active, stesso patte
     /if \(!active\) \{\s*setFavorites\(\[\]\);\s*setFavoritesError\(""\);\s*return;\s*\}/,
   );
   assert.match(favoritesBlock, /listFavorites\(\)/);
-  assert.match(favoritesBlock, /toggleFavorite = useCallback\(async \(path: string\) => \{/);
+  assert.match(favoritesBlock, /toggleFavorite = useCallback\(async \(path: string, kind: "file" \| "dir" = "file"\) => \{/);
   assert.match(favoritesBlock, /removeFavoriteById = useCallback\(async \(id: string\) => \{/);
 });
 
@@ -308,7 +308,7 @@ test("la stella dei preferiti compare solo quando source.favoritePath è imposta
 });
 
 test("FavoritesModal apre un preferito tramite fetchFileMetadata + openPreviewWindow e permette la rimozione", () => {
-  assert.match(favoritesBlock, /function FavoritesModal\(\{ onClose, sessionId \}: \{ onClose: \(\) => void; sessionId: string \| null \}\) \{/);
+  assert.match(favoritesBlock, /function FavoritesModal\(\{[\s\S]*?onClose,[\s\S]*?sessionId,[\s\S]*?onOpenDirectory,[\s\S]*?\}\)/);
   assert.match(favoritesBlock, /const \{ openPreviewWindow \} = usePreviewWindows\(\);/);
   assert.match(favoritesBlock, /const metadata = await fetchFileMetadata\(sessionId, favorite\.path\);/);
   assert.match(favoritesBlock, /resolveSource: \(path\) => filePreviewSource\(sessionId, path, metadata\.modified_at, metadata\.media_type\),/);
@@ -328,7 +328,7 @@ test("api.ts espone listFavorites/addFavorite/deleteFavorite", () => {
   const api = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
   assert.match(api, /export type Favorite = \{/);
   assert.match(api, /export async function listFavorites\(\): Promise<Favorite\[\]> \{/);
-  assert.match(api, /export async function addFavorite\(path: string, label\?: string \| null\): Promise<Favorite> \{/);
+  assert.match(api, /export async function addFavorite\(path: string, label\?: string \| null, kind: "file" \| "dir" = "file"\): Promise<Favorite> \{/);
   assert.match(api, /export async function deleteFavorite\(id: string\): Promise<void> \{/);
   assert.match(api, /await request\(`\/api\/v1\/favorites\/\$\{encodeURIComponent\(id\)\}`, \{ method: "DELETE" \}\);/);
 });
@@ -339,7 +339,7 @@ test("i punti di ingresso dashboard e Console aprono FavoritesModal, non ristret
   assert.match(sessionList, /<FavoritesModal onClose=\{\(\) => setShowFavorites\(false\)\} sessionId=\{sessions\[0\]\?\.id \?\? null\}/);
   assert.match(console_, /const \[showFavorites, setShowFavorites\] = useState\(false\);/);
   assert.match(console_, /onClick=\{\(\) => setShowFavorites\(true\)\}/);
-  assert.match(console_, /<FavoritesModal onClose=\{\(\) => setShowFavorites\(false\)\} sessionId=\{session\.id\}/);
+  assert.match(console_, /<FavoritesModal\s[\s\S]*?onClose=\{\(\) => setShowFavorites\(false\)\}[\s\S]*?sessionId=\{session\.id\}/);
 });
 
 test("App() avvolge il contenuto sia in FavoritesProvider sia in PreviewWindowsProvider", () => {
