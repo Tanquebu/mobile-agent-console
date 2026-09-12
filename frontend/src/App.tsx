@@ -2520,7 +2520,7 @@ function DirectoryModal({
       return;
     }
 
-    if (!stem || !/^[\p{L}\p{N}_]+$/u.test(stem)) {
+    if (!stem || !/^[\p{L}\p{N}_-]+$/u.test(stem)) {
       setError(translations[readLanguage()].invalidFilenamePattern);
       return;
     }

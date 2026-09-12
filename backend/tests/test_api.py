@@ -1471,15 +1471,14 @@ def test_upload_directory_file_security_and_traversal(tmp_path) -> None:
     )
     assert res1.status_code == 400
 
-    # Invalid filename pattern (contains hyphen or space)
+    # Hyphen is now allowed in filename stem
     res_hyphen = client.post(
         "/api/v1/sessions/1/directory/upload",
         params={"filename": "my-file.md"},
         headers={"X-CSRF-Token": csrf_token},
         content=b"test",
     )
-    assert res_hyphen.status_code == 400
-    assert "Filename must contain only letters, numbers, and underscores" in res_hyphen.json()["detail"]
+    assert res_hyphen.status_code == 201
 
     res_space = client.post(
         "/api/v1/sessions/1/directory/upload",
@@ -1488,7 +1487,7 @@ def test_upload_directory_file_security_and_traversal(tmp_path) -> None:
         content=b"test",
     )
     assert res_space.status_code == 400
-    assert "Filename must contain only letters, numbers, and underscores" in res_space.json()["detail"]
+    assert "Filename must contain only letters, numbers, underscores, and hyphens" in res_space.json()["detail"]
 
     # Path parameter outside allowed roots
     res2 = client.post(
