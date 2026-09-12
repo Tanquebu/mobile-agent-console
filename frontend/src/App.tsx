@@ -154,9 +154,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "File inviati da Claude visibili come card",
+  title: "Preferiti per le directory e trattino nei nomi file",
   description:
-    "Quando Claude usa SendUserFile, i file consegnati appaiono ora nella vista Blocchi come card cliccabili con anteprima — non più solo il nome del tool senza link.",
+    "Le directory possono ora essere aggiunte ai preferiti (★ accanto a ogni cartella nella vista directory): cliccandole si apre direttamente la directory. In upload, i nomi file possono contenere il trattino ('-') oltre a lettere, numeri e underscore.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
