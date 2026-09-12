@@ -301,6 +301,7 @@ def test_favorites_crud_cycle_and_idempotent_create(tmp_path: Path) -> None:
     assert favorite["added_by"] == "admin"
     assert favorite["id"]
     assert favorite["added_at"]
+    assert favorite["kind"] == "file"
 
     # Stesso path, stesso utente: la creazione deve essere idempotente, non
     # un duplicato (la stella in PreviewModal e' un toggle).
@@ -332,6 +333,29 @@ def test_favorites_crud_cycle_and_idempotent_create(tmp_path: Path) -> None:
         "DELETE", "/api/v1/favorites/does-not-exist", headers=headers
     )
     assert not_found.status_code == 404
+
+
+def test_favorites_directory_kind(tmp_path: Path) -> None:
+    """Una directory può essere aggiunta ai preferiti con kind='dir'."""
+    client, _fake, headers = _bootstrapped_client(tmp_path)
+
+    res = client.post(
+        "/api/v1/favorites",
+        headers=headers,
+        json={"path": "/workspace/src", "label": "Sorgenti", "kind": "dir"},
+    )
+    assert res.status_code == 201
+    fav = res.json()
+    assert fav["kind"] == "dir"
+    assert fav["path"] == "/workspace/src"
+
+    # kind non valido deve essere rifiutato
+    bad = client.post(
+        "/api/v1/favorites",
+        headers=headers,
+        json={"path": "/workspace/other", "kind": "symlink"},
+    )
+    assert bad.status_code == 422
 
 
 def test_favorites_are_isolated_per_user(tmp_path: Path) -> None:

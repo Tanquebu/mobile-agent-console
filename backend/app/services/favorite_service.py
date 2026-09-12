@@ -21,7 +21,7 @@ class FavoriteService:
                 )
             )
 
-    def create(self, path: str, label: str | None, added_by: str) -> Favorite:
+    def create(self, path: str, label: str | None, added_by: str, kind: str = "file") -> Favorite:
         with self._sessions.begin() as session:
             existing = session.scalars(
                 select(Favorite).where(
@@ -34,6 +34,7 @@ class FavoriteService:
                 id=uuid4().hex,
                 path=path,
                 label=label,
+                kind=kind,
                 added_by=added_by,
                 added_at=datetime.now(UTC),
             )

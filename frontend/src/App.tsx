@@ -2164,7 +2164,7 @@ type FavoritesContextValue = {
   favoritesLoading: boolean;
   favoritesError: string;
   isFavorite: (path: string) => boolean;
-  toggleFavorite: (path: string) => Promise<void>;
+  toggleFavorite: (path: string, kind?: "file" | "dir") => Promise<void>;
   removeFavoriteById: (id: string) => Promise<void>;
 };
 
@@ -2201,7 +2201,7 @@ function FavoritesProvider({ children, active }: { children: ReactNode; active: 
     [favorites],
   );
 
-  const toggleFavorite = useCallback(async (path: string) => {
+  const toggleFavorite = useCallback(async (path: string, kind: "file" | "dir" = "file") => {
     const existing = favorites.find((item) => item.path === path);
     setFavoritesError("");
     try {
@@ -2209,7 +2209,7 @@ function FavoritesProvider({ children, active }: { children: ReactNode; active: 
         await deleteFavorite(existing.id);
         setFavorites((current) => current.filter((item) => item.id !== existing.id));
       } else {
-        const created = await addFavorite(path);
+        const created = await addFavorite(path, null, kind);
         setFavorites((current) => [created, ...current.filter((item) => item.id !== created.id)]);
       }
     } catch (err) {
@@ -2234,7 +2234,15 @@ function FavoritesProvider({ children, active }: { children: ReactNode; active: 
   return <FavoritesContext.Provider value={value}>{children}</FavoritesContext.Provider>;
 }
 
-function FavoritesModal({ onClose, sessionId }: { onClose: () => void; sessionId: string | null }) {
+function FavoritesModal({
+  onClose,
+  sessionId,
+  onOpenDirectory,
+}: {
+  onClose: () => void;
+  sessionId: string | null;
+  onOpenDirectory: (path: string) => void;
+}) {
   const { favorites, favoritesLoading, favoritesError, removeFavoriteById } = useFavorites();
   const { openPreviewWindow } = usePreviewWindows();
   const t = translations[readLanguage()];
@@ -2243,6 +2251,11 @@ function FavoritesModal({ onClose, sessionId }: { onClose: () => void; sessionId
 
   async function openFavorite(favorite: Favorite) {
     if (!sessionId) return;
+    if (favorite.kind === "dir") {
+      onOpenDirectory(favorite.path);
+      onClose();
+      return;
+    }
     setOpening(favorite.id);
     setOpenError("");
     try {
@@ -2288,7 +2301,7 @@ function FavoritesModal({ onClose, sessionId }: { onClose: () => void; sessionId
                   disabled={!sessionId || opening === favorite.id}
                   title={favorite.path}
                 >
-                  <FileTypeIcon type="file" name={favorite.path} />
+                  <FileTypeIcon type={favorite.kind === "dir" ? "dir" : "file"} name={favorite.path} />
                   <span className="favorites-item-name">{favorite.label || favorite.path}</span>
                 </button>
                 <button
@@ -2314,14 +2327,16 @@ function DirectoryModal({
   onMinimize,
   onRestore,
   onClose,
+  initialPath,
 }: {
   sessionId: string;
   minimized: boolean;
   onMinimize: () => void;
   onRestore: () => void;
   onClose: () => void;
+  initialPath?: string;
 }) {
-  const [currentPath, setCurrentPath] = useState<string | undefined>(undefined);
+  const [currentPath, setCurrentPath] = useState<string | undefined>(initialPath);
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -2335,6 +2350,7 @@ function DirectoryModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLElement>(null);
   const { openPreviewWindow, hasActivePreviewWindow } = usePreviewWindows();
+  const { isFavorite, toggleFavorite } = useFavorites();
 
   const dirStats = useMemo(() => {
     if (!listing) return null;
@@ -2840,6 +2856,18 @@ function DirectoryModal({
                             <polyline points="7 10 12 15 17 10" />
                             <line x1="12" y1="15" x2="12" y2="3" />
                           </svg>
+                        </button>
+                      )}
+                      {entry.type === "dir" && listing && (
+                        <button
+                          type="button"
+                          className="directory-icon-btn preview-favorite-toggle"
+                          onClick={() => void toggleFavorite(joinPath(listing.path, entry.name), "dir")}
+                          aria-pressed={isFavorite(joinPath(listing.path, entry.name))}
+                          aria-label={isFavorite(joinPath(listing.path, entry.name)) ? translations[readLanguage()].removeFavorite : translations[readLanguage()].addFavorite}
+                          title={isFavorite(joinPath(listing.path, entry.name)) ? translations[readLanguage()].removeFavorite : translations[readLanguage()].addFavorite}
+                        >
+                          {isFavorite(joinPath(listing.path, entry.name)) ? "★" : "☆"}
                         </button>
                       )}
                     </li>
@@ -7125,7 +7153,8 @@ function Console({
   const [sendingArtifactPrompt, setSendingArtifactPrompt] = useState(false);
   const [sendingArchiveSummaryPrompt, setSendingArchiveSummaryPrompt] = useState(false);
   const [directoryState, setDirectoryState] = useState<"closed" | "open" | "minimized">("closed");
-  useEffect(() => { setDirectoryState("closed"); }, [session.id]);
+  const [directoryInitialPath, setDirectoryInitialPath] = useState<string | undefined>(undefined);
+  useEffect(() => { setDirectoryState("closed"); setDirectoryInitialPath(undefined); }, [session.id]);
   const [showArtifacts, setShowArtifacts] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
   const [fullscreenOutput, setFullscreenOutput] = useState(false);
@@ -8558,14 +8587,23 @@ function Console({
             minimized={directoryState === "minimized"}
             onMinimize={() => setDirectoryState("minimized")}
             onRestore={() => setDirectoryState("open")}
-            onClose={() => setDirectoryState("closed")}
+            onClose={() => { setDirectoryState("closed"); setDirectoryInitialPath(undefined); }}
+            initialPath={directoryInitialPath}
           />
         )}
         {showArtifacts && (
           <ArtifactsModal sessionId={session.id} onClose={() => setShowArtifacts(false)} />
         )}
         {showFavorites && (
-          <FavoritesModal onClose={() => setShowFavorites(false)} sessionId={session.id} />
+          <FavoritesModal
+            onClose={() => setShowFavorites(false)}
+            sessionId={session.id}
+            onOpenDirectory={(path) => {
+              setDirectoryInitialPath(path);
+              setDirectoryState("open");
+              setShowFavorites(false);
+            }}
+          />
         )}
         <div className="actions">
           <button

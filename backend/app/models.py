@@ -107,7 +107,9 @@ class Favorite(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
     path: Mapped[str] = mapped_column(String(4096))
     label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    kind: Mapped[str] = mapped_column(String(8), default="file")
     added_by: Mapped[str] = mapped_column(String(64), index=True)
     added_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+

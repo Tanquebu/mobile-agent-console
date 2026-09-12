@@ -1607,7 +1607,7 @@ def create_app(
         user = active_user(cookie)
         username = user.username if user is not None else "legacy"
         item = await asyncio.to_thread(
-            favorite_service().create, payload.path, payload.label, username
+            favorite_service().create, payload.path, payload.label, username, payload.kind
         )
         return FavoriteView.model_validate(item, from_attributes=True)
 

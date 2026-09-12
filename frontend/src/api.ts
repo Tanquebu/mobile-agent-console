@@ -933,6 +933,7 @@ export type Favorite = {
   id: string;
   path: string;
   label: string | null;
+  kind: "file" | "dir";
   added_by: string;
   added_at: string;
 };
@@ -942,10 +943,10 @@ export async function listFavorites(): Promise<Favorite[]> {
   return (await response.json()).favorites;
 }
 
-export async function addFavorite(path: string, label?: string | null): Promise<Favorite> {
+export async function addFavorite(path: string, label?: string | null, kind: "file" | "dir" = "file"): Promise<Favorite> {
   const response = await request("/api/v1/favorites", {
     method: "POST",
-    body: JSON.stringify({ path, label: label ?? null }),
+    body: JSON.stringify({ path, label: label ?? null, kind }),
   });
   return response.json();
 }

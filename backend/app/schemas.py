@@ -503,6 +503,7 @@ class FavoriteView(BaseModel):
     id: str
     path: str
     label: str | None
+    kind: str = "file"
     added_by: str
     added_at: datetime
 
@@ -514,3 +515,4 @@ class FavoriteList(BaseModel):
 class FavoriteInput(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
     label: str | None = Field(default=None, max_length=255)
+    kind: str = Field(default="file", pattern="^(file|dir)$")
