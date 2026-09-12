@@ -103,11 +103,11 @@ test("i file MP4 sono ammessi dall'uploader di progetto e restano scaricabili", 
   assert.match(app, /const defaultAllowedExtensions = \[[\s\S]*"\.mp4"/);
 });
 
-test("l'uploader accetta il trattino ASCII e descrive correttamente i caratteri ammessi", () => {
+test("l'uploader accetta trattino e cancelletto e descrive correttamente i caratteri ammessi", () => {
   const i18n = readFileSync(new URL("../src/i18n.ts", import.meta.url), "utf8");
-  assert.match(directoryModal, /\/\[\^\\p\{L\}\\p\{N\}_-\]\/u\.test\(stem\)/);
+  assert.match(directoryModal, /\/\[\^\\p\{L\}\\p\{N\}_#-\]\/u\.test\(stem\)/);
   assert.match(directoryModal, /`\$\{file\.name\}: \$\{translations\[readLanguage\(\)\]\.invalidFilenamePattern\}`/);
-  assert.match(i18n, /underscore \(_\) e trattini \(-\), senza spazi/);
+  assert.match(i18n, /trattini \(-\) e cancelletti \(#\), senza spazi/);
 });
 
 test("i file M4A aprono il player audio in directory e artefatti", () => {

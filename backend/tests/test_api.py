@@ -1480,6 +1480,14 @@ def test_upload_directory_file_security_and_traversal(tmp_path) -> None:
     )
     assert res_hyphen.status_code == 201
 
+    res_hash = client.post(
+        "/api/v1/sessions/1/directory/upload",
+        params={"filename": "mix-#1.md"},
+        headers={"X-CSRF-Token": csrf_token},
+        content=b"test",
+    )
+    assert res_hash.status_code == 201
+
     res_trailing_newline = client.post(
         "/api/v1/sessions/1/directory/upload",
         params={"filename": "my-file\n.md"},
@@ -1495,7 +1503,7 @@ def test_upload_directory_file_security_and_traversal(tmp_path) -> None:
         content=b"test",
     )
     assert res_space.status_code == 400
-    assert "Filename must contain only letters, numbers, underscores, and hyphens" in res_space.json()["detail"]
+    assert "Filename must contain only letters, numbers, underscores, hyphens, and hashes" in res_space.json()["detail"]
 
     # Path parameter outside allowed roots
     res2 = client.post(

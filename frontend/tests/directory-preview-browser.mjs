@@ -426,7 +426,7 @@ try {
       if (path === "/api/v1/sessions/9/panes") return json(route, { panes: [] });
       if (path === "/api/v1/sessions/9/directory/upload" && request.method() === "POST") {
         directoryUploads.push(url.searchParams.get("filename"));
-        return json(route, { session_id: "9", path: "/workspace/my-file.mp3", name: "my-file.mp3", size: 4 }, 201);
+        return json(route, { session_id: "9", path: "/workspace/mix-#1.mp3", name: "mix-#1.mp3", size: 4 }, 201);
       }
       if (path === "/api/v1/sessions/9/directory") {
         return json(route, {
@@ -479,12 +479,12 @@ try {
     await favPage.getByRole("button", { name: "Contenuto directory", exact: true }).click();
 
     await favPage.getByRole("dialog", { name: "/workspace" }).locator('input[type="file"]').setInputFiles({
-      name: "my-file.mp3",
+      name: "mix-#1.mp3",
       mimeType: "audio/mpeg",
       buffer: Buffer.from("test"),
     });
     await favPage.getByText("File caricato con successo!").waitFor();
-    assert.deepEqual(directoryUploads, ["my-file.mp3"]);
+    assert.deepEqual(directoryUploads, ["mix-#1.mp3"]);
 
     const directoryRow = favPage.locator(".directory-entry", { hasText: "src-dir" });
     await directoryRow.getByRole("button", { name: "Aggiungi ai preferiti" }).click();
