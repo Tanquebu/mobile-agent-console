@@ -154,9 +154,9 @@ const SESSION_NAME_PATTERN = /^[\p{L}\p{N}_-]+(?: [\p{L}\p{N}_-]+)*$/u;
 const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spazi singoli; massimo 64 caratteri";
 
 const LATEST_RELEASE = {
-  title: "Lettura stabile dei blocchi live",
+  title: "File inviati da Claude visibili come card",
   description:
-    "Quando interrompi Segui output per leggere, i nuovi blocchi live non spostano più il punto del testo che stai consultando.",
+    "Quando Claude usa SendUserFile, i file consegnati appaiono ora nella vista Blocchi come card cliccabili con anteprima — non più solo il nome del tool senza link.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -446,6 +446,13 @@ type PreviewPathHandler = (path: string) => void;
 const BLOCK_PREVIEW_PATH_RE = /[^\s<>"'`()\[\]{}]*\/(?:\r?\n[ \t]*)?[^\s<>"'`()\[\]{}]+?(?:\r?\n[ \t]*(?!\/)[^\s<>"'`()\[\]{}]+)*?\.(?:md|markdown|mp3|m4a|mp4|jpe?g|png|webp)(?=$|[\s,.;:!?"'`)\]}])/gi;
 const EXACT_BLOCK_PREVIEW_PATH_RE = /^[^\n\0]*\/[^\n\0]+\.(?:md|markdown|mp3|m4a|mp4|jpe?g|png|webp)$/i;
 
+// Regex specifica per i path inviati esplicitamente con SendUserFile:
+// il normalizzatore backend li formatta come "[file] /percorso/qualunque".
+// A differenza di BLOCK_PREVIEW_PATH_RE, non richiede un'estensione specifica
+// — qualunque file inviato dall'agente deve diventare una card cliccabile.
+// Il gruppo 1 cattura il path dopo il prefisso "[file] ".
+const SEND_FILE_PATH_RE = /^\s*\[file\]\s+([^\s<>"'`()[\]{}][^\n<>"'`[\]{}]*)/i;
+
 function previewPathParts(text: string) {
   const parts: Array<{ value: string; path: string | null }> = [];
   let lastIndex = 0;
@@ -478,7 +485,13 @@ type FileMention = { path: string; size: string | null };
 function standaloneFileMention(text: string): FileMention | null {
   const parts = previewPathParts(text.trim());
   const pathIndex = parts.findIndex((part) => part.path);
-  if (pathIndex === -1 || parts.some((part, idx) => idx !== pathIndex && part.path)) return null;
+  if (pathIndex === -1 || parts.some((part, idx) => idx !== pathIndex && part.path)) {
+    // Nessun path con estensione media riconosciuta: prova il formato
+    // "[file] /percorso" emesso dal normalizzatore per SendUserFile.
+    const m = SEND_FILE_PATH_RE.exec(text.trim());
+    if (m) return { path: m[1].trim(), size: null };
+    return null;
+  }
   const before = parts.slice(0, pathIndex).map((part) => part.value).join("");
   const after = parts.slice(pathIndex + 1).map((part) => part.value).join("");
   if (!FILE_MENTION_PREFIX_RE.test(before)) return null;

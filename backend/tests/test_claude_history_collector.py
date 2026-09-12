@@ -288,3 +288,103 @@ def test_atomic_write_is_private_and_replaces_previous_file(tmp_path) -> None:
     atomic_json_write(output, {"version": 1, "sessions": [{"session_id": "1"}]})
     assert '"session_id":"1"' in output.read_text(encoding="utf-8")
     assert not list(tmp_path.glob(".claude-history-*"))
+
+
+def test_send_user_file_survives_as_text() -> None:
+    # File singolo con caption: il normalizzatore li emette come testo conversazionale.
+    tool_use = {
+        "type": "tool_use",
+        "id": "toolu_sf1",
+        "name": "SendUserFile",
+        "input": {
+            "files": ["/tmp/output/result.mp4"],
+            "caption": "Ecco il video finale.",
+            "status": "normal",
+        },
+    }
+    result = text_content(
+        {"type": "assistant", "message": {"role": "assistant", "content": [tool_use]}},
+        frozenset(),
+    )
+    assert result is not None
+    role, content = result
+    assert role == "assistant"
+    assert "Ecco il video finale." in content
+    assert "[file] /tmp/output/result.mp4" in content
+
+    # File multipli senza caption: ogni path su paragrafo separato (doppio \n).
+    tool_use_multi = {
+        "type": "tool_use",
+        "id": "toolu_sf2",
+        "name": "SendUserFile",
+        "input": {
+            "files": ["/out/a.png", "/out/b.png"],
+            "status": "normal",
+        },
+    }
+    result2 = text_content(
+        {"type": "assistant", "message": {"role": "assistant", "content": [tool_use_multi]}},
+        frozenset(),
+    )
+    assert result2 is not None
+    _, content2 = result2
+    assert "[file] /out/a.png" in content2
+    assert "[file] /out/b.png" in content2
+    # I due path devono essere su paragrafi separati.
+    assert "\n\n" in content2
+
+    # Nessun file: il tool viene ignorato come un'activity normale.
+    tool_use_empty = {
+        "type": "tool_use",
+        "id": "toolu_sf3",
+        "name": "SendUserFile",
+        "input": {"files": [], "status": "normal"},
+    }
+    assert (
+        text_content(
+            {"type": "assistant", "message": {"role": "assistant", "content": [tool_use_empty]}},
+            frozenset(),
+        )
+        is None
+    )
+
+
+def test_send_user_file_in_full_transcript(tmp_path) -> None:
+    transcript = tmp_path / "session.jsonl"
+    import json as _json
+    transcript.write_text(
+        "\n".join(
+            [
+                _json.dumps(
+                    {
+                        "type": "assistant",
+                        "uuid": "a1",
+                        "timestamp": "2026-09-12T10:00:00Z",
+                        "message": {
+                            "role": "assistant",
+                            "content": [
+                                {
+                                    "type": "tool_use",
+                                    "id": "toolu_01",
+                                    "name": "SendUserFile",
+                                    "input": {
+                                        "files": ["/home/max/projects/basole/render/clip-05.png"],
+                                        "caption": "Ultimo fotogramma della clip 05.",
+                                        "status": "normal",
+                                    },
+                                }
+                            ],
+                        },
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = normalize_transcript(transcript)
+    messages = result["messages"]
+    assert len(messages) == 1
+    assert messages[0]["kind"] == "message"
+    assert messages[0]["role"] == "assistant"
+    assert "Ultimo fotogramma della clip 05." in messages[0]["content"]
+    assert "[file] /home/max/projects/basole/render/clip-05.png" in messages[0]["content"]

@@ -151,3 +151,27 @@ e più preciso di `session_created`, immune anche al riuso dello stesso
 pane all'interno di una sessione tmux longeva), con fallback sulla ricerca
 già esistente per PID (`claude_transcript`) quando la cache è assente o
 stantia.
+
+## Addendum: eccezione mirata per `SendUserFile`
+
+`SendUserFile` è un tool Claude il cui unico scopo è consegnare uno o più
+file all'utente con una caption opzionale. Il suo input (`files`, `caption`)
+è informazione **destinata all'utente**, non contenuto interno di file o
+comandi — esattamente come `AskUserQuestion`. Senza un carve-out, sia la
+caption sia i path dei file svanirebbero dalla cronologia (nessun blocco
+`text` nel turno assistant), lasciando un buco nel posto meno opportuno:
+proprio quando l'agente ha consegnato un risultato.
+
+Il normalizzatore (`claude_transcript_normalizer.py`) tratta `SendUserFile`
+come testo di tipo `message` (non `activity`), estraendo:
+
+- la `caption` come primo paragrafo (se presente);
+- ogni path in `files` come paragrafo separato nel formato `[file] /percorso`,
+  riconoscibile dal frontend come card cliccabile.
+
+Il frontend (`App.tsx`) estende `standaloneFileMention` con una regex
+`SEND_FILE_PATH_RE` che riconosce il prefisso `[file] ` senza vincoli di
+estensione, garantendo una `BlockFileCard` per qualunque tipo di file inviato
+dall'agente — non solo per le estensioni media già supportate da
+`BLOCK_PREVIEW_PATH_RE`.
+

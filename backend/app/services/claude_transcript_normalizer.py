@@ -15,7 +15,15 @@ MAX_MESSAGE_CHARS = 32 * 1024
 # command content. Without this carve-out, both the question and the answer
 # vanish from the history (no "text" content block on either side), leaving
 # a confusing gap right where the reader most needs continuity.
+#
+# SendUserFile shares the same rationale: its input contains a list of file
+# paths and an optional caption that are explicitly addressed to the user
+# (the tool's whole purpose is delivery, not internal processing).  Like
+# AskUserQuestion, including this information does not reopen the generic
+# tool I/O boundary of ADR 007 point 3 — it is user-facing content, not
+# command or file body content.
 ASK_USER_QUESTION_TOOL = "AskUserQuestion"
+SEND_USER_FILE_TOOL = "SendUserFile"
 
 
 def utc_timestamp(value: float | None = None) -> str:
@@ -80,6 +88,23 @@ def _ask_user_question_text(item: dict[str, object]) -> str | None:
     return "\n\n".join(blocks) if blocks else None
 
 
+def _send_user_file_text(item: dict[str, object]) -> str | None:
+    tool_input = item.get("input")
+    if not isinstance(tool_input, dict):
+        return None
+    files = tool_input.get("files")
+    caption = tool_input.get("caption")
+    file_paths = [f for f in (files or []) if isinstance(f, str) and f.strip()]
+    if not file_paths:
+        return None
+    parts: list[str] = []
+    if isinstance(caption, str) and caption.strip():
+        parts.append(caption.strip())
+    # Each path on its own paragraph so the frontend renders a separate card.
+    for path in file_paths:
+        parts.append(f"[file] {path.strip()}")
+    return "\n\n".join(parts)
+
 def _tool_names(record: dict[str, object]) -> str | None:
     if (
         record.get("type") != "assistant"
@@ -137,6 +162,14 @@ def text_content(record: dict[str, object], ask_ids: frozenset[str] = frozenset(
                     and item.get("name") == ASK_USER_QUESTION_TOOL
                 ):
                     synthesized = _ask_user_question_text(item)
+                    if synthesized:
+                        parts.append(synthesized)
+                elif (
+                    isinstance(item, dict)
+                    and item.get("type") == "tool_use"
+                    and item.get("name") == SEND_USER_FILE_TOOL
+                ):
+                    synthesized = _send_user_file_text(item)
                     if synthesized:
                         parts.append(synthesized)
         elif not parts and role == "user":
