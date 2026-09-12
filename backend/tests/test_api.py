@@ -1480,6 +1480,14 @@ def test_upload_directory_file_security_and_traversal(tmp_path) -> None:
     )
     assert res_hyphen.status_code == 201
 
+    res_trailing_newline = client.post(
+        "/api/v1/sessions/1/directory/upload",
+        params={"filename": "my-file\n.md"},
+        headers={"X-CSRF-Token": csrf_token},
+        content=b"test",
+    )
+    assert res_trailing_newline.status_code == 400
+
     res_space = client.post(
         "/api/v1/sessions/1/directory/upload",
         params={"filename": "my file.md"},

@@ -155,9 +155,9 @@ const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spa
 const OPEN_DIRECTORY_EVENT = "mac:open-directory";
 
 const LATEST_RELEASE = {
-  title: "Apri la cartella di un file",
+  title: "Upload con trattino nei nomi file",
   description:
-    "Nell’anteprima file, il nuovo comando “Apri percorso” apre direttamente la cartella che contiene il file. L’anteprima viene ridotta a icona e resta disponibile.",
+    "I nomi file con trattini, come “my-file.mp3”, sono accettati negli upload. In caso di altri caratteri non ammessi, il messaggio mostra il nome selezionato e le regole applicate.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -2556,8 +2556,8 @@ function DirectoryModal({
       return;
     }
 
-    if (!stem || !/^[\p{L}\p{N}_-]+$/u.test(stem)) {
-      setError(translations[readLanguage()].invalidFilenamePattern);
+    if (!stem || /[^\p{L}\p{N}_-]/u.test(stem)) {
+      setError(`${file.name}: ${translations[readLanguage()].invalidFilenamePattern}`);
       return;
     }
 

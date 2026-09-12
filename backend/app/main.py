@@ -2068,7 +2068,7 @@ def create_app(
             raise HTTPException(400, f"File extension '{ext}' is not allowed")
 
         stem = safe_name[: -len(ext)] if ext else safe_name
-        if not stem or not re.match(r"^[\w-]+$", stem):
+        if not stem or not re.fullmatch(r"[\w-]+", stem):
             raise HTTPException(
                 400, "Filename must contain only letters, numbers, underscores, and hyphens"
             )

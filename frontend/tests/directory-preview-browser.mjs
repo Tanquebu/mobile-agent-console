@@ -408,6 +408,7 @@ try {
   // GET/POST/DELETE /api/v1/favorites.
   {
     const favoritesRequests = [];
+    const directoryUploads = [];
     let favoritesStore = [];
     let favoriteSeq = 0;
     const favContext = await browser.newContext({ viewport: { width: 375, height: 667 }, locale: "it-IT" });
@@ -423,6 +424,10 @@ try {
       if (path === "/api/v1/agent-statuses") return json(route, { statuses: [] });
       if (path === "/api/v1/provider-rate-limits" || path === "/api/v1/orchestrator-state") return json(route, null);
       if (path === "/api/v1/sessions/9/panes") return json(route, { panes: [] });
+      if (path === "/api/v1/sessions/9/directory/upload" && request.method() === "POST") {
+        directoryUploads.push(url.searchParams.get("filename"));
+        return json(route, { session_id: "9", path: "/workspace/my-file.mp3", name: "my-file.mp3", size: 4 }, 201);
+      }
       if (path === "/api/v1/sessions/9/directory") {
         return json(route, {
           session_id: "9",
@@ -472,6 +477,14 @@ try {
     await favPage.getByRole("button", { name: "Funzioni", exact: true }).click();
     await favPage.locator(".special-section-toggle").click();
     await favPage.getByRole("button", { name: "Contenuto directory", exact: true }).click();
+
+    await favPage.getByRole("dialog", { name: "/workspace" }).locator('input[type="file"]').setInputFiles({
+      name: "my-file.mp3",
+      mimeType: "audio/mpeg",
+      buffer: Buffer.from("test"),
+    });
+    await favPage.getByText("File caricato con successo!").waitFor();
+    assert.deepEqual(directoryUploads, ["my-file.mp3"]);
 
     const directoryRow = favPage.locator(".directory-entry", { hasText: "src-dir" });
     await directoryRow.getByRole("button", { name: "Aggiungi ai preferiti" }).click();
