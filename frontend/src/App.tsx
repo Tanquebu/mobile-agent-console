@@ -160,7 +160,7 @@ const OPEN_DIRECTORY_EVENT = "mac:open-directory";
 const LATEST_RELEASE = {
   title: "Modifica dei file Markdown",
   description:
-    "Dalle anteprime puoi modificare i file Markdown del workspace, vedere il risultato e salvare. Le modifiche concorrenti vengono segnalate senza sovrascriverle.",
+    "Dalle anteprime puoi modificare i file Markdown del workspace, vedere il risultato e salvare. Controlli uniformati al resto dell’app e segnalazione delle modifiche concorrenti prima del salvataggio.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1969,10 +1969,12 @@ function MarkdownEditor({ sessionId, path, onClose }: { sessionId: string; path:
         {!file && !error && <p role="status">{t.loading}</p>}
         {file && <>
           <div className="markdown-editor-actions">
-            <button type="button" aria-pressed={!preview} onClick={() => setPreview(false)}>{t.sourceView}</button>
-            <button type="button" aria-pressed={preview} onClick={() => setPreview(true)}>{t.renderedView}</button>
-            <button type="button" disabled={saving || !dirty || tooLarge} onClick={() => void save()}>{saving ? t.loading : t.save}</button>
-            <button type="button" disabled={saving} onClick={close}>{t.close}</button>
+            <div className="preview-toggle-group">
+              <button type="button" className={`preview-toggle-btn${!preview ? " active" : ""}`} aria-pressed={!preview} onClick={() => setPreview(false)}>{t.sourceView}</button>
+              <button type="button" className={`preview-toggle-btn${preview ? " active" : ""}`} aria-pressed={preview} onClick={() => setPreview(true)}>{t.renderedView}</button>
+            </div>
+            <button type="button" className="action-button" disabled={saving || !dirty || tooLarge} onClick={() => void save()}>{saving ? t.loading : t.save}</button>
+            <button type="button" className="action-button secondary" disabled={saving} onClick={close}>{t.close}</button>
           </div>
           <p role="status">{tooLarge ? t.markdownTooLarge : dirty ? t.markdownUnsaved : saved ? t.markdownSaved : ""}</p>
           {preview ? <div className="chat-markdown markdown-editor-preview"><MarkdownContent content={draft} /></div> : (
@@ -2146,7 +2148,7 @@ function PreviewModal({
       </header>
       <div className="preview-toolbar">
         {source.kind === "markdown" && source.sessionId && editable && !loading && !error && markdownEditor && (
-          <button type="button" onClick={() => markdownEditor(source.sessionId!, source.name)}>{t.editMarkdown}</button>
+          <button type="button" className="preview-option-btn" onClick={() => markdownEditor(source.sessionId!, source.name)}>{t.editMarkdown}</button>
         )}
         <nav className="preview-navigation" aria-label={t.previewNavigation}>
           <button

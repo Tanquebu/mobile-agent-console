@@ -417,9 +417,9 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 textarea { width: 100%; resize: none; border: 1px solid #344b3b; border-radius: 14px; padding: 12px; outline: none; background: #18231c; color: white; }
 textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .actions { display: grid; grid-template-columns: 1fr 1fr 1fr 1.5fr; gap: 8px; margin-top: 8px; }
-.actions button { border: 0; border-radius: 12px; padding: 0 14px; background: #75d493; color: #092111; font-weight: 750; }
+.actions button, .action-button { border: 0; border-radius: 12px; padding: 0 14px; background: #75d493; color: #092111; font-weight: 750; }
 .action-icon { display: block; width: 20px; height: 20px; margin: 0 auto; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.actions button.secondary { border: 1px solid #3a5142; background: #1b2820; color: #d2e3d7; }
+.actions button.secondary, .action-button.secondary { border: 1px solid #3a5142; background: #1b2820; color: #d2e3d7; }
 .actions button.special-toggle[aria-expanded="true"],
 .actions button.special-toggle.active {
   border-color: #4da073;
@@ -427,7 +427,7 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
   color: #8ee2aa;
   box-shadow: inset 0 0 0 1px #4da073, 0 0 10px rgba(117, 212, 147, 0.25);
 }
-.actions button:disabled { opacity: .45; cursor: default; }
+.actions button:disabled, .action-button:disabled { opacity: .45; cursor: default; }
 .special-actions {
   position: absolute;
   bottom: calc(100% + 6px);
@@ -1128,7 +1128,10 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .markdown-editor-backdrop { z-index: 120; }
 .markdown-editor { width: min(960px, 100%); height: min(850px, 92dvh); display: flex; flex-direction: column; min-height: 0; }
 .markdown-editor-path { overflow-wrap: anywhere; margin: 8px 0; font-size: .85rem; }
-.markdown-editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.markdown-editor-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.markdown-editor-actions .preview-toggle-btn { min-height: 44px; }
+.markdown-editor-actions .action-button { font-size: .8rem; }
+.markdown-editor-actions button:focus-visible { outline: 2px solid #9be5b3; outline-offset: 2px; }
 .markdown-editor-input { flex: 1; width: 100%; min-height: 160px; resize: none; font: 16px/1.5 monospace; tab-size: 2; }
 .markdown-editor-preview { flex: 1; min-height: 0; overflow: auto; overflow-wrap: anywhere; }
 .markdown-editor [role="status"] { min-height: 1.5em; margin: 8px 0; }
