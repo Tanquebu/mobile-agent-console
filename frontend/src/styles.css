@@ -1123,3 +1123,16 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
   border-radius: 14px;
   background: #fff;
 }
+
+/* Markdown editing is independent of preview window mounting/minimizing. */
+.markdown-editor-backdrop { z-index: 120; }
+.markdown-editor { width: min(960px, 100%); height: min(850px, 92dvh); display: flex; flex-direction: column; min-height: 0; }
+.markdown-editor-path { overflow-wrap: anywhere; margin: 8px 0; font-size: .85rem; }
+.markdown-editor-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.markdown-editor-input { flex: 1; width: 100%; min-height: 160px; resize: none; font: 16px/1.5 monospace; tab-size: 2; }
+.markdown-editor-preview { flex: 1; min-height: 0; overflow: auto; overflow-wrap: anywhere; }
+.markdown-editor [role="status"] { min-height: 1.5em; margin: 8px 0; }
+@media (max-width: 719px) {
+  .markdown-editor-backdrop { padding: 0; }
+  .markdown-editor { height: 100dvh; max-height: 100dvh; border-radius: 0; }
+}

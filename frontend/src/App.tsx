@@ -37,6 +37,9 @@ import {
   fetchDirectory,
   uploadDirectoryFile,
   fetchFile,
+  fetchMarkdown,
+  saveMarkdown,
+  MarkdownFile,
   fetchFileMetadata,
   fetchHostObservability,
   fetchOrchestratorState,
@@ -155,9 +158,9 @@ const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spa
 const OPEN_DIRECTORY_EVENT = "mac:open-directory";
 
 const LATEST_RELEASE = {
-  title: "Upload con trattino e cancelletto",
+  title: "Modifica dei file Markdown",
   description:
-    "I nomi file possono contenere trattini e cancelletti, come “mix-#1.mp3”. In caso di altri caratteri non ammessi, il messaggio mostra il nome selezionato e le regole applicate.",
+    "Dalle anteprime puoi modificare i file Markdown del workspace, vedere il risultato e salvare. Le modifiche concorrenti vengono segnalate senza sovrascriverle.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -1295,6 +1298,7 @@ const PREVIEWABLE_HTML = /\.html?$/i;
 type PreviewKind = "image" | "video" | "audio" | "text" | "markdown" | "html";
 
 type PreviewContent = {
+  editable?: boolean;
   content: string;
   truncated: boolean;
 };
@@ -1516,7 +1520,7 @@ function filePreviewSource(
     name: path,
     modifiedAt,
     url: isMedia ? filePreviewUrl(sessionId, path) : null,
-    fetchContent: () => fetchFile(sessionId, path).then((file) => ({ content: file.content, truncated: file.truncated })),
+    fetchContent: () => fetchFile(sessionId, path).then((file) => ({ content: file.content, truncated: file.truncated, editable: file.editable })),
     eyebrow: translations[readLanguage()].readOnlyFile,
     favoritePath: path,
     sessionId,
@@ -1875,6 +1879,112 @@ function PreviewWindowHost({ entry }: { entry: PreviewWindowState }) {
   );
 }
 
+const MarkdownEditorContext = createContext<((sessionId: string, path: string) => void) | null>(null);
+
+function MarkdownEditorProvider({ children, canEdit }: { children: ReactNode; canEdit: boolean }) {
+  const [target, setTarget] = useState<{ sessionId: string; path: string } | null>(null);
+  useEffect(() => { if (!canEdit) setTarget(null); }, [canEdit]);
+  return (
+    <MarkdownEditorContext.Provider value={canEdit ? (sessionId, path) => setTarget({ sessionId, path }) : null}>
+      {children}
+      {canEdit && target && <MarkdownEditor key={`${target.sessionId}:${target.path}`} {...target} onClose={() => setTarget(null)} />}
+    </MarkdownEditorContext.Provider>
+  );
+}
+
+function MarkdownEditor({ sessionId, path, onClose }: { sessionId: string; path: string; onClose: () => void }) {
+  const t = translations[readLanguage()];
+  const [file, setFile] = useState<MarkdownFile | null>(null);
+  const [draft, setDraft] = useState("");
+  const [preview, setPreview] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const dialogRef = useRef<HTMLElement>(null);
+  const dirty = file !== null && draft !== file.content;
+  const tooLarge = new TextEncoder().encode(draft).length > 256 * 1024;
+  const close = useCallback(() => {
+    if (!saving && (!dirty || window.confirm(t.markdownDiscard))) onClose();
+  }, [saving, dirty, t.markdownDiscard, onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchMarkdown(sessionId, path).then((value) => {
+      if (!cancelled) { setFile(value); setDraft(value.content); }
+    }).catch((value) => { if (!cancelled) setError(errorMessage(value)); });
+    return () => { cancelled = true; };
+  }, [sessionId, path]);
+
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    return () => previous?.focus();
+  }, []);
+
+  useEffect(() => {
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (dirty || saving) { event.preventDefault(); event.returnValue = ""; }
+    };
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault(); event.stopImmediatePropagation(); close();
+      }
+      if (event.key === "Tab") {
+        const items = dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), textarea:not(:disabled)');
+        if (!items?.length) return;
+        const first = items[0]; const last = items[items.length - 1];
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) {
+          event.preventDefault(); last.focus();
+        } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialogRef.current)) {
+          event.preventDefault(); first.focus();
+        }
+      }
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    window.addEventListener("keydown", keydown, true);
+    return () => {
+      window.removeEventListener("beforeunload", beforeUnload);
+      window.removeEventListener("keydown", keydown, true);
+    };
+  }, [dirty, saving, close]);
+
+  async function save() {
+    if (!file || saving || tooLarge) return;
+    setSaving(true); setError(""); setSaved(false);
+    try {
+      const value = await saveMarkdown(sessionId, { ...file, content: draft });
+      setFile(value); setDraft(value.content); setSaved(true);
+      window.dispatchEvent(new Event("mac-markdown-saved"));
+    } catch (value) {
+      setError(value instanceof ApiError && value.status === 409 ? t.markdownConflict : errorMessage(value));
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <div className="modal-backdrop markdown-editor-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>
+      <section ref={dialogRef} tabIndex={-1} className="help-modal markdown-editor" role="dialog" aria-modal="true" aria-label={t.editMarkdown}>
+        <header><h2>{t.editMarkdown}</h2><button type="button" className="modal-close" disabled={saving} onClick={close} aria-label={t.close}>×</button></header>
+        <p className="markdown-editor-path">{path}</p>
+        {error && <p role="alert" className="error">{error}</p>}
+        {!file && !error && <p role="status">{t.loading}</p>}
+        {file && <>
+          <div className="markdown-editor-actions">
+            <button type="button" aria-pressed={!preview} onClick={() => setPreview(false)}>{t.sourceView}</button>
+            <button type="button" aria-pressed={preview} onClick={() => setPreview(true)}>{t.renderedView}</button>
+            <button type="button" disabled={saving || !dirty || tooLarge} onClick={() => void save()}>{saving ? t.loading : t.save}</button>
+            <button type="button" disabled={saving} onClick={close}>{t.close}</button>
+          </div>
+          <p role="status">{tooLarge ? t.markdownTooLarge : dirty ? t.markdownUnsaved : saved ? t.markdownSaved : ""}</p>
+          {preview ? <div className="chat-markdown markdown-editor-preview"><MarkdownContent content={draft} /></div> : (
+            <textarea className="markdown-editor-input" aria-label={t.markdownSource} value={draft} disabled={saving} spellCheck={false}
+              onChange={(event) => { setDraft(event.target.value); setSaved(false); }} />
+          )}
+        </>}
+      </section>
+    </div>
+  );
+}
+
 function PreviewModal({
   source,
   navigation,
@@ -1890,6 +2000,14 @@ function PreviewModal({
 }) {
   const [content, setContent] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
+  const [editable, setEditable] = useState(false);
+  const markdownEditor = useContext(MarkdownEditorContext);
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  useEffect(() => {
+    const refresh = () => setRefreshVersion((value) => value + 1);
+    window.addEventListener("mac-markdown-saved", refresh);
+    return () => window.removeEventListener("mac-markdown-saved", refresh);
+  }, []);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -1931,6 +2049,7 @@ function PreviewModal({
         if (cancelled) return;
         setContent(value.content);
         setTruncated(value.truncated);
+        setEditable(value.editable === true);
       })
       .catch((value) => {
         if (!cancelled) {
@@ -1940,7 +2059,7 @@ function PreviewModal({
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [isText, source.kind, source.name]);
+  }, [isText, source.kind, source.name, refreshVersion]);
 
   async function copy() {
     if (!content) return;
@@ -2026,6 +2145,9 @@ function PreviewModal({
         </div>
       </header>
       <div className="preview-toolbar">
+        {source.kind === "markdown" && source.sessionId && editable && !loading && !error && markdownEditor && (
+          <button type="button" onClick={() => markdownEditor(source.sessionId!, source.name)}>{t.editMarkdown}</button>
+        )}
         <nav className="preview-navigation" aria-label={t.previewNavigation}>
           <button
             type="button"
@@ -8848,17 +8970,19 @@ export default function App() {
       : <SessionList identity={identity} onOpen={openSession} onLogout={() => setIdentity(null)} />;
   }
   return (
-    <FavoritesProvider active={identity != null}>
-      <PreviewWindowsProvider active={identity != null}>
-        <>
-          {!online && (
-            <p className="offline-banner" role="status">
-              Connessione assente: in attesa di rete, alcune funzioni sono sospese.
-            </p>
-          )}
-          {content}
-        </>
-      </PreviewWindowsProvider>
-    </FavoritesProvider>
+    <MarkdownEditorProvider canEdit={identity != null && identity.role !== "viewer"}>
+      <FavoritesProvider active={identity != null}>
+        <PreviewWindowsProvider active={identity != null}>
+          <>
+            {!online && (
+              <p className="offline-banner" role="status">
+                Connessione assente: in attesa di rete, alcune funzioni sono sospese.
+              </p>
+            )}
+            {content}
+          </>
+        </PreviewWindowsProvider>
+      </FavoritesProvider>
+    </MarkdownEditorProvider>
   );
 }

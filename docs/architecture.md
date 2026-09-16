@@ -396,3 +396,10 @@ quella cartella diventa un artefatto scaricabile; gli MP3 sono riconosciuti
 tramite firma ID3 o frame MPEG e il backend non si fida di
 alcun path stampato nel terminale e non apre altre directory. La pulizia è
 legata al ciclo di vita della sessione, come per gli allegati M2A.
+
+L'editor Markdown è una finestra indipendente dalle anteprime, per mantenere
+la bozza anche quando le finestre sottostanti cambiano layout. Riusando il
+renderer Markdown esistente permette di alternare sorgente e anteprima,
+salvare esplicitamente e aggiornare le anteprime aperte. Il servizio backend
+`markdown_service` gestisce lettura limitata, revisione e sostituzione atomica;
+le route continuano ad applicare allowlist, autenticazione e ruoli.

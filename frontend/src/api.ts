@@ -1086,7 +1086,23 @@ export type FileContent = {
   size: number;
   content: string;
   truncated: boolean;
+  editable?: boolean;
 };
+
+export type MarkdownFile = { path: string; content: string; revision: string };
+
+export async function fetchMarkdown(id: string, path: string): Promise<MarkdownFile> {
+  const response = await request(`/api/v1/sessions/${encodeURIComponent(id)}/file/markdown?path=${encodeURIComponent(path)}`);
+  return response.json();
+}
+
+export async function saveMarkdown(id: string, file: MarkdownFile): Promise<MarkdownFile> {
+  const response = await request(`/api/v1/sessions/${encodeURIComponent(id)}/file/markdown`, {
+    method: "POST",
+    body: JSON.stringify(file),
+  });
+  return response.json();
+}
 
 export type FileMetadata = {
   session_id: string;

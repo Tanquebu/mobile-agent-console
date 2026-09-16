@@ -423,3 +423,16 @@ Errori: `400` validazione dominio (incluso id non numerico), `401`
 autenticazione, `404` sessione, `409` creazione impossibile (es. server
 tmux host non attivo), `422` schema, `503` tmux non disponibile o database
 dei metadati assente.
+
+### Editor Markdown
+
+- `GET /api/v1/sessions/{id}/file` aggiunge `editable` per Markdown completo
+  sotto le root workspace; il frontend nasconde l'azione ai viewer.
+- `GET /api/v1/sessions/{id}/file/markdown?path=...` restituisce
+  `{path, content, revision}` del file UTF-8 completo (massimo 256 KiB).
+- `POST /api/v1/sessions/{id}/file/markdown`, operator/admin con CSRF:
+  body `{path, content, revision}`; risposta con contenuto e nuova revisione.
+  Supporta file esistenti `.md`/`.markdown` e contenuti vuoti. `409` se la
+  revisione non coincide, `404` per file rimosso, `400` per path/tipo/contenuto
+  non ammesso, `413` per file sorgente troppo grande. Nessuna scrittura alle
+  root di sola anteprima. Un conflitto mantiene la bozza nell'editor.

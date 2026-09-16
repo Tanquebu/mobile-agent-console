@@ -16,6 +16,14 @@ export function writeLanguage(lang: Language): void {
 
 export const translations = {
   it: {
+    editMarkdown: "Modifica Markdown",
+    markdownSource: "Testo Markdown",
+    markdownUnsaved: "Modifiche non salvate",
+    markdownDiscard: "Chiudere e scartare le modifiche non salvate?",
+    markdownSaved: "File salvato",
+    markdownConflict: "Il file è cambiato sul disco. Il tuo testo è conservato: copialo prima di chiudere e riaprire il file per confrontare le modifiche.",
+    markdownTooLarge: "Il testo supera il limite di 256 KiB.",
+
     // General & Status
     connecting: "connessione",
     online: "online",
@@ -249,6 +257,14 @@ export const translations = {
     close: "Chiudi",
   },
   en: {
+    editMarkdown: "Edit Markdown",
+    markdownSource: "Markdown text",
+    markdownUnsaved: "Unsaved changes",
+    markdownDiscard: "Close and discard unsaved changes?",
+    markdownSaved: "File saved",
+    markdownConflict: "The file changed on disk. Your text is preserved: copy it before closing and reopening the file to compare changes.",
+    markdownTooLarge: "The text exceeds the 256 KiB limit.",
+
     // General & Status
     connecting: "connecting",
     online: "online",

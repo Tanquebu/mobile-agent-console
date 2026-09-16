@@ -199,6 +199,19 @@ class FileView(BaseModel):
     size: int
     content: str
     truncated: bool = False
+    editable: bool = False
+
+
+class MarkdownView(BaseModel):
+    path: str
+    content: str
+    revision: str
+
+
+class MarkdownInput(BaseModel):
+    path: str = Field(min_length=1, max_length=4096)
+    content: str = Field(max_length=256 * 1024)
+    revision: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
 class FileMetadataView(BaseModel):

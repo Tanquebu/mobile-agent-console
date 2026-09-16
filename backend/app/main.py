@@ -60,6 +60,8 @@ from .schemas import (
     KeyInput,
     LoginInput,
     LoginResult,
+    MarkdownInput,
+    MarkdownView,
     OpencodeHistoryBlockView,
     OpencodeHistoryView,
     OutputView,
@@ -108,6 +110,7 @@ from .services.host_observability_service import (
     HostObservabilityUnavailable,
 )
 from .services.host_observability_socket_client import HostObservabilitySocketClient
+from .services.markdown_service import MARKDOWN_EXTENSIONS, markdown_file
 from .services.opencode_service import OpencodeService
 from .services.orchestrator_state_service import OrchestratorState, OrchestratorStateService
 from .services.output_delta import line_delta
@@ -1954,6 +1957,41 @@ def create_app(
             size=size,
             content=content,
             truncated=truncated,
+            editable=(
+                not external_preview and not truncated
+                and file_path.suffix.lower() in MARKDOWN_EXTENSIONS
+            ),
+        )
+
+    def markdown_path(session_id: str, path: str) -> Path:
+        try:
+            TmuxService.validate_target(session_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        roots = [Path(root).resolve() for root in settings.allowed_roots]
+        resolved, _ = _resolve_within_allowed_roots(path, roots)
+        if Path(path).suffix.lower() not in MARKDOWN_EXTENSIONS:
+            raise HTTPException(400, "Only Markdown files are editable")
+        return resolved
+
+    @app.get(
+        "/api/v1/sessions/{session_id}/file/markdown",
+        response_model=MarkdownView,
+        dependencies=[Depends(require_active_session)],
+    )
+    async def read_markdown(
+        session_id: str, path: Annotated[str, Query(min_length=1, max_length=4096)]
+    ) -> dict:
+        return await asyncio.to_thread(markdown_file, markdown_path(session_id, path))
+
+    @app.post(
+        "/api/v1/sessions/{session_id}/file/markdown",
+        response_model=MarkdownView,
+        dependencies=[Depends(require_operator)],
+    )
+    async def save_markdown(session_id: str, payload: MarkdownInput) -> dict:
+        return await asyncio.to_thread(
+            markdown_file, markdown_path(session_id, payload.path), payload.content, payload.revision
         )
 
     @app.get(

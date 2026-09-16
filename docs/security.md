@@ -295,3 +295,19 @@ Quando il client specifica un pane, il backend accetta soltanto un id numerico
 e verifica tramite tmux che appartenga alla sessione indicata prima di usarlo
 per capture, input, tasti o resize. Questo impedisce di usare una sessione
 autorizzata come tramite verso un pane arbitrario dello stesso server.
+
+L'editor Markdown consente agli operatori/amministratori di sostituire file
+`.md` e `.markdown` esistenti nelle sole `MAC_ALLOWED_ROOTS`, con CSRF e rate
+limit delle mutazioni. Le root di anteprima esterne restano read-only. Il
+contenuto UTF-8 (massimo 256 KiB, niente NUL) non entra nell'audit; si registra
+solo la route e l'esito. Le directory canoniche e il file sono aperti tramite
+descriptor senza seguire symlink dopo l'autorizzazione; file speciali e hard
+link sono rifiutati. Il salvataggio sostituisce atomicamente un temporaneo
+nella stessa directory, mantenendo i bit di accesso e senza file parziali.
+Una revisione di contenuto e metadati, verificata anche prima del rename,
+rifiuta modifiche concorrenti con HTTP 409; le scritture API sono serializzate.
+Resta una piccola finestra tra l'ultima verifica e il rename per processi host
+che non partecipano al lock. Il rename crea un nuovo inode di proprietà del
+backend: ACL estese e attributi non sono conservati. Non è un editor per file
+con ownership/ACL speciali. La bozza rimane solo in memoria nel browser;
+chiusura con modifiche e abbandono della pagina chiedono conferma.
