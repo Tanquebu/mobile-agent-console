@@ -660,11 +660,19 @@ textarea:focus { border-color: #70b184; box-shadow: 0 0 0 3px #70b18420; }
 .preview-path-open { border-color: #3b7454; background: #1c3628; color: #a4f0c1; }
 .preview-favorite-toggle { flex: 0 0 auto; min-width: 32px; min-height: 32px; border: 1px solid #3a5142; border-radius: 9px; background: #1b2820; color: #e8c766; font-size: .95rem; }
 .preview-favorite-toggle[aria-pressed="true"] { background: #2a3f30; }
-.favorites-list { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
-.favorites-item { display: flex; align-items: center; gap: 8px; border: 1px solid #26352c; border-radius: 10px; padding: 4px 4px 4px 10px; }
+.favorites-list { min-width: 0; margin: 10px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.favorites-item { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 4px 8px; border: 1px solid #26352c; border-radius: 10px; padding: 8px 8px 8px 10px; }
 .favorites-item-open { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; color: #d2e3d7; font: inherit; text-align: left; padding: 6px 0; }
 .favorites-item-open:disabled { opacity: .5; cursor: default; }
-.favorites-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.favorites-item-text { display: grid; min-width: 0; gap: 4px; }
+.favorites-item-name { overflow-wrap: anywhere; font-size: .95rem; line-height: 1.35; }
+.favorites-item-parent, .favorites-item-label { color: #91a397; font-size: .72rem; line-height: 1.4; overflow-wrap: anywhere; }
+.favorites-item-open > svg { flex: 0 0 auto; }
+.favorites-path-details { grid-column: 1 / -1; min-width: 0; color: #91a397; font-size: .72rem; }
+.favorites-path-details summary { width: fit-content; min-height: 32px; align-content: center; cursor: pointer; color: #9be5b3; }
+.favorites-path-details code { display: block; margin: 4px 0 8px; color: #d2e3d7; overflow-wrap: anywhere; white-space: pre-wrap; user-select: text; }
+.favorites-path-details [role="status"] { margin-left: 8px; }
+.favorites-path-details :is(summary, button):focus-visible { outline: 2px solid #9be5b3; outline-offset: 2px; border-radius: 4px; }
 .favorites-item-remove { flex: 0 0 auto; min-width: 36px; min-height: 36px; border: 0; background: transparent; color: #91a397; font-size: 1.2rem; }
 .favorites-empty, .favorites-hint { color: #91a397; font-size: .78rem; margin: 10px 0 0; }
 .favorites-error { color: #e29a9a; font-size: .78rem; margin: 10px 0 0; }

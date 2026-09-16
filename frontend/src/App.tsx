@@ -158,9 +158,9 @@ const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spa
 const OPEN_DIRECTORY_EVENT = "mac:open-directory";
 
 const LATEST_RELEASE = {
-  title: "Modifica dei file Markdown",
+  title: "Preferiti più leggibili",
   description:
-    "Dalle anteprime puoi modificare i file Markdown del workspace, vedere il risultato e salvare. Controlli uniformati al resto dell’app e segnalazione delle modifiche concorrenti prima del salvataggio.",
+    "Nei preferiti il nome del file o della cartella è in primo piano. Il percorso completo si può espandere e copiare, senza scorrimento orizzontale.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -2378,6 +2378,37 @@ function FavoritesProvider({ children, active }: { children: ReactNode; active: 
   return <FavoritesContext.Provider value={value}>{children}</FavoritesContext.Provider>;
 }
 
+function favoritePathDisplay(path: string, roots: string[]) {
+  const normalized = path.replace(/\/+$/, "") || "/";
+  const slash = normalized.lastIndexOf("/");
+  const name = normalized.slice(slash + 1) || "/";
+  const parent = normalized.slice(0, slash) || "/";
+  const root = [...roots].sort((a, b) => b.length - a.length)
+    .find((entry) => normalized.startsWith(`${entry.replace(/\/+$/, "")}/`));
+  const relative = root ? parent.slice(root.replace(/\/+$/, "").length).replace(/^\/+/, "") : parent;
+  const parts = relative.split("/").filter(Boolean);
+  const context = parts.length > 3 ? [parts[0], "…", ...parts.slice(-2)].join(" / ") : parts.join(" / ");
+  return { name, parent: context || parent };
+}
+
+function FavoritePathDetails({ path }: { path: string }) {
+  const t = translations[readLanguage()];
+  const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  return (
+    <details className="favorites-path-details" onToggle={() => { setCopied(false); setCopyFailed(false); }}>
+      <summary>{t.fullPath}</summary>
+      <code>{path}</code>
+      <button type="button" className="preview-path-copy" onClick={async () => {
+        const ok = await copyToClipboard(path);
+        setCopied(ok);
+        setCopyFailed(!ok);
+      }}>{t.copyPath}</button>
+      <span role="status">{copied ? t.copied : copyFailed ? t.copyPathFallback : ""}</span>
+    </details>
+  );
+}
+
 function FavoritesModal({
   onClose,
   sessionId,
@@ -2392,6 +2423,12 @@ function FavoritesModal({
   const t = translations[readLanguage()];
   const [opening, setOpening] = useState<string | null>(null);
   const [openError, setOpenError] = useState("");
+  const [roots, setRoots] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetchConfig().then((config) => { if (!cancelled) setRoots(config.allowed_roots); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   async function openFavorite(favorite: Favorite) {
     if (!sessionId) return;
@@ -2436,28 +2473,36 @@ function FavoritesModal({
           <p className="favorites-empty">{t.favoritesEmpty}</p>
         ) : (
           <ul className="favorites-list">
-            {favorites.map((favorite) => (
-              <li key={favorite.id} className="favorites-item">
-                <button
-                  type="button"
-                  className="favorites-item-open"
-                  onClick={() => void openFavorite(favorite)}
-                  disabled={!sessionId || opening === favorite.id}
-                  title={favorite.path}
-                >
-                  <FileTypeIcon type={favorite.kind === "dir" ? "dir" : "file"} name={favorite.path} />
-                  <span className="favorites-item-name">{favorite.label || favorite.path}</span>
-                </button>
-                <button
-                  type="button"
-                  className="favorites-item-remove"
-                  onClick={() => void removeFavoriteById(favorite.id)}
-                  aria-label={`${t.removeFavorite}: ${favorite.label || favorite.path}`}
-                >
-                  ×
-                </button>
-              </li>
-            ))}
+            {favorites.map((favorite) => {
+              const display = favoritePathDisplay(favorite.path, roots);
+              return (
+                <li key={favorite.id} className="favorites-item">
+                  <button
+                    type="button"
+                    className="favorites-item-open"
+                    onClick={() => void openFavorite(favorite)}
+                    disabled={!sessionId || opening === favorite.id}
+                    title={favorite.path}
+                  >
+                    <FileTypeIcon type={favorite.kind === "dir" ? "dir" : "file"} name={favorite.path} />
+                    <span className="favorites-item-text">
+                      <strong className="favorites-item-name">{display.name}</strong>
+                      {favorite.label && favorite.label !== display.name && <span className="favorites-item-label">{favorite.label}</span>}
+                      <span className="favorites-item-parent">{display.parent}</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="favorites-item-remove"
+                    onClick={() => void removeFavoriteById(favorite.id)}
+                    aria-label={`${t.removeFavorite}: ${favorite.label || favorite.path}`}
+                  >
+                    ×
+                  </button>
+                  <FavoritePathDetails path={favorite.path} />
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>
