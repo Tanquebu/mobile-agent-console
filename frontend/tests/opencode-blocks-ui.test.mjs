@@ -261,9 +261,9 @@ test("la regex dei blocchi rileva path con tipi anteprimabili, assoluti o relati
   // eslint-disable-next-line no-new-func
   new Function("module", "exports", outputText)(module, module.exports);
   const paths = module.exports.previewPathParts(
-    "Creati /tmp/demo/report.md, /tmp/demo/audio.mp3 e relativo.png; ignora /tmp/demo/archive.zip.",
+    "Creati /tmp/demo/report.md, /tmp/demo/audio.mp3, /tmp/demo/audio.WAV e relativo.png; ignora /tmp/demo/archive.zip.",
   ).flatMap((part) => part.path ? [part.path] : []);
-  assert.deepEqual(paths, ["/tmp/demo/report.md", "/tmp/demo/audio.mp3"]);
+  assert.deepEqual(paths, ["/tmp/demo/report.md", "/tmp/demo/audio.mp3", "/tmp/demo/audio.WAV"]);
 
   // Gli agenti annunciano spesso un allegato con un path relativo alla cwd
   // del pane (es. "[file] data/output.mp4"): serve almeno uno slash, così

@@ -158,9 +158,9 @@ const SESSION_NAME_HINT = "Usa lettere (anche accentate), numeri, trattini e spa
 const OPEN_DIRECTORY_EVENT = "mac:open-directory";
 
 const LATEST_RELEASE = {
-  title: "Preferiti più leggibili",
+  title: "Riproduzione audio WAV",
   description:
-    "Nei preferiti il nome del file o della cartella è in primo piano. Il percorso completo si può espandere e copiare, senza scorrimento orizzontale.",
+    "Ascolta i file WAV direttamente nella console, dalle directory, dagli artefatti e dai percorsi nei blocchi degli agenti.",
 };
 
 const AGENT_STATE_ICON: Record<AgentStatus["state"], string> = {
@@ -447,8 +447,8 @@ type PreviewPathHandler = (path: string) => void;
 // anche i path relativi che gli agenti annunciano spesso (es. "[file] data/...mp4"):
 // serve almeno uno slash da qualche parte, così una parola qualunque che finisce
 // per caso con un'estensione media non diventa un falso positivo.
-const BLOCK_PREVIEW_PATH_RE = /[^\s<>"'`()\[\]{}]*\/(?:\r?\n[ \t]*)?[^\s<>"'`()\[\]{}]+?(?:\r?\n[ \t]*(?!\/)[^\s<>"'`()\[\]{}]+)*?\.(?:md|markdown|mp3|m4a|mp4|jpe?g|png|webp)(?=$|[\s,.;:!?"'`)\]}])/gi;
-const EXACT_BLOCK_PREVIEW_PATH_RE = /^[^\n\0]*\/[^\n\0]+\.(?:md|markdown|mp3|m4a|mp4|jpe?g|png|webp)$/i;
+const BLOCK_PREVIEW_PATH_RE = /[^\s<>"'`()\[\]{}]*\/(?:\r?\n[ \t]*)?[^\s<>"'`()\[\]{}]+?(?:\r?\n[ \t]*(?!\/)[^\s<>"'`()\[\]{}]+)*?\.(?:md|markdown|mp3|m4a|wav|mp4|jpe?g|png|webp)(?=$|[\s,.;:!?"'`)\]}])/gi;
+const EXACT_BLOCK_PREVIEW_PATH_RE = /^[^\n\0]*\/[^\n\0]+\.(?:md|markdown|mp3|m4a|wav|mp4|jpe?g|png|webp)$/i;
 
 // Regex specifica per i path inviati esplicitamente con SendUserFile:
 // il normalizzatore backend li formatta come "[file] /percorso/qualunque".
@@ -1281,7 +1281,7 @@ function joinPath(base: string, name: string): string {
   return base.endsWith("/") ? `${base}${name}` : `${base}/${name}`;
 }
 
-const DOWNLOADABLE_FILE = /\.(?:bmp|docx?|gif|jpe?g|m4a|mp3|mp4|pdf|png|tiff?|webp)$/i;
+const DOWNLOADABLE_FILE = /\.(?:bmp|docx?|gif|jpe?g|m4a|mp3|wav|mp4|pdf|png|tiff?|webp)$/i;
 
 function isDownloadable(name: string): boolean {
   return DOWNLOADABLE_FILE.test(name);
@@ -1291,7 +1291,7 @@ function isDownloadable(name: string): boolean {
 // il backend leggendo i byte, e rifiuta con 400 tutto cio' che non e' un media ammesso.
 const PREVIEWABLE_VIDEO = /\.mp4$/i;
 const PREVIEWABLE_IMAGE = /\.(?:jpe?g|png|webp)$/i;
-const PREVIEWABLE_AUDIO = /\.(?:m4a|mp3)$/i;
+const PREVIEWABLE_AUDIO = /\.(?:m4a|mp3|wav)$/i;
 const PREVIEWABLE_MARKDOWN = /\.(?:md|markdown)$/i;
 const PREVIEWABLE_HTML = /\.html?$/i;
 
@@ -1320,7 +1320,7 @@ function previewKindFor(name: string, mediaType?: string): PreviewKind {
   if (mediaType === "text/html" || PREVIEWABLE_HTML.test(name)) return "html";
   if (mediaType === "video/mp4" || PREVIEWABLE_VIDEO.test(name)) return "video";
   if (mediaType?.startsWith("image/") || PREVIEWABLE_IMAGE.test(name)) return "image";
-  if ((mediaType === "audio/mpeg" || mediaType === "audio/mp4") || PREVIEWABLE_AUDIO.test(name)) return "audio";
+  if ((mediaType === "audio/mpeg" || mediaType === "audio/mp4" || mediaType === "audio/wav") || PREVIEWABLE_AUDIO.test(name)) return "audio";
   return "text";
 }
 

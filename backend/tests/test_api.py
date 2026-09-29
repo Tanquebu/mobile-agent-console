@@ -2576,6 +2576,42 @@ def test_session_file_preview_serves_mp3_inline(tmp_path) -> None:
     assert response.content == content
 
 
+@pytest.mark.parametrize("filename", ["memo.wav", "MEMO.WAV"])
+def test_session_file_preview_serves_wav_and_range(tmp_path, filename) -> None:
+    import wave
+
+    audio = tmp_path / filename
+    with wave.open(str(audio), "wb") as output:
+        output.setparams((1, 2, 8000, 0, "NONE", "not compressed"))
+        output.writeframes(b"\x00\x00" * 800)
+    content = audio.read_bytes()
+    client = _preview_client(tmp_path)
+    url = "/api/v1/sessions/1/file/preview"
+    assert client.get(url, params={"path": str(audio)}).status_code == 401
+    login(client)
+    response = client.get(url, params={"path": str(audio)})
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    assert response.headers["content-disposition"].startswith("inline")
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.content == content
+    metadata = client.get(
+        "/api/v1/sessions/1/file/metadata", params={"path": str(audio)}
+    )
+    assert metadata.status_code == 200
+    assert metadata.json()["media_type"] == "audio/wav"
+    partial = client.get(url, params={"path": str(audio)}, headers={"Range": "bytes=0-43"})
+    assert partial.status_code == 206
+    assert partial.content == content[:44]
+    download = client.get(
+        "/api/v1/sessions/1/file/download", params={"path": str(audio)}
+    )
+    assert download.status_code == 200
+    assert download.content == content
+    audio.write_bytes(b"<html>not audio</html>")
+    assert client.get(url, params={"path": str(audio)}).status_code == 400
+
+
 def test_session_file_preview_serves_image_inline(tmp_path) -> None:
     image = tmp_path / "photo.png"
     buffer = BytesIO()

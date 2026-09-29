@@ -35,6 +35,8 @@ def sniff_media_type(path: Path) -> str | None:
             return media_type
     if len(prefix) >= 12 and prefix[:4] == b"RIFF" and prefix[8:12] == b"WEBP":
         return "image/webp"
+    if len(prefix) >= 12 and prefix[:4] == b"RIFF" and prefix[8:12] == b"WAVE":
+        return "audio/wav"
     if is_mp4(prefix):
         return "video/mp4"
     if (

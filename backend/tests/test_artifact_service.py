@@ -238,3 +238,14 @@ def test_archive_restore_roundtrip_preserves_nested_files(tmp_path) -> None:
     restored = service.storage_root / "99"
     assert (restored / "root.png").read_bytes() == PNG_HEADER
     assert (restored / "subdir" / "nested.txt").read_text(encoding="utf-8") == "nested content"
+
+
+def test_wav_signature_distinguishes_wave_from_other_riff_files(tmp_path) -> None:
+    service = make_service(tmp_path)
+    directory = service.ensure_session_dir("1")
+    (directory / "memo.wav").write_bytes(b"RIFF" + b"\x24\x00\x00\x00" + b"WAVEfmt ")
+    (directory / "fake.wav").write_bytes(b"<html>not audio</html>")
+    (directory / "video.wav").write_bytes(b"RIFF" + b"\x24\x00\x00\x00" + b"AVI ")
+    (directory / "short.wav").write_bytes(b"RIFF")
+    assert [item.name for item in service.list("1")] == ["memo.wav"]
+    assert service.get("1", "memo.wav").media_type == "audio/wav"

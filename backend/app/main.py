@@ -181,6 +181,7 @@ DOWNLOADABLE_EXTENSIONS = {
     ".jpeg",
     ".jpg",
     ".m4a",
+    ".wav",
     ".mp3",
     ".mp4",
     ".pdf",
@@ -201,6 +202,7 @@ INLINE_PREVIEW_MEDIA_TYPES = {
     "image/webp",
     "audio/mp4",
     "audio/mpeg",
+    "audio/wav",
     "video/mp4",
 }
 REFERENCE_PREVIEW_MEDIA_TYPES = INLINE_PREVIEW_MEDIA_TYPES | {
