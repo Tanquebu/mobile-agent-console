@@ -31,3 +31,11 @@ MAC_ORCHESTRATOR_STATE_URL=https://orchestrator.example.invalid/state
 MAC_ORCHESTRATOR_STATE_TOKEN=replace-with-a-secret
 # Optional; use the header expected by the external endpoint.
 MAC_ORCHESTRATOR_STATE_TOKEN_HEADER=Authorization
+
+# Spazio disco (timer orario mobile-agent-console-disk-space). Formato
+# `etichetta=path` separati da virgola, come MAC_WORKSPACE_PRESETS. L'alert
+# scatta se lo spazio libero scende sotto MAC_DISK_SPACE_MIN_FREE_GB oppure,
+# se impostata, se l'occupazione raggiunge MAC_DISK_SPACE_MAX_USED_PERCENT.
+MAC_DISK_SPACE_FILESYSTEMS=Sistema=/,Dati=/srv/example-data
+MAC_DISK_SPACE_MIN_FREE_GB=5
+MAC_DISK_SPACE_MAX_USED_PERCENT=

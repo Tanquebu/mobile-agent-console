@@ -129,6 +129,8 @@ cp deploy/systemd/mobile-agent-console-provider-session-states.service ~/.config
 cp deploy/systemd/mobile-agent-console-provider-session-states.timer ~/.config/systemd/user/
 cp deploy/systemd/mobile-agent-console-orchestrator-state.service ~/.config/systemd/user/
 cp deploy/systemd/mobile-agent-console-orchestrator-state.timer ~/.config/systemd/user/
+cp deploy/systemd/mobile-agent-console-disk-space.service ~/.config/systemd/user/
+cp deploy/systemd/mobile-agent-console-disk-space.timer ~/.config/systemd/user/
 # Optional: install only if you enable Claude history.
 cp deploy/systemd/mobile-agent-console-claude-history.service ~/.config/systemd/user/
 cp deploy/systemd/mobile-agent-console-claude-history.timer ~/.config/systemd/user/
@@ -377,6 +379,20 @@ Use `deploy/snapshot-env.sh [reason]` after any change to `.env` — it keeps
 dated, `0600` copies under `customizations/env-snapshots/` (itself
 git-ignored) and diffs against the previous snapshot, so a silently dropped
 overlay or variable leaves a trail instead of vanishing unnoticed.
+
+## Disk space alert
+
+The `mobile-agent-console-disk-space.timer` checks free space on the host
+filesystems listed in `MAC_DISK_SPACE_FILESYSTEMS` (`label=path,...`) once an
+hour. The PWA shows an alert on the dashboard and in the console header when a
+filesystem drops below `MAC_DISK_SPACE_MIN_FREE_GB` (default 5) or, if set,
+reaches `MAC_DISK_SPACE_MAX_USED_PERCENT`. Only labels reach the backend, never
+paths. See `docs/adr/016-disk-space-alert.md`.
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now mobile-agent-console-disk-space.timer
+```
 
 ## Scheduled task status
 

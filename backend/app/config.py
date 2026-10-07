@@ -122,6 +122,9 @@ class Settings(BaseSettings):
     orchestrator_state_path: str = (
         "/workspace/.mobile-agent-console/orchestrator-state.json"
     )
+    # Scritto dal timer orario mobile-agent-console-disk-space (ADR 016).
+    disk_space_path: str = "/workspace/.mobile-agent-console/disk-space.json"
+    disk_space_max_age_seconds: int = Field(default=10800, ge=300, le=86400)
     claude_history_enabled: bool = False
     claude_history_path: str = (
         "/workspace/.mobile-agent-console/claude-history.json"

@@ -672,6 +672,30 @@ export async function fetchOrchestratorState(): Promise<OrchestratorState | null
   return response.json();
 }
 
+export type DiskSpaceFilesystem = {
+  label: string;
+  available: boolean;
+  total_bytes: number | null;
+  free_bytes: number | null;
+  used_percent: number | null;
+  alert: boolean;
+  reasons: ("min_free" | "used_percent" | "unavailable")[];
+};
+
+export type DiskSpaceState = {
+  schema_version: 1;
+  collected_at: string;
+  min_free_bytes: number;
+  max_used_percent: number | null;
+  filesystems: DiskSpaceFilesystem[];
+  stale: boolean;
+};
+
+export async function fetchDiskSpace(): Promise<DiskSpaceState | null> {
+  const response = await request("/api/v1/disk-space");
+  return response.json();
+}
+
 export async function fetchConfig(): Promise<AppConfig> {
   const response = await request("/api/v1/config");
   return response.json();

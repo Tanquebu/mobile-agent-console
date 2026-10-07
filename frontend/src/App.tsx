@@ -42,6 +42,7 @@ import {
   MarkdownFile,
   fetchFileMetadata,
   fetchHostObservability,
+  fetchDiskSpace,
   fetchOrchestratorState,
   fetchProviderRateLimits,
   fetchPushPublicKey,
@@ -71,6 +72,7 @@ import {
   listUsers,
   OpencodeHistory,
   Pane,
+  DiskSpaceState,
   OrchestratorState,
   ProviderRateLimitWindow,
   ProviderRateLimits,
@@ -3483,6 +3485,61 @@ function sessionIconAccent(cmd: string): "" | "claude" | "agy" | "opencode" | "c
   return "";
 }
 
+// Il collector gira ogni ora: un polling più fitto non porta dati nuovi, ma
+// fa comparire l'alert poco dopo il giro del timer senza ricaricare la PWA.
+const DISK_SPACE_POLL_MS = 5 * 60_000;
+
+function useDiskSpace(active: boolean): DiskSpaceState | null {
+  const [state, setState] = useState<DiskSpaceState | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    let alive = true;
+    const refresh = () => {
+      fetchDiskSpace()
+        .then((value) => { if (alive) setState(value); })
+        .catch(() => { /* il timer disk-space è opzionale */ });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, DISK_SPACE_POLL_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(interval);
+    };
+  }, [active]);
+  return state;
+}
+
+function diskSpaceItemText(item: DiskSpaceState["filesystems"][number]): string {
+  if (!item.available) return `${item.label} non leggibile`;
+  const percent = item.used_percent === null ? "" : ` (${Math.round(item.used_percent)}% usato)`;
+  return `${item.label} ${formatSize(item.free_bytes)} liberi${percent}`;
+}
+
+function DiskSpaceAlert({ state, compact = false }: { state: DiskSpaceState | null; compact?: boolean }) {
+  if (!state) return null;
+  const alerting = state.filesystems.filter((item) => item.alert);
+  if (alerting.length === 0 && !state.stale) return null;
+  const threshold = [
+    `sotto ${formatSize(state.min_free_bytes)} liberi`,
+    state.max_used_percent === null ? null : `oltre ${state.max_used_percent}% usato`,
+  ].filter(Boolean).join(" o ");
+  const title = `Soglia: ${threshold}. Rilevato ${formatDate(state.collected_at)}.`;
+  if (alerting.length === 0) {
+    return (
+      <div className={`disk-alert stale ${compact ? "compact" : ""}`} role="status" title={title}>
+        Spazio disco non verificato dall'ultimo controllo orario ({formatDate(state.collected_at)})
+      </div>
+    );
+  }
+  return (
+    <div className={`disk-alert ${compact ? "compact" : ""}`} role="alert" title={title}>
+      <strong>Spazio disco in esaurimento</strong>
+      {alerting.map((item) => <span key={item.label}>{diskSpaceItemText(item)}</span>)}
+      {state.stale && !compact && <small>Dato non aggiornato: {formatDate(state.collected_at)}</small>}
+    </div>
+  );
+}
+
 /** Icona SVG ufficiale (Simple Icons) o testuale per il riquadro di ogni sessione in lista. */
 function SessionIcon({ cmd }: { cmd: string }): ReactNode {
   const c = cmd.toLowerCase();
@@ -6394,6 +6451,7 @@ function SessionList({
   const t = translations[language];
   const [providerLimits, setProviderLimits] = useState<ProviderRateLimits | null>(null);
   const [orchestratorState, setOrchestratorState] = useState<OrchestratorState | null>(null);
+  const diskSpace = useDiskSpace(!showHost && !showBudget);
   const [orchestratorExpanded, setOrchestratorExpanded] = useState<boolean>(readOrchestratorExpanded());
 
   function toggleOrchestratorExpanded() {
@@ -6884,6 +6942,7 @@ function SessionList({
           </div>
         </div>
       </header>
+      <DiskSpaceAlert state={diskSpace} compact={compactDashboard} />
       {creating && <form className="create-form" onSubmit={async (event) => {
         event.preventDefault();
         const normalizedName = name.trim().normalize("NFC");
@@ -7353,6 +7412,7 @@ function Console({
   const contentRef = useRef(content);
   useEffect(() => { contentRef.current = content; }, [content]);
   const [connection, setConnection] = useState<Connection>("connecting");
+  const diskSpace = useDiskSpace(true);
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [deletingAttachmentId, setDeletingAttachmentId] = useState("");
@@ -8206,6 +8266,7 @@ function Console({
         >
           ☰
         </button>
+        <DiskSpaceAlert state={diskSpace} compact />
       </header>
       {isYoloSession(session) && (
         <div className="yolo-strip" role="status">

@@ -170,6 +170,16 @@ h1 { margin: 3px 0 0; font-size: 2rem; letter-spacing: -.04em; }
 .orchestrator-tasks article small { color: #91a397; font-size: .68rem; }
 .orchestrator-tasks article em { color: #f0bc78; font-size: .68rem; font-style: normal; }
 .offline-banner { position: sticky; top: 0; z-index: 20; margin: 0; padding: 8px 14px; background: #4a3a12; color: #f3d98b; font-size: .75rem; text-align: center; }
+/* Alert spazio disco (timer orario, ADR 016). Nella dashboard è un blocco
+   sotto la topbar; nella console sta dentro l'header come riga a tutta
+   larghezza, così non sposta le righe esplicite della griglia .console. */
+.disk-alert { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 14px 12px; border: 1px solid #704039; border-radius: 12px; padding: 9px 12px; background: #321c19; color: #ffb4ab; font-size: .78rem; }
+.disk-alert strong { flex-basis: 100%; color: #ffcfc8; }
+.disk-alert span { flex-basis: 100%; }
+.disk-alert small { flex-basis: 100%; color: #c98f86; font-size: .68rem; }
+.disk-alert.stale { border-color: #6b5a26; background: #2b2412; color: #f3d98b; }
+.disk-alert.compact { margin: 0 14px 8px; padding: 6px 10px; font-size: .72rem; }
+.console-header .disk-alert { grid-column: 1 / -1; margin: 0; }
 .new-session, .snapshot-button { border: 1px solid #3a5142; border-radius: 12px; background: #1b2820; color: #d2e3d7; }
 .snapshot-button { padding: 0 14px; color: #9be5b3; }
 .dashboard-more-actions[aria-expanded="true"] { border-color: #4f7a5c; background: #25382b; color: #9be5b3; }

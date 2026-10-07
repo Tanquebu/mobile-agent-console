@@ -101,6 +101,7 @@ from .services.attachment_service import AttachmentError, AttachmentService
 from .services.audit_service import AuditService
 from .services.backup_service import BackupError, BackupService
 from .services.claude_history_service import ClaudeHistoryService
+from .services.disk_space_service import DiskSpaceService, DiskSpaceState
 from .services.favorite_service import FavoriteService
 from .services.host_observability_contract import HostObservabilitySnapshot
 from .services.host_observability_service import (
@@ -388,6 +389,7 @@ def create_app(
         settings.provider_session_states_path
     )
     orchestrator_state = OrchestratorStateService(settings.orchestrator_state_path)
+    disk_space = DiskSpaceService(settings.disk_space_path, settings.disk_space_max_age_seconds)
     claude_history = ClaudeHistoryService(
         settings.claude_history_path,
         settings.claude_history_max_age_seconds,
@@ -1157,6 +1159,14 @@ def create_app(
     )
     async def get_orchestrator_state() -> OrchestratorState | None:
         return await asyncio.to_thread(orchestrator_state.read)
+
+    @app.get(
+        "/api/v1/disk-space",
+        response_model=DiskSpaceState | None,
+        dependencies=[Depends(require_active_session)],
+    )
+    async def get_disk_space() -> DiskSpaceState | None:
+        return await asyncio.to_thread(disk_space.read)
 
     @app.post(
         "/api/v1/sessions",

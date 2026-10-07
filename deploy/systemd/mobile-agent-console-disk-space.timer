@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh Mobile Agent Console host disk free space
+
+[Timer]
+OnBootSec=2min
+OnCalendar=hourly
+# Il backend considera il dato scaduto oltre MAC_DISK_SPACE_MAX_AGE_SECONDS
+# (default 3h): due giri persi prima che la PWA lo segnali come non accertato.
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

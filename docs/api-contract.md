@@ -106,6 +106,24 @@ opzionale e `resets_at`, epoch intero non negativo del prossimo reset oppure
 Il campo è opzionale nel file sorgente per compatibilità con snapshot precedenti;
 l'API lo normalizza a `null`. Non contiene credenziali o dati del transcript.
 
+## `GET /api/v1/disk-space`
+
+Richiede il cookie di sessione. Restituisce l'ultimo controllo orario dello
+spazio libero dei filesystem host configurati (ADR 016), oppure `null` se il
+timer non è installato o il file non è valido. Espone solo etichette, mai path:
+
+```json
+{"schema_version":1,"collected_at":"2026-10-07T10:00:00+00:00",
+ "min_free_bytes":5368709120,"max_used_percent":null,"stale":false,
+ "filesystems":[{"label":"Sistema","available":true,"total_bytes":40802189312,
+   "free_bytes":4200000000,"used_percent":89.7,"alert":true,"reasons":["min_free"]}]}
+```
+
+`reasons` contiene `min_free`, `used_percent` o `unavailable`. `stale` è
+calcolato dal backend: vale `true` quando `collected_at` è più vecchio di
+`MAC_DISK_SPACE_MAX_AGE_SECONDS` (default 3 ore). Un dato scaduto non azzera
+l'alert: la PWA lo mostra comunque, segnalando che non è aggiornato.
+
 ## `GET /api/v1/sessions`
 
 Risposta `200`:
